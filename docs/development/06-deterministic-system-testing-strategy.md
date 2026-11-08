@@ -53,16 +53,25 @@ Two capabilities must remain distinct:
   schedules. Each resulting execution needs its own assertions and replay
   artifact. A recorded happy path is not an exploration campaign.
 
-The preferred saved tool image reports QEMU `8.2.2`; the portable input profile
-selects `pc-i440fx-8.2`, qboot direct Linux boot and a modern virtio device with
-observed Linux DMA bounce buffering. Three M0 pairs and the production baseline
-passed locally with exact serial and complete disk parity. Legacy host-QEMU
+The saved tool image reports QEMU `8.2.2`; the input profile selects
+`pc-i440fx-8.2`, qboot direct Linux boot and a modern virtio device with
+observed Linux DMA bounce buffering. Three earlier M0 pairs and the production
+baseline passed locally with exact serial and complete disk parity under the
+original CPU and six-check gate. A later VM-only crypto failure requires fresh
+qualification of the candidate `max` CPU and expanded eight-check gate; those
+earlier passes do not transfer automatically. Legacy host-QEMU
 `10.1.5` runs retain their separate provenance. Retained reports distinguish
 replay from scenario properties; actual adversarial journeys qualify separately.
 The saved tool-container image now pins the emulator's complete userspace as
 well as its executables. Legacy host-only manifests retain their original
 limits. The host kernel remains external, so portability across hosts must
 still be qualified rather than assumed.
+
+Reproducibility alone does not establish correct computation inside an emulator.
+The runtime gate must also compare hot arithmetic, native integer conversion and
+crypto results against independent known answers. A reproduced runtime failure
+must remain distinct from a demonstrated ArtGod business defect. These samples
+address observed risks; they are not a proof of every engine or compiler path.
 
 Primary-source comparisons, checked during discovery:
 
@@ -195,7 +204,7 @@ completed milestone.
 
 | Milestone                           | Work product                                                                                                                                                                                                                                                              | Required evidence                                                                                                                                                                                                                                            |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| M0: execution qualification         | Build a pinned standalone Linux guest with the real Node/NATS/native-SQLite closure; qualify clocks/entropy, competing writers, reopen, broker persistence and redelivery under whole-machine record/replay.                                                              | Validated input pins, real guest execution, nonempty replay/serial logs, explicit guest check completion, exact serial parity and equal complete guest-visible disk capacity/bytes. Report host-environment limits. This does not prove sync/order behavior. |
+| M0: execution qualification         | Build a pinned standalone Linux guest with the real Node/NATS/native-SQLite closure; qualify arithmetic/crypto/native conversions, clocks/entropy, competing writers, reopen, broker persistence and redelivery under whole-machine record/replay.                        | Validated input pins, real guest execution, nonempty replay/serial logs, explicit guest check completion, exact serial parity and equal complete guest-visible disk capacity/bytes. Report host-environment limits. This does not prove sync/order behavior. |
 | M1: production system foundation    | Start production headless runtime entrypoints with fake external HTTP/WS. Two tokens, small collection, marketplace input, validation, actual acquisition/fork recovery/resync and backend reads. Include independently coherent provider views and a refused-proof case. | Expected effects produced through production paths; actual endpoint/request trace; safety and post-heal convergence; replay artifacts. Report which stale-result guards and causal cuts were actually reached.                                               |
 | M2: deliberate distributed failures | Divergent/lagging providers, per-request failover, A/B/A mixed reads, partial outages, WS/HTTP skew, process death, uncertain publication, restart and competing database writers.                                                                                        | Named fault histories, genuine required refusal/retry behavior, no lost/duplicate business effects, and convergence after healing. Record product failures without silently fixing or accepting them.                                                        |
 | M3: authored exploration and CI     | Enumerate bounded legal schedules over domain fault families; maintain an independent coverage ledger and minimized reproductions. Add required short campaigns plus broader scheduled/manual runs.                                                                       | Every declared schedule accounted for; no undiscovered/skipped tests; measured runtime/resource budgets; replay and artifact retention; actual hosted execution before a CI qualification claim.                                                             |

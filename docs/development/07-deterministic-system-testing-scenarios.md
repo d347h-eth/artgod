@@ -39,6 +39,12 @@ but cannot require ArtGod to know it before sufficient evidence is available.
 
 ## M0: Qualify Execution Before Product Claims
 
+The current gate includes independent known answers for hot BigInt arithmetic,
+SQLite BigInt conversion and fixture cryptography. A reproduced JavaScript or
+native-runtime failure is not automatically an ArtGod business defect. Earlier
+six-check SQLite/NATS runs do not qualify the expanded runtime gate or a changed
+virtual CPU model.
+
 The first workload verifies actual Node/native-SQLite and NATS execution inside
 the pinned guest: WAL, competing writers, reopen, durable broker restart,
 redelivery after an application commit, and guest entropy/clock behavior.

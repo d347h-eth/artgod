@@ -1,8 +1,8 @@
 # Simulation Workbench Execution
 
-Updated 2026-11-08. Whole-machine substrate qualification and the joined forward
-production journey have passed locally; adversarial recovery and campaign
-qualification are in progress. This guide
+Updated 2026-11-08. Earlier local reports qualify their original input/check
+versions. The expanded runtime gate, candidate CPU profile and current
+adversarial corpus require fresh qualification. This guide
 describes the current local tooling contract; source commands and retained run
 reports own execution evidence. Read the
 [strategy](06-deterministic-system-testing-strategy.md) and
@@ -61,6 +61,7 @@ optional tool capsule field accepted:
 | `kernel`, `firmware`, `natsBinary`, `qemu`, `qemuImg` | Explicit existing paths, relative to the configuration file or absolute in that untracked local file. NATS must match the production pin.                      |
 | `scenarioFile`                                        | Explicit JSON scenario, relative to the configuration file or absolute. The shared host/guest contract rejects unsupported journeys, checks and hidden inputs. |
 | `machine`                                             | Explicit available versioned i440fx machine; the portable profile is `pc-i440fx-8.2`.                                                                          |
+| `cpu`                                                 | Explicit supported TCG CPU model, `Nehalem` or `max`. The selected model and saved engine bytes form one execution input.                                      |
 | `storageProfile`                                      | Explicit `virtio-v1`, `ide-pio-v1` or `virtio-bounce-v1`; the controller, kernel root device and read-only scenario device are part of the replay contract.    |
 | `epoch`                                               | Exact UTC timestamp such as `2026-11-08T00:00:00Z`.                                                                                                            |
 | `version`                                             | `1`.                                                                                                                                                           |
@@ -173,11 +174,17 @@ preferred `virtio-bounce-v1` profile uses:
 root=/dev/vda rw console=ttyS0 earlycon=uart8250,io,0x3f8,115200n8 init=/workbench/init panic=1 iommu=soft swiotlb=force ARTGOD_SCENARIO_DEVICE=/dev/vdb
 ```
 
-The profiles use qboot, one Nehalem vCPU, TCG, 2 GiB RAM and
+The profiles use qboot, one explicitly pinned vCPU model, TCG, 2 GiB RAM and
 `icount shift=0,align=off,sleep=on`. Virtio devices use `ioeventfd=off`.
 These are execution inputs, not performance knobs to change during replay. The
 host watchdog permits slow emulation; guest application deadlines still use the
 production clock and policies.
+
+New manifests declare `cpu`; old frozen manifests without it retain their exact
+`Nehalem` arguments. The candidate `max` profile uses the
+[software-supported TCG feature set](https://github.com/qemu/qemu/blob/v8.2.2/target/i386/cpu.c#L5531-L5579)
+and saved engine. Selecting it requires fresh qualification; it cannot change an
+existing recording's CPU model.
 
 New builds require an explicit storage profile and pass
 `ARTGOD_SCENARIO_DEVICE` through the kernel to PID 1; the guest rejects a missing
@@ -231,7 +238,7 @@ parity. New pairs also compare the closed disks' guest-visible bytes through
 Exit zero alone cannot pass. The report separates `engineReplayStatus`
 from `propertyStatus`: a reproduced failed scenario keeps a passing replay result
 and a failed overall result, and the CLI exits nonzero. M0's separate
-`substrateQualificationStatus` requires all six owned qualification checks to
+`substrateQualificationStatus` requires all eight owned qualification checks to
 pass. Guest-reported checks still require implementation review.
 
 `propertyStatus: failed` records a failed scenario assertion or required step;
@@ -350,6 +357,28 @@ The targeted cut also requires a single bidder-counter request through its
 rejection observation. A transport retry makes consumption of the captured old
 result unproved, even if a later snapshot check fails; it cannot earn that
 specific safety coverage.
+
+The later basic-qualification run `run-tUrifi` failed before readiness during
+fixture crypto initialization with a BigInt type error. The same admitted bundle
+initialized successfully on native Node and inside the pinned runtime
+container. A record-only control, `tmp/simulation-controls/cpu-max-z03oun`, changed
+only `-cpu Nehalem` to `-cpu max` on the same saved QEMU 8.2.2 and guest. It passed
+initialization and the original six qualification checks. That control has no
+replay or disk-parity qualification and identifies no specific upstream defect.
+It is evidence against assigning the initialization error to ArtGod behavior.
+The separate strict CPU-`max` pair `run-HhmBiP` then passed all six original
+checks, exact 30,058-byte serial parity and complete disk parity in 182.268
+seconds. Its `substrateQualificationStatus` remains `not-run` because it lacks
+the expanded checks. This qualifies that pair's replay, not the new M0 gate or
+the cause of the earlier CPU-sensitive failure.
+
+The generic failure formatter is again protocol-only; data-plane attribution
+does not eagerly load fixture cryptography into basic failure reporting. New
+qualification inputs additionally require hot BigInt/native-conversion and
+crypto known-answer checks, run after readiness so failures retain evidence.
+Earlier six-check M0 results do not satisfy this expanded eight-check gate.
+Candidate CPU selection, the expanded gate and the corrected scenario cohort
+still require fresh strict record/replay qualification.
 
 ## Workbench Commands and Campaigns
 
