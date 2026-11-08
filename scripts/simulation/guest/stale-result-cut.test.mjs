@@ -1,3 +1,8 @@
+import {
+    RuntimeProcessExit,
+    RUNTIME_PROCESS_PROPERTY,
+    findRuntimeProcessExit,
+} from "./runtime-process.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setImmediate } from "node:timers/promises";
@@ -973,6 +978,30 @@ test("an exact refusal completed beyond the original transport deadline remains 
             f.state.makerRuns[0].last_error,
             STALE_RESULT_FINISH_FAILURE,
         );
+    } finally {
+        await f.close();
+    }
+});
+
+test("typed ordinary actor exits retain the lifecycle property through the stale cut", async () => {
+    const failure = new RuntimeProcessExit({
+        actorId: "domain",
+        pid: 156,
+        signal: "SIGSEGV",
+    });
+    const wrapper = new Error("Observed actor exit", { cause: failure });
+    const f = await fixture({ livenessError: wrapper });
+    try {
+        await assert.rejects(f.controller.captureHeld(), (error) => {
+            assert.equal(error, wrapper);
+            assert.equal(findRuntimeProcessExit(error), failure);
+            assert.equal(failure.property, RUNTIME_PROCESS_PROPERTY.Liveness);
+            assert.equal(error.cause, failure);
+            assert.equal(error.property, RUNTIME_PROCESS_PROPERTY.Liveness);
+            assert.equal(isStaleResultCutRuntimeFailure(error), true);
+            assert.equal(error.simulation.staleResultCut.outcome, "unreached");
+            return true;
+        });
     } finally {
         await f.close();
     }

@@ -3,9 +3,8 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { StringDecoder } from "node:string_decoder";
-import { isRuntimeReadyLog } from "../../../shared/runtime/readiness.ts";
 import { RUNTIME_PROCESS } from "./runtime-manifest.mjs";
+import { launchRuntime } from "./runtime-process.mjs";
 import {
     createHeadProgress,
     publishedBusinessWorkDrained,
@@ -65,11 +64,7 @@ import {
 import { executeProcessFault } from "./process-faults.mjs";
 import { executeStartupMaintenance } from "./lifecycle.mjs";
 import { declareTradingIntent } from "./operator-inputs.mjs";
-import {
-    DATA_PLANE_CHECK as CHECK,
-    SIMULATION_EVIDENCE_PREFIX,
-    SIMULATION_EVIDENCE_EVENT,
-} from "../qualification-protocol.mjs";
+import { DATA_PLANE_CHECK as CHECK } from "../qualification-protocol.mjs";
 import { observeRetainedRawInput } from "./queue-observation.mjs";
 import { verifyRefusedProof } from "./refused-proof.mjs";
 import { executeCollectionBootstrap } from "./bootstrap-journey.mjs";
@@ -150,76 +145,6 @@ function serializeEnv(env) {
             })
             .join("\n") + "\n"
     );
-}
-
-async function launchRuntime(spec, { root, output, env, eventually }) {
-    assert.ok(
-        spec.readyMessage,
-        "The selected production runtime needs its owning readiness label",
-    );
-    const stem = spec.generation
-        ? `${spec.id}.restart-${spec.generation}`
-        : spec.id;
-    const stdoutPath = path.join(output, `${stem}.stdout.log`);
-    const stderrPath = path.join(output, `${stem}.stderr.log`);
-    const stdout = await open(stdoutPath, "w");
-    const stderr = await open(stderrPath, "w");
-    const child = spawn(process.execPath, [spec.filename], {
-        cwd: root,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-    });
-    let ready = false;
-    const decoder = new StringDecoder("utf8");
-    let pendingLine = "";
-    let failure;
-    child.once("error", (error) => {
-        failure = error;
-    });
-    child.stdout.on("data", (chunk) => {
-        // Observing logs does not replace any production readiness or business work.
-        pendingLine = (pendingLine + decoder.write(chunk)).slice(-65_536);
-        const lines = pendingLine.split("\n");
-        pendingLine = lines.pop();
-        if (lines.some((line) => isRuntimeReadyLog(line, spec.readyMessage)))
-            ready = true;
-        void stdout.write(chunk).catch((error) => {
-            failure = error;
-        });
-    });
-    child.stderr.on("data", (chunk) => {
-        void stderr.write(chunk).catch((error) => {
-            failure = error;
-        });
-    });
-    child.once("close", () => {
-        void stdout.close();
-        void stderr.close();
-    });
-    const assertAlive = () => {
-        if (failure) throw failure;
-        if (child.exitCode !== null || child.signalCode !== null)
-            throw new Error(
-                `Production ${spec.id} exited (${child.exitCode ?? child.signalCode}); inspect its retained logs`,
-            );
-    };
-    try {
-        await eventually(
-            () => {
-                assertAlive();
-                return ready;
-            },
-            `${spec.id} entrypoint ready`,
-            90_000,
-        );
-    } catch (error) {
-        child.kill("SIGKILL");
-        throw error;
-    }
-    process.stdout.write(
-        `${SIMULATION_EVIDENCE_PREFIX}${JSON.stringify({ [SIMULATION_EVIDENCE_EVENT.ProcessReady]: { id: spec.id, generation: spec.generation ?? 0, pid: child.pid } })}\n`,
-    );
-    return { ...spec, child, assertAlive, stdoutPath, stderrPath };
 }
 
 /** Inspect operator declarations without including independently changing projections. */

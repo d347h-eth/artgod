@@ -17,6 +17,7 @@ import {
 import { decodeCall, decodeDeploylessMulticall } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalAcquisition } from "./oracle.mjs";
+import { findRuntimeProcessExit } from "./runtime-process.mjs";
 
 export const STALE_RESULT_GATE = Object.freeze({
     OldCounter: "stale-old-counter",
@@ -37,6 +38,7 @@ export const STALE_RESULT_CUT_UNREACHED_CODE =
 export const isStaleResultCutUnreached = (error) =>
     error?.code === STALE_RESULT_CUT_UNREACHED_CODE;
 export const isStaleResultCutRuntimeFailure = (error) =>
+    !!findRuntimeProcessExit(error) ||
     error?.property === STALE_RESULT_PROPERTY.Runtime;
 
 // Deliberate SQLite storage-wire assertion: SqliteMakerRevalidations.release
@@ -127,8 +129,21 @@ export function createStaleResultCut({
     };
     // A dead native actor is an execution failure, not evidence that the
     // requested external gate merely remained unreachable while actors ran.
-    const assertRuntimeAlive = () =>
-        property(STALE_RESULT_PROPERTY.Runtime, assertAlive);
+    const assertRuntimeAlive = () => {
+        try {
+            assertAlive();
+        } catch (error) {
+            // Keep the lifecycle owner's typed cause/property across this cut.
+            const exit = findRuntimeProcessExit(error);
+            if (exit) {
+                error.property ??= exit.property;
+                throw error;
+            }
+            property(STALE_RESULT_PROPERTY.Runtime, () => {
+                throw error;
+            });
+        }
+    };
     const attach = (error) => {
         error.property ??= stage;
         error.simulation = {
@@ -523,7 +538,7 @@ export function createStaleResultCut({
             } catch (error) {
                 throw attach(
                     isStaleResultCutUnreached(error) ||
-                        error.property === STALE_RESULT_PROPERTY.Runtime
+                        isStaleResultCutRuntimeFailure(error)
                         ? error
                         : unreached(error.message, error),
                 );
