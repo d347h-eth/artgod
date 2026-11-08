@@ -16,10 +16,14 @@ import {
 } from "./split-provider-fork.mjs";
 import {
     createStaleResultCut,
-    isStaleResultCutUnreached,
     STALE_RESULT_GATE,
     STALE_RESULT_PROPERTY,
 } from "./stale-result-cut.mjs";
+import { recordDataPlaneFailureChecks } from "./failure-evidence.mjs";
+import {
+    captureGuestNativeFailure,
+    NATIVE_FAILURE_ARTIFACT,
+} from "./native-failure-evidence.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import {
@@ -1587,12 +1591,21 @@ export async function runDataPlane(
             },
         };
     } catch (error) {
-        if (scenario.expectedChecks.includes(activeCheck))
-            checks[activeCheck] = false;
-        // A missing or expired captured attempt is a coverage gap. Preserve
-        // actual mutation assertions as failed properties of the new check.
-        if (isStaleResultCutUnreached(error))
-            delete checks[CHECK.StaleResultSafetyCut];
+        const failedCheck = recordDataPlaneFailureChecks(
+            error,
+            checks,
+            activeCheck,
+            scenario.expectedChecks,
+        );
+        const nativeFailure = await captureGuestNativeFailure().catch(
+            (diagnosticError) => ({ error: diagnosticError.message }),
+        );
+        await writeFile(
+            path.join(output, NATIVE_FAILURE_ARTIFACT),
+            `${JSON.stringify(nativeFailure, null, 2)}\n`,
+        ).catch((diagnosticError) => {
+            nativeFailure.artifactError = diagnosticError.message;
+        });
         const logTails = await Promise.all(
             processes.map(async (entry) => ({
                 process: entry.id,
@@ -1665,7 +1678,7 @@ export async function runDataPlane(
         error.simulation = {
             ...(error.simulation ?? {}),
             checks,
-            failedCheck: activeCheck,
+            failedCheck,
             failedProperty:
                 error.property ?? error.failureProperty ?? activeCheck,
             checkpoints,
@@ -1681,6 +1694,7 @@ export async function runDataPlane(
             requestTrace: server.world.trace.slice(-40),
             logTails,
             processStates,
+            nativeFailure,
             brokerState,
             headProgress: headProgress?.evidence(),
         };

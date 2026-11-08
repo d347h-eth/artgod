@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setImmediate } from "node:timers/promises";
-import { encodeFunctionData } from "viem";
+import {
+    encodeFunctionData,
+    decodeFunctionResult,
+    createPublicClient,
+    custom,
+} from "viem";
 import { createSimulationWorld } from "../world/world.mjs";
 import { CONTRACT_ABI, wireQuantity } from "../world/wire.mjs";
 import { MAKER_REVALIDATION_STATUS } from "../../../indexer/src/domain/maker-revalidation.ts";
@@ -19,6 +24,7 @@ import {
 import {
     createStaleResultCut,
     isStaleResultCutUnreached,
+    isStaleResultCutRuntimeFailure,
     STALE_RESULT_GATE,
     STALE_RESULT_PROPERTY as PROPERTY,
 } from "./stale-result-cut.mjs";
@@ -31,6 +37,8 @@ async function fixture({
     statusBlock = 105,
     finishRead = true,
     freshAdmission = true,
+    livenessError,
+    counterRetry,
 } = {}) {
     const world = createSimulationWorld({
         epochSeconds: 1_000_000,
@@ -38,6 +46,7 @@ async function fixture({
     });
     const { ledger } = world;
     let time = ledger.epochSeconds * 1000 + 10_000;
+    let retryResult;
     const state = {
         revision: 0,
         recovery: [],
@@ -126,7 +135,9 @@ async function fixture({
         world,
         ledger,
         observe: () => structuredClone(state),
-        assertAlive() {},
+        assertAlive() {
+            if (livenessError) throw livenessError;
+        },
         now: () => time,
         admitFreshBidRequirement() {
             if (!freshAdmission) {
@@ -166,6 +177,44 @@ async function fixture({
         track(
             call("getCounter", [ledger.addresses.bidder], statusBlock).then(
                 async () => {
+                    if (counterRetry === "scalar")
+                        retryResult = decodeFunctionResult({
+                            abi: CONTRACT_ABI,
+                            functionName: "getCounter",
+                            data: await call(
+                                "getCounter",
+                                [ledger.addresses.bidder],
+                                105,
+                            ),
+                        });
+                    if (counterRetry === "aggregate") {
+                        const client = createPublicClient({
+                            transport: custom({
+                                request: ({ method, params }) =>
+                                    world.handleRpc("default", {
+                                        jsonrpc: "2.0",
+                                        id: 4,
+                                        method,
+                                        params,
+                                    }),
+                            }),
+                        });
+                        const results = await client.multicall({
+                            contracts: [
+                                {
+                                    address: ledger.addresses.seaport,
+                                    abi: CONTRACT_ABI,
+                                    functionName: "getCounter",
+                                    args: [ledger.addresses.bidder],
+                                },
+                            ],
+                            blockNumber: 105n,
+                            deployless: true,
+                            batchSize: 0,
+                            allowFailure: true,
+                        });
+                        retryResult = results[0].result;
+                    }
                     if (finishRead)
                         await world.handleRpc("default", {
                             jsonrpc: "2.0",
@@ -202,6 +251,7 @@ async function fixture({
         controller,
         rollback,
         startOld,
+        retryResult: () => retryResult,
         setTime: (value) => {
             time = value;
         },
@@ -438,6 +488,41 @@ test("a failed release without old snapshot verification cannot credit consumpti
     }
 });
 
+test("a retry returning B counter zero after A counter-one handoff cannot credit the old outcome", async () => {
+    for (const counterRetry of ["scalar", "aggregate"]) {
+        const f = await fixture({ counterRetry });
+        try {
+            await prepare(f);
+            await assert.rejects(
+                f.controller.releaseAndAssertRejected(),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(
+                        error.simulation.staleResultCut.counterAttempts.length,
+                        2,
+                    );
+                    const old =
+                        error.simulation.staleResultCut.responseGates.find(
+                            (entry) =>
+                                entry.name === STALE_RESULT_GATE.OldCounter,
+                        );
+                    assert.equal(
+                        old.captures.length,
+                        1,
+                        "The released gate cannot capture the later retry",
+                    );
+                    assert.equal(old.captures[0].delivered, true);
+                    assert.equal(old.captures[0].matchingCalls[0].result, "1");
+                    return true;
+                },
+            );
+        } finally {
+            await f.close();
+        }
+        assert.equal(f.retryResult(), 0n);
+    }
+});
+
 test("an expired lease or validation lifetime is unreached, not credited rejection", async () => {
     for (const expiration of ["lease", "snapshot", "header"]) {
         const f = await fixture();
@@ -550,6 +635,32 @@ test("a reported stream delivery and held B reply do not replace actual newer so
                 ).released,
             false,
         );
+    } finally {
+        await f.close();
+    }
+});
+
+test("native actor death preserves the original liveness cause instead of becoming a missing-gate timeout", async () => {
+    const cause = new Error("Native actor terminated");
+    const failure = Object.assign(
+        new Error(
+            "Production domain exited (SIGSEGV); inspect its retained logs",
+            { cause },
+        ),
+        { signal: "SIGSEGV" },
+    );
+    const f = await fixture({ livenessError: failure });
+    try {
+        await assert.rejects(f.controller.captureHeld(), (error) => {
+            assert.equal(error, failure);
+            assert.equal(error.cause, cause);
+            assert.equal(error.signal, "SIGSEGV");
+            assert.equal(error.property, PROPERTY.Runtime);
+            assert.equal(isStaleResultCutUnreached(error), false);
+            assert.equal(isStaleResultCutRuntimeFailure(error), true);
+            assert.equal(error.simulation.staleResultCut.outcome, "unreached");
+            return true;
+        });
     } finally {
         await f.close();
     }

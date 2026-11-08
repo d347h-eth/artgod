@@ -8,7 +8,11 @@ import {
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../../indexer/src/domain/order-validation-policy.ts";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import { OFFCHAIN_OBSERVATION_CHANNEL } from "../../../indexer/src/domain/offchain-jobs.ts";
-import { RESPONSE_GATE_FUNCTION } from "../world/contract.mjs";
+import {
+    RESPONSE_GATE_FUNCTION,
+    RESPONSE_GATE_EVENT,
+} from "../world/contract.mjs";
+import { decodeCall, decodeDeploylessMulticall } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 
 export const STALE_RESULT_GATE = Object.freeze({
@@ -16,6 +20,7 @@ export const STALE_RESULT_GATE = Object.freeze({
     FreshStatus: "stale-fresh-status",
 });
 export const STALE_RESULT_PROPERTY = Object.freeze({
+    Runtime: "stale-cut-production-runtime-liveness",
     Held: "stale-cut-held-a105-counter",
     Maker: "stale-cut-captured-maker-attempt",
     Rollback: "stale-cut-post-rollback-baseline",
@@ -28,6 +33,8 @@ export const STALE_RESULT_CUT_UNREACHED_CODE =
     "ARTGOD_STALE_RESULT_CUT_UNREACHED";
 export const isStaleResultCutUnreached = (error) =>
     error?.code === STALE_RESULT_CUT_UNREACHED_CODE;
+export const isStaleResultCutRuntimeFailure = (error) =>
+    error?.property === STALE_RESULT_PROPERTY.Runtime;
 
 const PAGE_FIELDS = [
     "after_id",
@@ -101,15 +108,21 @@ export function createStaleResultCut({
     const requireCut = (condition, message) => {
         if (!condition) throw unreached(message);
     };
+    // A dead native actor is an execution failure, not evidence that the
+    // requested external gate merely remained unreachable while actors ran.
+    const assertRuntimeAlive = () =>
+        property(STALE_RESULT_PROPERTY.Runtime, assertAlive);
     const attach = (error) => {
         error.property ??= stage;
         error.simulation = {
             ...(error.simulation ?? {}),
             staleResultCut: {
                 ...structuredClone(evidence),
-                outcome: isStaleResultCutUnreached(error)
-                    ? "unreached"
-                    : "failed",
+                outcome:
+                    isStaleResultCutUnreached(error) ||
+                    isStaleResultCutRuntimeFailure(error)
+                        ? "unreached"
+                        : "failed",
                 responseGates: world.snapshot().responseGates,
             },
         };
@@ -124,6 +137,7 @@ export function createStaleResultCut({
             );
         } catch (error) {
             if (error.property) throw error;
+            assertRuntimeAlive();
             throw unreached(label, error);
         }
     };
@@ -213,6 +227,72 @@ export function createStaleResultCut({
         }
         return undefined;
     };
+    const assertSingleCounterAttempt = () => {
+        const armedAt = gate(STALE_RESULT_GATE.OldCounter).events.find(
+            (entry) => entry.type === RESPONSE_GATE_EVENT.Armed,
+        )?.sequence;
+        const attempts = [];
+        for (const request of world.trace) {
+            if (
+                request.type !== "request" ||
+                request.method !== "eth_call" ||
+                request.sequence <= armedAt
+            )
+                continue;
+            let calls;
+            try {
+                const aggregate = world.trace.find(
+                    (entry) =>
+                        entry.type === "read" &&
+                        entry.requestIndex === request.requestIndex,
+                )?.aggregateCalls;
+                const transaction = request.params?.[0];
+                // Reuse the external wire owner's decoders, including a request
+                // whose before-gate has not yet produced a decoded read entry.
+                calls =
+                    aggregate ??
+                    (transaction.to
+                        ? [
+                              {
+                                  target: transaction.to,
+                                  ...decodeCall(
+                                      transaction.data ?? transaction.input,
+                                  ),
+                              },
+                          ]
+                        : decodeDeploylessMulticall(
+                              transaction.data ?? transaction.input,
+                          ).map((call) => ({
+                              target: call.target,
+                              ...decodeCall(call.callData),
+                          })));
+            } catch {
+                continue;
+            } // Unknown calls already fail closed in the world.
+            if (
+                calls.some(
+                    (call) =>
+                        call.functionName === RESPONSE_GATE_FUNCTION.Counter &&
+                        call.target.toLowerCase() ===
+                            ledger.addresses.seaport &&
+                        call.args?.[0]?.toLowerCase() ===
+                            ledger.addresses.bidder,
+                )
+            )
+                attempts.push({
+                    requestIndex: request.requestIndex,
+                    sequence: request.sequence,
+                    provider: request.provider,
+                    selector: request.params?.[1],
+                });
+        }
+        evidence.counterAttempts = attempts;
+        requireCut(
+            attempts.length === 1 &&
+                attempts[0].requestIndex === evidence.counter.requestIndex,
+            "A second bidder counter attempt makes consumption of the captured A105 outcome unproved",
+        );
+    };
     const requireOriginalAttempt = (state) => {
         const target = findTarget(state);
         requireCut(
@@ -292,12 +372,13 @@ export function createStaleResultCut({
             stage = STALE_RESULT_PROPERTY.Held;
             try {
                 await boundedWait(() => {
-                    assertAlive();
+                    assertRuntimeAlive();
                     return (
                         (gate(STALE_RESULT_GATE.OldCounter)?.pending ?? 0) > 0
                     );
                 }, "The target A105 counter reply was not captured");
                 evidence.counter = structuredClone(oldCounter());
+                assertSingleCounterAttempt();
                 stage = STALE_RESULT_PROPERTY.Maker;
                 const state = await observe();
                 const candidates = state.makerRuns.filter((row) => {
@@ -342,7 +423,8 @@ export function createStaleResultCut({
                 return structuredClone(evidence);
             } catch (error) {
                 throw attach(
-                    isStaleResultCutUnreached(error)
+                    isStaleResultCutUnreached(error) ||
+                        error.property === STALE_RESULT_PROPERTY.Runtime
                         ? error
                         : unreached(error.message, error),
                 );
@@ -357,7 +439,7 @@ export function createStaleResultCut({
                 );
                 let state;
                 await boundedWait(async () => {
-                    assertAlive();
+                    assertRuntimeAlive();
                     assertAttemptFresh();
                     state = await observe();
                     return (
@@ -409,7 +491,7 @@ export function createStaleResultCut({
                     "The fresh bid requirement needs an actual delivered source input",
                 );
                 await boundedWait(async () => {
-                    assertAlive();
+                    assertRuntimeAlive();
                     assertAttemptFresh();
                     state = await observe();
                     target = findTarget(state);
@@ -463,6 +545,7 @@ export function createStaleResultCut({
                 evidence.reached.freshSourceRequirementHeld = true;
                 oldCounter();
                 assertAttemptFresh();
+                assertSingleCounterAttempt();
                 stage = STALE_RESULT_PROPERTY.Rollback;
                 target = requireOriginalAttempt(state);
                 baseline = structuredClone({
@@ -497,9 +580,10 @@ export function createStaleResultCut({
                 world.releaseResponseGate(STALE_RESULT_GATE.OldCounter);
                 let finalState;
                 await boundedWait(async () => {
-                    assertAlive();
+                    assertRuntimeAlive();
                     const state = await observe();
                     const current = assertNoMutation(state);
+                    assertSingleCounterAttempt();
                     assertAttemptFresh();
                     const old = gate(STALE_RESULT_GATE.OldCounter).captures[0];
                     const blocked = gate(STALE_RESULT_GATE.FreshStatus);
@@ -556,6 +640,7 @@ export function createStaleResultCut({
                     finalState = state;
                     return true;
                 }, "The original attempt's durable failed release and blocked fresh B reply were not proved");
+                assertSingleCounterAttempt();
                 evidence.afterRejection = structuredClone(finalState);
                 evidence.reached.durableFailedRelease = true;
                 evidence.reached.unchangedProjectionAndPage = true;
