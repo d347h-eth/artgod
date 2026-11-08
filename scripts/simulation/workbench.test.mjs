@@ -10,6 +10,7 @@ import {
     runRegressions as runRegressionsOwner,
     ORDER_PROFILE,
     minimizeCampaignCase as minimizeCampaignCaseOwner,
+    main,
 } from "./workbench.mjs";
 import { EXTERNAL_ACTION } from "./guest/scenario-contract.mjs";
 import { createArtifactRunDirectory } from "./artifacts.mjs";
@@ -39,6 +40,14 @@ const minimizeCampaignCase = async (options) =>
     minimizeCampaignCaseOwner({ outputRoot: await testOutput(), ...options });
 const readJson = async (filename) =>
     JSON.parse(await readFile(filename, "utf8"));
+
+test("export CLI forwards explicit storage to the owning validation before reading a run", async () => {
+    await assert.rejects(
+        main(["export", "--run", "missing-run", "--storage", "invalid"]),
+        /storage must be copy or hardlink/,
+    );
+});
+
 function passedCase(scenario) {
     return {
         caseId: scenario.qualificationId,

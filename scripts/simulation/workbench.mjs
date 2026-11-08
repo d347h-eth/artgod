@@ -471,10 +471,13 @@ export async function main(args) {
                       relocationFile: selected.relocation,
                   });
     } else if (command === "export") {
-        const selected = options(rest, ["run"], ["run"]);
+        const selected = options(rest, ["run", "storage"], ["run"]);
         result = await (
             await import("./portable-run.mjs")
-        ).exportReplayBundle({ runDirectory: selected.run });
+        ).exportReplayBundle({
+            runDirectory: selected.run,
+            storage: selected.storage,
+        });
     } else if (command === "export-failures") {
         const selected = options(rest, ["run-root", "max-bundles"]);
         const portable = await import("./portable-run.mjs");

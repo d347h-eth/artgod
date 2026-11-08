@@ -1,11 +1,13 @@
 import {
     copyFile,
+    link,
     lstat,
     mkdir,
     readdir,
     realpath,
     writeFile,
 } from "node:fs/promises";
+import { constants as FS_CONSTANTS } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -38,6 +40,10 @@ const RUN_FILES = [
     "replay.bin",
 ];
 export const DEFAULT_FAILURE_BUNDLE_LIMIT = 3;
+export const BUNDLE_STORAGE = Object.freeze({
+    Copy: "copy",
+    Hardlink: "hardlink",
+});
 export const BUNDLE_EXPORT_STATUS = Object.freeze({
     Exported: "exported",
     Limited: "limited",
@@ -62,6 +68,40 @@ function sameBytes(actual, expected, label) {
         throw new Error(
             `Relocated ${label} differs from its original byte pin`,
         );
+}
+
+async function placeBundleMember(expected, destination, root, storage) {
+    // link() would otherwise link a symlink node. Resolve the admitted bytes,
+    // then verify regular source/destination nodes and the selected relationship.
+    const source = await realpath(expected.path);
+    const before = await lstat(source);
+    if (!before.isFile())
+        throw new Error(
+            "Bundle sources must resolve to regular admitted files",
+        );
+    sameBytes(await pinFile(source), expected, "source bundle member");
+    if (storage === BUNDLE_STORAGE.Hardlink) await link(source, destination);
+    else await copyFile(source, destination, FS_CONSTANTS.COPYFILE_EXCL);
+    const target = await lstat(destination);
+    const canonical = await realpath(destination);
+    if (!target.isFile() || !canonical.startsWith(`${root}${path.sep}`))
+        throw new Error(
+            "Bundle destinations must be new regular bundle members",
+        );
+    if (storage === BUNDLE_STORAGE.Hardlink) {
+        const after = await lstat(source);
+        if (
+            !after.isFile() ||
+            after.dev !== before.dev ||
+            after.ino !== before.ino ||
+            target.dev !== before.dev ||
+            target.ino !== before.ino
+        )
+            throw new Error("Hardlinked bundle source changed during export");
+    }
+    const actual = await pinFile(canonical, root);
+    sameBytes(actual, expected, "bundle member");
+    return actual;
 }
 
 async function checkedBundlePin(root, pin) {
@@ -89,9 +129,12 @@ async function checkedBundlePin(root, pin) {
 /** Preserve the recorded inputs and tool userspace, not merely the event log. */
 export async function exportReplayBundle({
     runDirectory,
+    storage = BUNDLE_STORAGE.Copy,
     outputRoot = path.join(ROOT, "tmp/simulation-bundles"),
     execute = executeCommand,
 }) {
+    if (!Object.values(BUNDLE_STORAGE).includes(storage))
+        throw new Error("Portable export storage must be copy or hardlink");
     const source = await realpath(
         await assertWorktreeTemporaryPath(runDirectory),
     );
@@ -158,22 +201,36 @@ export async function exportReplayBundle({
             "Original replay log or record serial no longer matches its report",
         );
     const directory = await createArtifactRunDirectory(outputRoot, "bundle-");
+    const canonicalDirectory = await realpath(directory);
     const run = path.join(directory, "run");
     const inputs = path.join(directory, "inputs");
     await mkdir(run);
     await mkdir(inputs);
     for (const name of runFiles)
-        await copyFile(original[name].path, path.join(run, name));
+        await placeBundleMember(
+            original[name],
+            path.join(run, name),
+            canonicalDirectory,
+            storage,
+        );
     const mapped = {};
     for (const name of INPUTS) {
         const destination = path.join(inputs, name);
-        await copyFile(admitted.manifest[name].path, destination);
-        mapped[name] = await pinFile(destination, directory);
+        mapped[name] = await placeBundleMember(
+            admitted.manifest[name],
+            destination,
+            canonicalDirectory,
+            storage,
+        );
         sameBytes(mapped[name], admitted.manifest[name], name);
     }
     const archive = path.join(inputs, "tool-image.tar");
-    await copyFile(capsule.archive.path, archive);
-    const capsuleArchive = await pinFile(archive, directory);
+    const capsuleArchive = await placeBundleMember(
+        capsule.archive,
+        archive,
+        canonicalDirectory,
+        storage,
+    );
     sameBytes(capsuleArchive, capsule.archive, "capsule archive");
     for (const name of runFiles) {
         if (
@@ -194,7 +251,13 @@ export async function exportReplayBundle({
         capsuleArchive,
     };
     const relocationFile = path.join(directory, "relocation.json");
-    await writeFile(relocationFile, `${JSON.stringify(relocation, null, 2)}\n`);
+    await writeFile(
+        relocationFile,
+        `${JSON.stringify(relocation, null, 2)}\n`,
+        {
+            flag: "wx",
+        },
+    );
     const toolCapsuleFile = path.join(directory, "tool-capsule.json");
     const restorableCapsule = {
         ...capsule,
@@ -209,9 +272,35 @@ export async function exportReplayBundle({
     await writeFile(
         toolCapsuleFile,
         `${JSON.stringify(restorableCapsule, null, 2)}\n`,
+        { flag: "wx" },
     );
+    // Neither mode may return a bundle whose admitted bytes changed while
+    // metadata/tool admission ran. Hardlinks deliberately share those bytes;
+    // they are a local storage choice, not an independent backup.
+    for (const name of runFiles) {
+        sameBytes(await pinFile(original[name].path), original[name], name);
+        await checkedBundlePin(canonicalDirectory, {
+            ...original[name],
+            path: path.join("run", name),
+        });
+    }
+    for (const name of INPUTS) {
+        sameBytes(
+            await pinFile(admitted.manifest[name].path),
+            admitted.manifest[name],
+            name,
+        );
+        await checkedBundlePin(canonicalDirectory, mapped[name]);
+    }
+    sameBytes(
+        await pinFile(capsule.archive.path),
+        capsule.archive,
+        "capsule archive",
+    );
+    await checkedBundlePin(canonicalDirectory, capsuleArchive);
     return {
         directory,
+        storage,
         runDirectory: run,
         relocationFile,
         toolCapsuleFile,

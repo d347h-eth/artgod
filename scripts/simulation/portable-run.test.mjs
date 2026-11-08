@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+    lstat,
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rename,
+    symlink,
+    writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -13,6 +22,7 @@ import {
 } from "./qualification-protocol.mjs";
 import {
     BUNDLE_EXPORT_STATUS,
+    BUNDLE_STORAGE,
     exportFailedRuns,
     exportReplayBundle,
 } from "./portable-run.mjs";
@@ -30,7 +40,7 @@ const okay = (stdout = "") => ({
     timedOut: false,
 });
 
-async function completedFixture() {
+async function completedFixture({ storage } = {}) {
     const parent = path.join(ROOT, "tmp/simulation-portable-tests");
     await mkdir(parent, { recursive: true });
     const directory = await mkdtemp(path.join(parent, "run-"));
@@ -164,6 +174,9 @@ async function completedFixture() {
                 engineArgs.at(-1),
                 engineArgs[engineArgs.indexOf("-b") + 1],
             );
+            // A real rebase changes overlay metadata. Mutating the owned test
+            // reference makes accidental writes through shared hardlinks visible.
+            await writeFile(engineArgs.at(-1), "synthetic rebased overlay");
             return okay();
         }
         if (engineArgs[0] === "compare") return okay();
@@ -195,12 +208,29 @@ async function completedFixture() {
         runDirectory: report.directory,
         outputRoot: path.join(directory, "exports"),
         execute,
+        storage,
     });
     return { directory, manifest, capsule, report, bundle, modes, execute };
 }
 
 test("portable export preserves original evidence and replays only relocated pinned files after original inputs change", async () => {
     const f = await completedFixture();
+    assert.equal(f.bundle.storage, BUNDLE_STORAGE.Copy);
+    for (const [original, copied] of [
+        [f.manifest.guest.path, path.join(f.bundle.directory, "inputs/guest")],
+        [
+            path.join(f.report.directory, "record.qcow2"),
+            path.join(f.bundle.runDirectory, "record.qcow2"),
+        ],
+    ]) {
+        const source = await lstat(original);
+        const destination = await lstat(copied);
+        assert.notDeepEqual(
+            [source.dev, source.ino],
+            [destination.dev, destination.ino],
+            "Default exports must own independent file nodes",
+        );
+    }
     for (const name of [
         "report.json",
         "input-manifest.json",
@@ -251,6 +281,149 @@ test("portable export preserves original evidence and replays only relocated pin
         report.sourceReportSha256,
         await hashFile(path.join(f.report.directory, "report.json")),
     );
+});
+
+test("hardlink export shares only admitted regular members and replay rebases an independent reference", async () => {
+    const f = await completedFixture({ storage: BUNDLE_STORAGE.Hardlink });
+    assert.equal(f.bundle.storage, BUNDLE_STORAGE.Hardlink);
+    const relocation = JSON.parse(
+        await readFile(f.bundle.relocationFile, "utf8"),
+    );
+    assert.deepEqual(Object.keys(relocation).sort(), [
+        "capsuleArchive",
+        "inputs",
+        "originalManifestSha256",
+        "originalReportSha256",
+        "version",
+    ]);
+    const pairs = [
+        ...(await readdir(f.bundle.runDirectory)).map((name) => [
+            path.join(f.report.directory, name),
+            path.join(f.bundle.runDirectory, name),
+        ]),
+        ...Object.entries(relocation.inputs).map(([name, pin]) => [
+            f.manifest[name].path,
+            path.join(f.bundle.directory, pin.path),
+        ]),
+        [
+            f.capsule.archive.path,
+            path.join(f.bundle.directory, relocation.capsuleArchive.path),
+        ],
+    ];
+    const originalHashes = new Map();
+    for (const [original, linked] of pairs) {
+        const source = await lstat(original);
+        const destination = await lstat(linked);
+        assert.ok(destination.isFile());
+        assert.ok(!destination.isSymbolicLink());
+        assert.deepEqual(
+            [source.dev, source.ino],
+            [destination.dev, destination.ino],
+        );
+        originalHashes.set(original, await hashFile(original));
+    }
+    await restoreToolCapsule(f.bundle.toolCapsuleFile, { execute: f.execute });
+    const replay = await replayRun({
+        runDirectory: f.bundle.runDirectory,
+        relocationFile: f.bundle.relocationFile,
+        outputRoot: path.join(f.directory, "repeated"),
+        execute: f.execute,
+    });
+    assert.equal(replay.engineReplayStatus, "passed");
+    assert.equal(replay.guestDiskParityStatus, "passed");
+    assert.deepEqual(f.modes, ["record", "replay", "replay"]);
+    for (const [original, linked] of pairs) {
+        assert.equal(await hashFile(original), originalHashes.get(original));
+        assert.equal(await hashFile(linked), originalHashes.get(original));
+    }
+    const reference = path.join(replay.directory, "reference-record.qcow2");
+    assert.equal(
+        await readFile(reference, "utf8"),
+        "synthetic rebased overlay",
+    );
+    for (const [shared, owned] of [
+        [path.join(f.bundle.runDirectory, "record.qcow2"), reference],
+        [
+            path.join(f.bundle.runDirectory, "replay.bin"),
+            path.join(replay.directory, "replay.bin"),
+        ],
+    ]) {
+        const source = await lstat(shared);
+        const destination = await lstat(owned);
+        assert.notDeepEqual(
+            [source.dev, source.ino],
+            [destination.dev, destination.ino],
+            "Replay must own each file it may mutate",
+        );
+    }
+});
+
+test("portable export rejects an unknown storage mode before reading inputs or running tools", async () => {
+    let executed = false;
+    await assert.rejects(
+        exportReplayBundle({
+            runDirectory: "missing-run",
+            storage: "symlink",
+            execute: async () => {
+                executed = true;
+                throw new Error(
+                    "Tool execution was not authorized by valid input",
+                );
+            },
+        }),
+        /storage must be copy or hardlink/,
+    );
+    assert.equal(executed, false);
+});
+
+test("hardlink export resolves an admitted symlink to a regular source instead of linking the symlink node", async () => {
+    const f = await completedFixture();
+    const referent = path.join(f.directory, "kernel-source");
+    await rename(f.manifest.kernel.path, referent);
+    await symlink(referent, f.manifest.kernel.path);
+    const bundle = await exportReplayBundle({
+        runDirectory: f.report.directory,
+        storage: BUNDLE_STORAGE.Hardlink,
+        outputRoot: path.join(f.directory, "symlink-source-exports"),
+        execute: f.execute,
+    });
+    const original = await lstat(referent);
+    const exported = await lstat(path.join(bundle.directory, "inputs/kernel"));
+    assert.ok(exported.isFile());
+    assert.ok(!exported.isSymbolicLink());
+    assert.deepEqual(
+        [original.dev, original.ino],
+        [exported.dev, exported.ino],
+    );
+});
+
+test("hardlink export refuses an admitted source changed during final tool admission", async () => {
+    const f = await completedFixture();
+    const outputRoot = path.join(f.directory, "mutable-source-exports");
+    let changed = false;
+    await assert.rejects(
+        exportReplayBundle({
+            runDirectory: f.report.directory,
+            storage: BUNDLE_STORAGE.Hardlink,
+            outputRoot,
+            execute: async (...args) => {
+                const entries = await readdir(outputRoot).catch((error) => {
+                    if (error.code === "ENOENT") return [];
+                    throw error;
+                });
+                if (!changed && entries.length) {
+                    changed = true;
+                    await writeFile(
+                        f.manifest.guest.path,
+                        "mutated admitted input",
+                    );
+                }
+                return f.execute(...args);
+            },
+        }),
+        /pin|changed/i,
+    );
+    assert.ok(changed, "The final admission boundary must be exercised");
 });
 
 test("portable replay refuses changed images, input hashes, unknown path roles and arbitrary recorded QEMU arguments", async () => {
