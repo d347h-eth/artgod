@@ -19,6 +19,7 @@ import {
     isExecutionInterrupted,
 } from "./qemu-replay.mjs";
 import { discoverRegressionCorpus } from "./scenario-corpus.mjs";
+import { readRunEvidence } from "./run-evidence.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const ORDER_PROFILE = Object.freeze({
@@ -70,18 +71,13 @@ function interruptionLedger() {
     };
 }
 
-async function runEvidence(directory) {
-    const { readRunEvidence } = await import("./run-evidence.mjs");
-    return readRunEvidence(directory);
-}
-
 /** A fresh machine pair per case; no shared guest stores or hidden retries. */
 export async function executeScenario({
     baseManifestPath,
     scenarioFile,
     prepare = prepareCase,
     execute = qualify,
-    readEvidence = runEvidence,
+    readEvidence = readRunEvidence,
 }) {
     const scenario = validateScenario(
         JSON.parse(await readFile(scenarioFile, "utf8")),
@@ -448,7 +444,7 @@ export async function main(args) {
         );
         result =
             command === "inspect"
-                ? await runEvidence(selected.run)
+                ? await readRunEvidence(selected.run)
                 : await (
                       await import("./replay-run.mjs")
                   ).replayRun({
