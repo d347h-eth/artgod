@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -262,11 +263,23 @@ export async function preflight(
     { execute = executeCommand } = {},
 ) {
     const absolute = path.resolve(manifestPath);
-    const manifest = validateManifest(
-        JSON.parse(await readFile(absolute, "utf8")),
-        absolute,
-    );
-    const manifestSha256 = await digest(absolute);
+    const bytes = await readFile(absolute);
+    const value = JSON.parse(bytes.toString("utf8"));
+    const manifestSha256 = createHash("sha256").update(bytes).digest("hex");
+    const admitted = await preflightManifest(value, absolute, { execute });
+    if ((await digest(absolute)) !== manifestSha256)
+        throw new Error("Manifest changed during preflight");
+    return { ...admitted, manifestSha256 };
+}
+
+/** Admit candidate inputs before publishing any runnable manifest file. */
+export async function preflightManifest(
+    value,
+    manifestPath,
+    { execute = executeCommand } = {},
+) {
+    const absolute = path.resolve(manifestPath);
+    const manifest = validateManifest(value, absolute);
     await assertPins(manifest);
     const engineExecute = manifest.toolCapsule
         ? await (
@@ -301,12 +314,9 @@ export async function preflight(
     ]);
     assertStandaloneImage(JSON.parse(image.stdout));
     await assertPins(manifest);
-    if ((await digest(absolute)) !== manifestSha256)
-        throw new Error("Manifest changed during preflight");
     return {
         manifest,
         manifestPath: absolute,
-        manifestSha256,
         execute: engineExecute,
     };
 }

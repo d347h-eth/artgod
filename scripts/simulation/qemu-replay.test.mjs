@@ -17,6 +17,7 @@ import {
     assertStandaloneImage,
     executeCommand,
     preflight,
+    preflightManifest,
     qemuArguments,
     qualify,
     validateManifest,
@@ -229,6 +230,35 @@ test("changed pinned inputs fail admission before any execution or output creati
     await assert.rejects(qualify(f.manifestPath, f), /Pinned kernel/);
     assert.equal(f.calls.length, 0);
     assert.ok(!(await readdir(f.directory)).includes("artifacts"));
+});
+
+test("in-memory admission shares file preflight guards without publishing a candidate", async () => {
+    const f = await fixture();
+    const candidatePath = path.join(f.directory, "unpublished.json");
+    const memory = await preflightManifest(f.manifest, candidatePath, {
+        execute: f.execute,
+    });
+    const calls = [...f.calls];
+    f.calls.length = 0;
+    const exactBytes = Buffer.from(
+        `\n${JSON.stringify(f.manifest, null, 2)}\n`,
+    );
+    await writeFile(f.manifestPath, exactBytes);
+    const file = await preflight(f.manifestPath, { execute: f.execute });
+    assert.deepEqual(memory.manifest, file.manifest);
+    assert.deepEqual(f.calls, calls);
+    assert.equal(
+        file.manifestSha256,
+        createHash("sha256").update(exactBytes).digest("hex"),
+    );
+    assert.ok(!(await readdir(f.directory)).includes("unpublished.json"));
+    f.calls.length = 0;
+    await writeFile(f.manifest.kernel.path, "changed after candidate assembly");
+    await assert.rejects(
+        preflightManifest(f.manifest, candidatePath, { execute: f.execute }),
+        /Pinned kernel/,
+    );
+    assert.equal(f.calls.length, 0);
 });
 
 test("VM arguments enclose all devices, use fixed CPU/time, replay every disk and disable networking", async () => {
