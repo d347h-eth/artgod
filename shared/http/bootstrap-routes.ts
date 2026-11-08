@@ -7,6 +7,10 @@ export const BOOTSTRAP_API_ROUTE_TEMPLATE = {
         "/api/:chain_ref/collections/bootstrap/image-cache-estimate",
     ProbeOpenSeaSlug:
         "/api/:chain_ref/collections/bootstrap/opensea-slug-probe",
+    RunDetail: "/api/:chain_ref/bootstrap-runs/:run_id",
+    RetryFailedTasks: "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
+    StepAction:
+        "/api/:chain_ref/bootstrap-runs/:run_id/steps/:step_key/:action",
 } as const;
 
 const BOOTSTRAP_API_CHAIN_REF_PARAM = ":chain_ref";
@@ -24,6 +28,54 @@ export function buildCreateBootstrapRunPath(chainRef: string): string {
     return buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.CreateRun,
         chainRef,
+    );
+}
+
+export function buildBootstrapRunDetailPath(
+    chainRef: string,
+    runId: number,
+): string {
+    return buildBootstrapRunRoute(
+        BOOTSTRAP_API_ROUTE_TEMPLATE.RunDetail,
+        chainRef,
+        runId,
+    );
+}
+
+export function buildRetryBootstrapFailedTasksPath(
+    chainRef: string,
+    runId: number,
+): string {
+    return buildBootstrapRunRoute(
+        BOOTSTRAP_API_ROUTE_TEMPLATE.RetryFailedTasks,
+        chainRef,
+        runId,
+    );
+}
+
+export function buildBootstrapStepActionPath(
+    chainRef: string,
+    runId: number,
+    stepKey: string,
+    action: string,
+): string {
+    return buildBootstrapRunRoute(
+        BOOTSTRAP_API_ROUTE_TEMPLATE.StepAction,
+        chainRef,
+        runId,
+    )
+        .replace(":step_key", encodeURIComponent(stepKey))
+        .replace(":action", encodeURIComponent(action));
+}
+
+function buildBootstrapRunRoute(
+    template: string,
+    chainRef: string,
+    runId: number,
+): string {
+    return buildBootstrapChainRoute(template, chainRef).replace(
+        ":run_id",
+        encodeURIComponent(String(runId)),
     );
 }
 

@@ -524,7 +524,7 @@ export function registerApiRoutes(
     registerObservedGet<GetTokenBiddingBidBookRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
+        TRADING_API_ROUTE_TEMPLATE.TokenBiddingBidBook,
         getTokenBiddingBidBookAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,
@@ -721,7 +721,7 @@ export function registerApiRoutes(
     registerObservedGet<GetBootstrapRunDetailRoute>(
         app,
         options,
-        "/api/:chain_ref/bootstrap-runs/:run_id",
+        BOOTSTRAP_API_ROUTE_TEMPLATE.RunDetail,
         getBootstrapRunDetailAdapter.handle,
     );
     registerObservedGet<GetBootstrapStatusRoute>(
@@ -799,13 +799,13 @@ export function registerApiRoutes(
     registerObservedPost<RetryBootstrapRunFailedTasksRoute>(
         app,
         options,
-        "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
+        BOOTSTRAP_API_ROUTE_TEMPLATE.RetryFailedTasks,
         retryBootstrapRunFailedTasksAdapter.handle,
     );
     registerObservedPost<ApplyBootstrapRunStepActionRoute>(
         app,
         options,
-        "/api/:chain_ref/bootstrap-runs/:run_id/steps/:step_key/:action",
+        BOOTSTRAP_API_ROUTE_TEMPLATE.StepAction,
         applyBootstrapRunStepActionAdapter.handle,
     );
 }

@@ -4,6 +4,7 @@ import {
 	buildBiddingPriceTierReapplyPreviewPath,
 	buildBiddingPriceTierReapplyPath,
 	buildTokenBiddingJobPath,
+	buildTokenBiddingBidBookPath,
 	buildCompetitionPresetsPath,
 	buildCompetitionPresetReapplyPreviewPath,
 	buildCompetitionPresetReapplyPath
@@ -34,7 +35,12 @@ import type {
 	BootstrapSampleInspectionRequest,
 	BootstrapSampleInspectionResponse
 } from '@artgod/shared/bootstrap/probe';
-import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
+import {
+	buildInspectBootstrapSamplePath,
+	buildBootstrapRunDetailPath,
+	buildRetryBootstrapFailedTasksPath,
+	buildBootstrapStepActionPath
+} from '@artgod/shared/http/bootstrap-routes';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -489,7 +495,7 @@ export async function getTokenBiddingBidBook(
 ): Promise<TokenBiddingBidBookApiResponse> {
 	return requestJson<TokenBiddingBidBookApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/bids`
+		buildTokenBiddingBidBookPath(chainRef, collectionRef, tokenRef)
 	);
 }
 
@@ -930,7 +936,7 @@ export async function getBootstrapRunDetail(
 ): Promise<BootstrapRunDetailApiResponse> {
 	return requestJson<BootstrapRunDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}`
+		buildBootstrapRunDetailPath(chainRef, runId)
 	);
 }
 
@@ -1017,7 +1023,7 @@ export async function retryBootstrapFailedTasks(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapRetryFailedResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}/retry-failed`,
+		buildRetryBootstrapFailedTasksPath(chainRef, runId),
 		'POST',
 		{}
 	);
@@ -1033,9 +1039,7 @@ export async function applyBootstrapStepAction(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapStepActionApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(
-			String(runId)
-		)}/steps/${encodeURIComponent(stepKey)}/${encodeURIComponent(action)}`,
+		buildBootstrapStepActionPath(chainRef, runId, stepKey, action),
 		'POST',
 		{}
 	);

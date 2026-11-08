@@ -6,6 +6,8 @@ export const TRADING_API_ROUTE_TEMPLATE = {
     BiddingPriceTierReapplyPreview: `${PRICE_TIERS_ROUTE}/:tier_id/reapply-preview`,
     BiddingPriceTierReapply: `${PRICE_TIERS_ROUTE}/:tier_id/reapply`,
     TokenBiddingJob: "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+    TokenBiddingBidBook:
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
     CompetitionPresets:
         "/api/:chain_ref/:collection_ref/bidding/competition-presets",
     CompetitionPreset:
@@ -60,6 +62,18 @@ export function buildTokenBiddingJobPath(
     tokenRef: string,
 ): string {
     return buildTradingRoute(TRADING_API_ROUTE_TEMPLATE.TokenBiddingJob, {
+        chain_ref: chainRef,
+        collection_ref: collectionRef,
+        token_ref: tokenRef,
+    });
+}
+
+export function buildTokenBiddingBidBookPath(
+    chainRef: string,
+    collectionRef: string,
+    tokenRef: string,
+): string {
+    return buildTradingRoute(TRADING_API_ROUTE_TEMPLATE.TokenBiddingBidBook, {
         chain_ref: chainRef,
         collection_ref: collectionRef,
         token_ref: tokenRef,
