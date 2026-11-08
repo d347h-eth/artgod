@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -63,7 +64,7 @@ async function main() {
             });
         }, config.opensea.reconcileIntervalMs);
 
-        logger.info("OpenSea reconcile scheduler worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.OpenSeaReconcileSchedulerWorker, {
             component: "OpenSeaReconcileSchedulerWorker",
             action: "main",
         });

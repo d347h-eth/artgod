@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
@@ -678,7 +679,7 @@ async function main() {
             },
         );
 
-        logger.info("Domain worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.DomainWorker, {
             component: "IndexerDomainWorker",
             action: "main",
         });

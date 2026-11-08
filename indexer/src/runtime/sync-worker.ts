@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { GAP_FILL_MODE } from "@artgod/shared/evm/rpc-budget";
 import { SqliteCanonicalChecks } from "../infra/storage/sqlite-canonical-checks.js";
@@ -299,7 +300,7 @@ async function main() {
             }),
         );
 
-        logger.info("Sync worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.SyncWorker, {
             component: SYNC_WORKER_LOG_COMPONENT,
             action: "main",
             backfillWorkerCount: config.sync.backfillWorkerCount,

@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -132,7 +133,7 @@ async function main() {
             });
         }, config.opensea.subscriptionPollMs);
 
-        logger.info("OpenSea stream worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.OpenSeaStreamWorker, {
             component: "OpenSeaStreamWorker",
             action: "main",
         });
