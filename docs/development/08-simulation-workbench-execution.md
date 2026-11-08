@@ -143,6 +143,34 @@ raw format through a read-only replay-aware device, so it cannot introduce
 backing-image links. Changing runtime or coordinator code requires rebuilding
 the guest; replacing only scenario data is insufficient for those changes.
 
+## Rebuild Only the Coordinator
+
+When only simulation JavaScript modules change, the
+[same builder owner](../../scripts/simulation/build-guest.mjs) can reuse a
+pristine admitted runtime image:
+
+```sh
+yarn node scripts/simulation/build-guest.mjs --rebuild-coordinator --base-manifest tmp/simulation/guest-RUN/manifest.json --debugfs /path/to/debugfs --e2fsck /path/to/e2fsck
+```
+
+Supply explicit installed tool paths. This refuses production, configuration,
+dependency, build-script or guest-init source changes. It reconstructs the old
+coordinator from its admitted source commit and requires the current compiler
+and dependency bytes to reproduce that bundle exactly. Existing dependency pins
+must stay exact. A newly imported repository contract must already match the
+admitted source inventory; new external/cache dependencies require a full build.
+There is no fallback.
+
+The update copies the pristine guest into a fresh raw image, replaces only the
+fixed coordinator file, verifies its readback and inherited init, runs read-only
+filesystem checks, then converts a new standalone qcow2 image. It preserves
+the original image and records its runtime origin separately from current
+coordinator source/dependency pins. No valid manifest is published until all
+image, source and origin checks pass. All intermediate diagnostics remain
+retained on failure. This reduces retained staging copies; it does not qualify
+execution. Run the expanded M0 gate and affected scenarios on the returned
+manifest.
+
 ## Preflight, Record and Replay
 
 The [QEMU runner](../../scripts/simulation/qemu-replay.mjs) does not discover or
@@ -377,8 +405,24 @@ does not eagerly load fixture cryptography into basic failure reporting. New
 qualification inputs additionally require hot BigInt/native-conversion and
 crypto known-answer checks, run after readiness so failures retain evidence.
 Earlier six-check M0 results do not satisfy this expanded eight-check gate.
-Candidate CPU selection, the expanded gate and the corrected scenario cohort
-still require fresh strict record/replay qualification.
+Three independent expanded-gate pairs at source `41504870`, `run-A3kOIL`,
+`run-oVFdwd` and `run-fpX7PX`, passed all eight checks, exact 31,297-byte serial
+parity and complete disk parity on CPU `max`. They took 172.834, 195.262 and
+182.306 seconds. Each compared 24,576 arithmetic, 8,192 native SQLite integer
+and 102 fixture crypto results to independent known answers. These runs qualify
+the exercised runtime profile; they identify no upstream cause for the earlier
+failure and do not prove every engine/compiler path.
+
+The first CPU-`max` stale-cut trial, `run-OXplyC`, also passed serial and complete
+disk replay but left its safety oracle unreached. Its old A105 counter started
+around guest second 45.6; rollback committed at 48.0, the RPC timed out at 55.7,
+and full resync finished around 59.7. Waiting for full recovery before releasing
+that exact ten-second transport was an invalid fixture precondition. The
+corrected cut observes committed rollback with active resync, requires the
+unique persisted finish-refusal reason before the earliest request timeout,
+and retains complete resync/HTTP convergence afterward. It does not change
+application deadlines. Fresh qualification of that corrected cut and corpus
+remains required.
 
 ## Workbench Commands and Campaigns
 
@@ -449,6 +493,20 @@ input, saved tool image and pinned closed record overlay when present:
 ```sh
 yarn simulation export --run tmp/simulation-qemu/run-RUN
 ```
+
+Exports normally make independent copies. To retain one local bundle without
+duplicating its admitted immutable files on the same filesystem, select:
+
+```sh
+yarn simulation export --run tmp/simulation-qemu/run-RUN --storage hardlink
+```
+
+This explicit mode shares regular-file inodes and preserves all byte pins;
+linked inputs must remain immutable. It fails if linking is unavailable, with
+no copy fallback. The reported size is the logical closure size, not additional
+physical allocation. Relocated replay still copies its writable reference
+before rebasing. CI keeps independent copies, and hardlink storage does not
+qualify another host.
 
 Copy the resulting `tmp/simulation-bundles/bundle-*/` directory under the new
 worktree's `tmp/`, explicitly restore its saved image, and replay:
