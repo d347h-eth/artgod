@@ -334,6 +334,23 @@ assertions on that fixed cut within the same deadline. This is a harness
 correction; the old failure is not assigned to ArtGod, and original reports are
 unchanged. Fresh qualification of the corrected cohort remains required.
 
+The targeted stale-result trial `run-gvHMAC`, at source `1169f39c`, reproduced
+the domain worker exiting with `SIGSEGV` before any A105 counter request reached
+the external service. Engine replay, all 115,777 serial bytes and the complete
+final disk matched. The stale-result cut was unreached; this is no evidence of
+successful stale-result rejection or an incorrect stale publication. The
+retained process state establishes the native process failure, but neither
+logs nor serial output establish whether its cause belongs to ArtGod, Node, a
+native dependency or emulation. No production fix is inferred from that run.
+New guests additionally retain bounded, read-only kernel-ring, core-policy and
+coordinator-resource-limit observations in `native-failure.json` on failure.
+Missing access, timeouts and output truncation remain explicit diagnostic
+results. The workbench does not enable core dumps or change kernel policy.
+The targeted cut also requires a single bidder-counter request through its
+rejection observation. A transport retry makes consumption of the captured old
+result unproved, even if a later snapshot check fails; it cannot earn that
+specific safety coverage.
+
 ## Workbench Commands and Campaigns
 
 Run a named JSON case against an existing production guest, or the current fixed
