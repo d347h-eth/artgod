@@ -1,4 +1,8 @@
 import {
+    validateNativeDiagnostics,
+    NATIVE_DIAGNOSTIC_CHECK,
+} from "./native-failure-evidence.mjs";
+import {
     QUALIFICATION_CHECKS,
     DATA_PLANE_CHECK as CHECK,
     DATA_PLANE_CHECKS,
@@ -12,6 +16,7 @@ import {
 
 export const SCENARIO_KIND = Object.freeze({
     Qualification: "qualification",
+    NativeDiagnostic: "native-diagnostic",
     DataPlane: "data-plane",
 });
 export const DATA_PLANE_JOURNEY = Object.freeze({
@@ -47,6 +52,7 @@ export const DEFAULT_FORK_SCHEDULE = Object.freeze([
 const BASELINE_CHECKS = DATA_PLANE_CHECKS.slice(0, 5);
 export const SCENARIO_CHECKS = Object.freeze({
     [SCENARIO_KIND.Qualification]: QUALIFICATION_CHECKS,
+    [SCENARIO_KIND.NativeDiagnostic]: [NATIVE_DIAGNOSTIC_CHECK],
     [DATA_PLANE_JOURNEY.Baseline]: BASELINE_CHECKS,
     [DATA_PLANE_JOURNEY.Fork]: [...BASELINE_CHECKS, CHECK.ReorgRecovery],
     [DATA_PLANE_JOURNEY.ProviderDisagreement]: [
@@ -91,6 +97,7 @@ export function validateScenario(value) {
         "headProgress",
         "splitProviderFork",
         "staleResultCut",
+        "nativeDiagnostics",
     ];
     for (const key of Object.keys(value))
         if (!allowed.includes(key))
@@ -103,7 +110,7 @@ export function validateScenario(value) {
             "Scenario qualificationId must be a stable short identifier",
         );
     if (
-        value.kind === SCENARIO_KIND.Qualification &&
+        value.kind !== SCENARIO_KIND.DataPlane &&
         (value.journey !== undefined || value.world !== undefined)
     )
         throw new Error(
@@ -118,9 +125,7 @@ export function validateScenario(value) {
         );
     const journeyChecks =
         SCENARIO_CHECKS[
-            value.kind === SCENARIO_KIND.Qualification
-                ? value.kind
-                : value.journey
+            value.kind !== SCENARIO_KIND.DataPlane ? value.kind : value.journey
         ];
     const required =
         value.staleResultCut === true
@@ -135,6 +140,26 @@ export function validateScenario(value) {
         throw new Error(
             "Scenario expectedChecks must name every check required by its journey exactly once",
         );
+    if (
+        value.kind === SCENARIO_KIND.NativeDiagnostic &&
+        value.nativeDiagnostics === undefined
+    )
+        throw new Error(
+            "The native diagnostic probe requires its explicit profile",
+        );
+    if (value.nativeDiagnostics !== undefined) {
+        validateNativeDiagnostics(value.nativeDiagnostics);
+        if (
+            value.kind !== SCENARIO_KIND.NativeDiagnostic &&
+            !(
+                value.kind === SCENARIO_KIND.DataPlane &&
+                value.journey === DATA_PLANE_JOURNEY.Fork
+            )
+        )
+            throw new Error(
+                "Native diagnostics require the explicit probe or a fork diagnostic case",
+            );
+    }
     if (value.world !== undefined) {
         if (
             !value.world ||

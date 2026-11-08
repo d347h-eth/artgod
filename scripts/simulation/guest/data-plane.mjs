@@ -20,6 +20,7 @@ import {
 import { recordDataPlaneFailureChecks } from "./data-plane-failure.mjs";
 import {
     captureGuestNativeFailure,
+    prepareNativeDiagnostics,
     NATIVE_FAILURE_ARTIFACT,
 } from "./native-failure-evidence.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
@@ -418,12 +419,19 @@ export async function runDataPlane(
     let collectionId;
     let headProgress;
     let staleResultCut;
+    let nativeDiagnostics;
     const checkpoints = [];
     const checks = {};
     const expectedSourceStatuses = {};
     let providerDisagreementReached = false;
     let activeCheck = CHECK.RuntimeEntrypoints;
     try {
+        if (scenario.nativeDiagnostics)
+            nativeDiagnostics = await prepareNativeDiagnostics({
+                settings: scenario.nativeDiagnostics,
+                root,
+                output,
+            });
         if (scenario.headProgress)
             headProgress = createHeadProgress({
                 world: server.world,
@@ -487,7 +495,13 @@ export async function runDataPlane(
             ...(bootstrapJourney ? layout.bootstrapProcesses : []),
         ])
             processes.push(
-                await launchRuntime(spec, { root, output, env, eventually }),
+                await launchRuntime(spec, {
+                    root,
+                    output,
+                    env,
+                    eventually,
+                    nativeDiagnostics,
+                }),
             );
         checks[CHECK.RuntimeEntrypoints] = true;
         const alive = () => {
@@ -1501,6 +1515,9 @@ export async function runDataPlane(
                     scenario.runtimeProfile ?? RUNTIME_PROFILE.Unrestricted,
                 headProgress: headProgress?.evidence(),
                 staleResultCut: staleResultCut?.evidence(),
+                ...(nativeDiagnostics
+                    ? { nativeDiagnostics: await nativeDiagnostics.capture() }
+                    : {}),
                 ...scheduleEvidence(server.world),
             },
         };
@@ -1511,9 +1528,9 @@ export async function runDataPlane(
             activeCheck,
             scenario.expectedChecks,
         );
-        const nativeFailure = await captureGuestNativeFailure().catch(
-            (diagnosticError) => ({ error: diagnosticError.message }),
-        );
+        const nativeFailure = await captureGuestNativeFailure({
+            diagnostics: nativeDiagnostics,
+        }).catch((diagnosticError) => ({ error: diagnosticError.message }));
         await writeFile(
             path.join(output, NATIVE_FAILURE_ARTIFACT),
             `${JSON.stringify(nativeFailure, null, 2)}\n`,

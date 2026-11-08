@@ -466,7 +466,11 @@ async function main() {
               stopBroker,
               stopProcess,
           })
-        : await qualification();
+        : scenario.kind === SCENARIO_KIND.NativeDiagnostic
+          ? await (
+                await import("./native-core-probe.mjs")
+            ).runNativeCoreProbe(scenario, { root, output })
+          : await qualification();
     const { evidence } = result;
     evidence.storage = { before: probe.storage, after: await inspectStorage() };
     const checks = Object.fromEntries(

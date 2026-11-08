@@ -39,7 +39,10 @@ export function findRuntimeProcessExit(error) {
     }
 }
 
-export async function launchRuntime(spec, { root, output, env, eventually }) {
+export async function launchRuntime(
+    spec,
+    { root, output, env, eventually, nativeDiagnostics },
+) {
     assert.ok(
         spec.readyMessage,
         "The selected production runtime needs its owning readiness label",
@@ -51,7 +54,10 @@ export async function launchRuntime(spec, { root, output, env, eventually }) {
     const stderrPath = path.join(output, `${stem}.stderr.log`);
     const stdout = await open(stdoutPath, "w");
     const stderr = await open(stderrPath, "w");
-    const child = spawn(process.execPath, [spec.filename], {
+    const command = nativeDiagnostics?.launchCommand(spec, process.execPath, [
+        spec.filename,
+    ]) ?? { file: process.execPath, args: [spec.filename] };
+    const child = spawn(command.file, command.args, {
         cwd: root,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -94,6 +100,7 @@ export async function launchRuntime(spec, { root, output, env, eventually }) {
             });
     };
     try {
+        nativeDiagnostics?.track(spec, child);
         await eventually(
             () => {
                 assertAlive();
@@ -102,6 +109,7 @@ export async function launchRuntime(spec, { root, output, env, eventually }) {
             `${spec.id} entrypoint ready`,
             90_000,
         );
+        await nativeDiagnostics?.verifyRuntime(spec, child);
     } catch (error) {
         child.kill("SIGKILL");
         throw error;
