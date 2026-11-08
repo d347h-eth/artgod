@@ -322,6 +322,18 @@ proof rows for surviving canonical orders. Deleting an owning order may delete
 its proof; an empty fixture cannot earn this property. The old run predates
 this more precise boundary assertion, which still needs a fresh guest run.
 
+The initial 25-case cohort at source `15ce0ecb` was intentionally stopped with
+its missing cases retained. Qualified failed run `run-eFT7fD` reached actual
+rollback/resync and canonical HTTP state, with fresh provider tips, empty
+business obligations and no retained broker messages. Acquisition remained one
+block behind a continuously advancing synthetic head. Requiring full live-tip
+catchup before stopping that producer could starve a legal eventual-consistency
+consumer. The corrected fixture freezes publication when business work drains,
+then retains the complete coverage, header, mature-check and final property
+assertions on that fixed cut within the same deadline. This is a harness
+correction; the old failure is not assigned to ArtGod, and original reports are
+unchanged. Fresh qualification of the corrected cohort remains required.
+
 ## Workbench Commands and Campaigns
 
 Run a named JSON case against an existing production guest, or the current fixed
@@ -446,9 +458,9 @@ The [CI workflow](../../.github/workflows/system-simulation.yml) uses the
 [lane owner](../../scripts/simulation/ci.mjs) to discover and declare its full
 job matrix before dependency installation. Every pull request and push to
 `main` runs two disjoint shards of the entire named regression corpus, currently
-13 cases split 7/6. Scheduled runs and manual dispatches with `campaign: true`
+14 cases split 7/7. Scheduled runs and manual dispatches with `campaign: true`
 add one independent lane for every authored fault model, each containing all
-six causal orders. The current expanded matrix has four lanes and 25 declared
+six causal orders. The current expanded matrix has four lanes and 26 declared
 scenario cases. Case and model ownership remains in the corpus and campaign
 modules; the workflow contains no second case list.
 

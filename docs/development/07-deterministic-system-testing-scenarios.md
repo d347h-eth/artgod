@@ -92,8 +92,10 @@ Fair recovery requires a sufficiently fresh external chain. An enabled
 the deliberate fault window. Existing header timestamps never change; the
 authored fork window through block 107 remains intact, while a declared slower
 tail can support long runs with the default RPC budget. The producer has an
-explicit maximum head and stops at a drained, fully covered cut before exact
-final assertions. An aged stationary tip must not be mistaken for healed
+explicit maximum head. Once published business work drains, freeze that input
+before requiring full acquisition and mature checks on the fixed cut. A legal
+one-block lag under continuing publication must not prevent this cut. An aged
+stationary tip must not be mistaken for healed
 dependencies, nor repaired by changing application freshness rules or dropping
 durable work from the oracle.
 
@@ -103,6 +105,19 @@ headers, raw protocol items and collection attributions without parent joins
 that could hide orphan children. The initial fill truth table covers the
 authored one-ERC721/WETH sale; other payment shapes and extension-owned facts
 require their own independent fixtures.
+
+The dedicated `stale-result-safety-cut` case addresses transient writes that
+later convergence could hide. Hold the actual A105 bidder-counter reply, then
+block every fresh Seaport status reply while real B rollback/resync proceeds.
+A genuine first bid Stream observation creates newer source evidence and demand
+before the post-rollback baseline. Releasing only the old counter must produce
+a completed B105 finish-verification read and a durable failed release of that
+captured maker attempt, with unchanged target proof/projection and retained
+page. Only then open fresh replies and finish the ordinary journey. This earns
+snapshot-finish refusal coverage with a source-revision fence also present;
+it does not isolate the database checkpoint fence. Missing or expired attempt
+evidence is unreached coverage, and control-plane unit guards cannot replace
+the required real guest run.
 
 No application-level barrier can stand in for an unobserved race. In particular,
 an old RPC response may fail snapshot verification before the database commit
