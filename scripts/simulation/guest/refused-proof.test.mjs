@@ -1,17 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { verifyRefusedProof } from "./refused-proof.mjs";
+import { createBaselineLedger } from "../world/ledger.mjs";
+import { ZERO_ADDRESS } from "../world/wire.mjs";
+import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
 import { REORG_RECOVERY_PHASE } from "../../../indexer/src/domain/reorg-recovery.ts";
 
 // Oracle guards only. Actual acquisition/proof/refusal requires the authored VM.
-function fixture({ deleteHistory = false } = {}) {
-    const ledger = {
-        anchorBlock: 100,
-        forkBlock: 103,
-        blockAt: (branch, number) => ({
-            hash: `${branch}:${number}`,
-            parentHash: `${branch}:${number - 1}`,
-        }),
+function fixture({
+    deleteHistory = false,
+    appendAnchorHeader = false,
+    headerFault,
+} = {}) {
+    const ledger = createBaselineLedger({ epochSeconds: 1_000_000 });
+    const header = (number) => ({
+        block_number: number,
+        block_hash: ledger.blockAt("A", number).hash,
+        parent_hash: ledger.blockAt("A", number).parentHash,
+    });
+    const transfer = (number, tokenId, from, to) => {
+        const block = ledger.blockAt("A", number);
+        return {
+            chain_id: ledger.chainId,
+            collection_id: 42,
+            contract_address: ledger.addresses.nft,
+            from_address: from,
+            to_address: to,
+            token_id: tokenId,
+            amount: "1",
+            block_number: number,
+            block_hash: block.hash,
+            block_timestamp: block.timestamp,
+            tx_hash: block.logs[0].transactionHash,
+            log_index: 0,
+            kind: COLLECTION_STANDARD.Erc721,
+        };
     };
     const before = {
         revision: 0,
@@ -20,19 +43,26 @@ function fixture({ deleteHistory = false } = {}) {
         pendingDemand: [],
         unfinishedMaker: [],
         pendingOutbox: [],
-        owners: [{ token_id: "1", owner: "retained-owner" }],
-        transfers: [{ block_number: 101, token_id: "1" }],
+        owners: [
+            { token_id: "1", owner: ledger.addresses.buyer, amount: "1" },
+            { token_id: "2", owner: ledger.addresses.seller, amount: "1" },
+        ],
+        transfers: [
+            transfer(101, "1", ZERO_ADDRESS, ledger.addresses.seller),
+            transfer(102, "2", ZERO_ADDRESS, ledger.addresses.seller),
+            transfer(104, "1", ledger.addresses.seller, ledger.addresses.buyer),
+        ],
         activities: [{ kind: "transfer", block_number: 101, token_id: "1" }],
         coverage: Array.from({ length: 8 }, (_, i) => ({
             block_number: 101 + i,
         })),
-        headers: Array.from({ length: 8 }, (_, i) => ({
-            block_number: 101 + i,
-            block_hash: `A:${101 + i}`,
-            parent_hash: `A:${100 + i}`,
-        })),
+        headers: Array.from({ length: 8 }, (_, i) => header(101 + i)),
     };
     const after = structuredClone(before);
+    if (appendAnchorHeader) after.headers.unshift(header(100));
+    if (headerFault === "hash") after.headers[1].block_hash = "B:102";
+    if (headerFault === "parent") after.headers[1].parent_hash = "B:101";
+    if (headerFault === "delete") after.headers.splice(1, 1);
     if (deleteHistory) after.activities = [];
     // This reproduces the observed framework counterexample: independently
     // queued legitimate A projection commits after acquisition/proof settles.
@@ -86,4 +116,22 @@ test("additional history never hides deletion of an already retained fact", asyn
         verifyRefusedProof(fixture({ deleteHistory: true })),
         /cannot delete retained history/,
     );
+});
+
+test("late legitimate acquisition of the anchor header does not imply retained header replacement", async () => {
+    const result = await verifyRefusedProof(
+        fixture({ appendAnchorHeader: true }),
+    );
+    assert.equal(result.after.headers.length, result.before.headers.length + 1);
+    assert.equal(result.after.headers[0].block_number, 100);
+});
+
+test("new headers never excuse mutation or deletion of a previously verified hash or parent", async () => {
+    for (const headerFault of ["hash", "parent", "delete"])
+        await assert.rejects(
+            verifyRefusedProof(
+                fixture({ appendAnchorHeader: true, headerFault }),
+            ),
+            /retained fork headers/,
+        );
 });

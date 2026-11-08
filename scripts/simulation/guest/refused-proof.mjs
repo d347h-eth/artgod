@@ -116,11 +116,17 @@ export async function verifyRefusedProof({
         );
         retainedHistory.splice(index, 1);
     }
-    assert.deepEqual(
-        after.headers.filter((row) => row.block_number <= acquiredHead),
-        before.headers,
-        "Unsupported recovery cannot replace retained fork headers",
+    // Independent historical gap repair can add the anchor header after the
+    // retained snapshot. Every previously known hash and parent must survive.
+    const retainedHeaders = new Map(
+        after.headers.map((row) => [row.block_number, row]),
     );
+    for (const retained of before.headers)
+        assert.deepEqual(
+            retainedHeaders.get(retained.block_number),
+            retained,
+            "Unsupported recovery cannot replace or delete retained fork headers",
+        );
     return {
         endpoint: "awaiting-verified-ancestor",
         requestedBranch: "B",

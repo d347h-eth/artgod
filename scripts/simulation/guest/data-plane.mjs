@@ -305,7 +305,7 @@ function observe(database, collectionId) {
                 .all(collectionId),
             transfers: database
                 .prepare(
-                    "SELECT block_number,block_hash,token_id FROM nft_transfer_events WHERE chain_id=1 AND collection_id=? ORDER BY block_number,log_index",
+                    "SELECT chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind FROM nft_transfer_events WHERE chain_id=1 AND collection_id=? ORDER BY block_number,log_index,token_id",
                 )
                 .all(collectionId),
             activities: database

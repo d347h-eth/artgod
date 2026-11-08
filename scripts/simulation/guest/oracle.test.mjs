@@ -9,37 +9,81 @@ import {
     assertMarketConvergence,
     SIMULATION_PROPERTY,
 } from "./oracle.mjs";
+import { createBaselineLedger } from "../world/ledger.mjs";
+import { ZERO_ADDRESS } from "../world/wire.mjs";
+import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
 
-const ledger = {
-    anchorBlock: 100,
-    orders: { listing: { orderHash: "listing" }, bid: { orderHash: "bid" } },
-    blockAt(branch, number) {
-        return {
-            hash: `${branch}:${number}`,
-            parentHash: `${branch}:${number - 1}`,
-        };
-    },
-};
-const snapshot = () => ({
-    revision: 2,
-    coverage: [
-        { block_number: 100 },
-        { block_number: 101 },
-        { block_number: 102 },
-    ],
-    headers: [101, 102].map((number) => ({
+const ledger = createBaselineLedger({ epochSeconds: 1_000_000 });
+// Reviewed fixture truth table: two mints and one A-only transfer. This does not
+// invoke the oracle's decoder or the product's acquisition/ownership reducers.
+const transfer = (branch, number, tokenId, from, to) => {
+    const block = ledger.blockAt(branch, number);
+    const log = block.logs[0];
+    return {
+        chain_id: ledger.chainId,
+        collection_id: 42,
+        contract_address: ledger.addresses.nft,
+        from_address: from,
+        to_address: to,
+        token_id: tokenId,
+        amount: "1",
         block_number: number,
-        block_hash: `B:${number}`,
-        parent_hash: `B:${number - 1}`,
+        block_hash: block.hash,
+        block_timestamp: block.timestamp,
+        tx_hash: log.transactionHash,
+        log_index: 0,
+        kind: COLLECTION_STANDARD.Erc721,
+    };
+};
+const snapshot = ({ branch = "B", head = 102 } = {}) => ({
+    revision: 2,
+    coverage: Array.from({ length: head - 99 }, (_, index) => ({
+        block_number: 100 + index,
     })),
-    orders: ["listing", "bid"].map((id) => ({
-        id,
+    headers: Array.from({ length: head - 100 }, (_, index) => {
+        const number = 101 + index;
+        const block = ledger.blockAt(branch, number);
+        return {
+            block_number: number,
+            block_hash: block.hash,
+            parent_hash: block.parentHash,
+        };
+    }),
+    owners: ["1", "2"].map((tokenId) => ({
+        token_id: tokenId,
+        owner:
+            branch === "A" && head >= 104 && tokenId === "1"
+                ? ledger.addresses.buyer
+                : ledger.addresses.seller,
+        amount: "1",
+        last_block_number:
+            branch === "A" && head >= 104 && tokenId === "1"
+                ? 104
+                : 100 + Number(tokenId),
+    })),
+    transfers: [
+        transfer(branch, 101, "1", ZERO_ADDRESS, ledger.addresses.seller),
+        transfer(branch, 102, "2", ZERO_ADDRESS, ledger.addresses.seller),
+        ...(branch === "A" && head >= 104
+            ? [
+                  transfer(
+                      "A",
+                      104,
+                      "1",
+                      ledger.addresses.seller,
+                      ledger.addresses.buyer,
+                  ),
+              ]
+            : []),
+    ],
+    orders: Object.values(ledger.orders).map((order) => ({
+        id: order.orderHash,
         source_status: ORDER_SOURCE_STATUS.Active,
         fillability_status: ORDER_STATUS.Fillable,
         validated_at: 123,
     })),
-    validationProofs: ["listing", "bid"].map((order_id) => ({
-        order_id,
+    validationProofs: Object.values(ledger.orders).map((order) => ({
+        order_id: order.orderHash,
         pending: 0,
         proof_chain_revision: 2,
     })),
@@ -105,7 +149,9 @@ test("source cancellation is authoritative without rewriting independent protoco
     assertMarketConvergence({
         snapshot: actual,
         ledger,
-        expectedSourceStatuses: { bid: ORDER_SOURCE_STATUS.Cancelled },
+        expectedSourceStatuses: {
+            [ledger.orders.bid.orderHash]: ORDER_SOURCE_STATUS.Cancelled,
+        },
     });
     actual.orders[1].source_status = ORDER_SOURCE_STATUS.Active;
     assert.throws(
@@ -113,8 +159,158 @@ test("source cancellation is authoritative without rewriting independent protoco
             assertMarketConvergence({
                 snapshot: actual,
                 ledger,
-                expectedSourceStatuses: { bid: ORDER_SOURCE_STATUS.Cancelled },
+                expectedSourceStatuses: {
+                    [ledger.orders.bid.orderHash]:
+                        ORDER_SOURCE_STATUS.Cancelled,
+                },
             }),
         { property: SIMULATION_PROPERTY.BuyValidation },
+    );
+});
+
+test("the final ownership oracle rejects an extra orphan buyer balance", () => {
+    const actual = snapshot({ head: 107 });
+    actual.owners.push({
+        token_id: "1",
+        owner: ledger.addresses.buyer,
+        amount: "1",
+        last_block_number: 104,
+    });
+    assert.throws(
+        () =>
+            assertCanonicalAcquisition({
+                snapshot: actual,
+                ledger,
+                branch: "B",
+                head: 107,
+            }),
+        { property: SIMULATION_PROPERTY.CanonicalOwnership },
+    );
+});
+
+test("the final ownership oracle protects the untouched token and exact ERC721 quantity", () => {
+    for (const mutation of [
+        (row) => {
+            row.owner = ledger.addresses.buyer;
+        },
+        (row) => {
+            row.amount = "2";
+        },
+        (row) => {
+            row.amount = "0";
+        },
+    ]) {
+        const actual = snapshot({ head: 107 });
+        mutation(actual.owners[1]);
+        assert.throws(
+            () =>
+                assertCanonicalAcquisition({
+                    snapshot: actual,
+                    ledger,
+                    branch: "B",
+                    head: 107,
+                }),
+            { property: SIMULATION_PROPERTY.CanonicalOwnership },
+        );
+    }
+});
+
+test("the final transfer oracle rejects an orphan retained after headers and ownership healed", () => {
+    const actual = snapshot({ head: 107 });
+    actual.transfers.push(
+        transfer(
+            "A",
+            104,
+            "1",
+            ledger.addresses.seller,
+            ledger.addresses.buyer,
+        ),
+    );
+    assert.throws(
+        () =>
+            assertCanonicalAcquisition({
+                snapshot: actual,
+                ledger,
+                branch: "B",
+                head: 107,
+            }),
+        { property: SIMULATION_PROPERTY.CanonicalTransfers },
+    );
+});
+
+test("the transfer oracle checks exact canonical identity, payload and multiplicity", () => {
+    for (const mutate of [
+        (facts) => {
+            facts.pop();
+        },
+        (facts) => {
+            facts.push({ ...facts[0] });
+        },
+        (facts) => {
+            facts[0].from_address = ledger.addresses.buyer;
+        },
+        (facts) => {
+            facts[0].to_address = ledger.addresses.buyer;
+        },
+        (facts) => {
+            facts[0].amount = "2";
+        },
+        (facts) => {
+            facts[0].tx_hash = ledger.blockAt("A", 104).transactions[0];
+        },
+        (facts) => {
+            facts[0].log_index = 1;
+        },
+        (facts) => {
+            facts[0].block_hash = ledger.blockAt("B", 102).hash;
+        },
+    ]) {
+        const actual = snapshot();
+        mutate(actual.transfers);
+        assert.throws(
+            () =>
+                assertCanonicalAcquisition({
+                    snapshot: actual,
+                    ledger,
+                    branch: "B",
+                    head: 102,
+                }),
+            { property: SIMULATION_PROPERTY.CanonicalTransfers },
+        );
+    }
+});
+
+test("canonical acquisition derives both fork outcomes from the external ledger", () => {
+    for (const branch of ["A", "B"])
+        assertCanonicalAcquisition({
+            snapshot: snapshot({ branch, head: 107 }),
+            ledger,
+            branch,
+            head: 107,
+        });
+});
+
+test("bootstrap snapshots require exact current owners without inventing pre-anchor transfer completeness", () => {
+    const actual = snapshot({ head: 105 });
+    actual.transfers = [];
+    actual.owners.forEach((row) => {
+        row.last_block_number = 102;
+    });
+    assertCanonicalAcquisition({
+        snapshot: actual,
+        ledger: { ...ledger, anchorBlock: 102 },
+        branch: "B",
+        head: 105,
+    });
+    actual.owners.pop();
+    assert.throws(
+        () =>
+            assertCanonicalAcquisition({
+                snapshot: actual,
+                ledger: { ...ledger, anchorBlock: 102 },
+                branch: "B",
+                head: 105,
+            }),
+        { property: SIMULATION_PROPERTY.CanonicalOwnership },
     );
 });
