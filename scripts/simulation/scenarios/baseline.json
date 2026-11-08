@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-runtime-baseline-v1",
+    "journey": "baseline",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection"
+    ]
+}

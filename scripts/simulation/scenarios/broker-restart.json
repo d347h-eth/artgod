@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-broker-restart-v1",
+    "journey": "process-recovery",
+    "processFault": "broker-restart",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "process-recovery"
+    ]
+}

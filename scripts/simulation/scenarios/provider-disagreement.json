@@ -1,0 +1,29 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-provider-disagreement-v1",
+    "journey": "provider-disagreement",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "provider-disagreement-detected"
+    ],
+    "world": {
+        "transferOnly": true,
+        "scripts": [
+            {
+                "when": {
+                    "phase": "provider-disagreement",
+                    "provider": "default",
+                    "method": "eth_call",
+                    "functionName": "ownerOf"
+                },
+                "before": { "view": { "branch": "B", "head": 104 } },
+                "after": { "view": { "branch": "A", "head": 104 } }
+            }
+        ]
+    }
+}

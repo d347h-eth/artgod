@@ -1,0 +1,41 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-fork-committed-validation-v1",
+    "journey": "fork",
+    "validationRelease": "before-rollback",
+    "schedule": [
+        "release-validation",
+        "canonical-switch",
+        "restore-inventory",
+        "stream-listing"
+    ],
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "reorg-recovery"
+    ],
+    "world": {
+        "scripts": [
+            {
+                "when": {
+                    "phase": "fork-held",
+                    "method": "eth_call",
+                    "functionName": "getOrderStatus"
+                },
+                "after": { "barrier": "old-validation" }
+            },
+            {
+                "when": {
+                    "phase": "fork-held",
+                    "method": "eth_call",
+                    "functionName": "aggregate3"
+                },
+                "after": { "barrier": "old-validation" }
+            }
+        ]
+    }
+}

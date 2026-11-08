@@ -1,0 +1,33 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-collection-bootstrap-v1",
+    "journey": "collection-bootstrap",
+    "world": {
+        "metadataTransport": "http",
+        "providers": {
+            "default": { "branch": "B", "head": 105 },
+            "a": { "branch": "B", "head": 105 },
+            "b": { "branch": "B", "head": 105 }
+        },
+        "scripts": [
+            {
+                "id": "hold-bootstrap-metadata",
+                "when": {
+                    "method": "eth_call",
+                    "functionName": "tokenURI",
+                    "occurrence": 1
+                },
+                "before": { "barrier": "bootstrap-metadata-request" }
+            }
+        ]
+    },
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "collection-bootstrap"
+    ]
+}

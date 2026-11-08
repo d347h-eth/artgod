@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "kind": "qualification",
+    "qualificationId": "artgod-runtime-qualification-v1",
+    "expectedChecks": [
+        "sqlite-wal",
+        "sqlite-competing-writers",
+        "sqlite-reopen",
+        "nats-persistent-restart",
+        "nats-redelivery-after-commit",
+        "guest-entropy-clock"
+    ]
+}

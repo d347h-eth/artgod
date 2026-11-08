@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-startup-maintenance-v1",
+    "journey": "startup-maintenance",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "startup-maintenance"
+    ]
+}
