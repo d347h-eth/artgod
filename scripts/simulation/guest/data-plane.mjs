@@ -6,11 +6,20 @@ import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { isRuntimeReadyLog } from "../../../shared/runtime/readiness.ts";
 import { RUNTIME_PROCESS } from "./runtime-manifest.mjs";
-import { createHeadProgress } from "./head-progress.mjs";
+import {
+    createHeadProgress,
+    publishedBusinessWorkDrained,
+} from "./head-progress.mjs";
 import {
     executeSplitProviderFork,
     SPLIT_PROVIDER_EVENT,
 } from "./split-provider-fork.mjs";
+import {
+    createStaleResultCut,
+    isStaleResultCutUnreached,
+    STALE_RESULT_GATE,
+    STALE_RESULT_PROPERTY,
+} from "./stale-result-cut.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import {
@@ -34,8 +43,10 @@ import {
 } from "../../../shared/market-data/orders.ts";
 import { resolveNatsJobStreamName } from "../../../shared/queue/nats-job-stream.ts";
 import { startWorldServer } from "../world/server.mjs";
+import { RESPONSE_GATE_FUNCTION } from "../world/contract.mjs";
 import { QUEUE_OUTBOX_STATUS } from "../../../indexer/src/domain/queue-outbox.ts";
 import { MAKER_REVALIDATION_STATUS } from "../../../indexer/src/domain/maker-revalidation.ts";
+import { ORDER_VALIDATION_BATCH_POLICY } from "../../../indexer/src/domain/order-validation-policy.ts";
 import {
     DATA_PLANE_JOURNEY,
     EXTERNAL_ACTION,
@@ -298,96 +309,100 @@ async function runOneShot(spec, { root, output, env, stopProcess }) {
 
 function observe(database, collectionId) {
     return database
-        .transaction(() => ({
-            collectionId,
-            fillExecutions: database
+        .transaction(() => {
+            const makerRuns = database
                 .prepare(
-                    "SELECT id,chain_id,kind,protocol_address,tx_hash,log_index,block_number,block_hash,block_timestamp,price_exclusion,total_price,currency,nft_quantity FROM fill_executions WHERE chain_id=1 ORDER BY id",
+                    "SELECT run_id,chain_id,source_job_id,payload_json,status,after_id,upper_order_id,upper_rowid,lease_owner,lease_version,lease_until,step,resolved_orders,deferred_orders,generation,pass_generation,pass_started_at,failures,last_error,created_at,updated_at FROM maker_order_revalidation_runs WHERE chain_id=1 AND status<>? ORDER BY run_id",
                 )
-                .all(),
-            // Do not join through parents: orphan items are part of the oracle.
-            fillItems: database
-                .prepare(
-                    "SELECT execution_id,item_index,side,item_type,contract_address,identifier,amount,recipient,unit_offset FROM fill_execution_items ORDER BY execution_id,item_index",
-                )
-                .all(),
-            fillAttributions: database
-                .prepare(
-                    "SELECT chain_id,collection_id,execution_id,item_index,kind,order_id,order_side,maker,taker,contract_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index FROM fills WHERE chain_id=1 ORDER BY execution_id,item_index,collection_id",
-                )
-                .all(),
-            owners: database
-                .prepare(
-                    "SELECT token_id,owner,amount,last_block_number FROM nft_balances WHERE chain_id=1 AND collection_id=? ORDER BY token_id,owner",
-                )
-                .all(collectionId),
-            orders: database
-                .prepare(
-                    "SELECT id,side,fillability_status,source_status,validated_at,state_revision,seaport_data_source_kind FROM orders WHERE chain_id=1 AND collection_id=? ORDER BY id",
-                )
-                .all(collectionId),
-            transfers: database
-                .prepare(
-                    "SELECT chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind FROM nft_transfer_events WHERE chain_id=1 AND collection_id=? ORDER BY block_number,log_index,token_id",
-                )
-                .all(collectionId),
-            activities: database
-                .prepare(
-                    "SELECT kind,block_number,token_id,order_id FROM activities WHERE chain_id=1 AND collection_id=? ORDER BY id",
-                )
-                .all(collectionId),
-            coverage: database
-                .prepare(
-                    "SELECT block_number FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? ORDER BY block_number",
-                )
-                .all(collectionId),
-            headers: database
-                .prepare(
-                    "SELECT block_number,block_hash,parent_hash FROM blocks WHERE chain_id=1 ORDER BY block_number",
-                )
-                .all(),
-            revision:
-                database
+                .all(MAKER_REVALIDATION_STATUS.Completed);
+            return {
+                makerRuns,
+                collectionId,
+                fillExecutions: database
                     .prepare(
-                        "SELECT revision FROM chain_sync_revisions WHERE chain_id=1",
+                        "SELECT id,chain_id,kind,protocol_address,tx_hash,log_index,block_number,block_hash,block_timestamp,price_exclusion,total_price,currency,nft_quantity FROM fill_executions WHERE chain_id=1 ORDER BY id",
                     )
-                    .get()?.revision ?? 0,
-            recovery: database
-                .prepare(
-                    "SELECT * FROM chain_reorg_recoveries WHERE chain_id=1",
-                )
-                .all(),
-            pendingDemand: database
-                .prepare(
-                    "SELECT order_id,next_attempt_at,lease_until,last_error FROM order_validation_demand WHERE chain_id=1 AND pending=1 ORDER BY order_id",
-                )
-                .all(),
-            validationProofs: database
-                .prepare(
-                    "SELECT order_id,generation,pending,proof_revision,proof_at,proof_block,proof_chain_revision FROM order_validation_demand WHERE chain_id=1 ORDER BY order_id",
-                )
-                .all(),
-            pendingOutbox: database
-                .prepare(
-                    "SELECT outbox_id,status FROM queue_outbox WHERE status<>? ORDER BY outbox_id LIMIT 100",
-                )
-                .all(QUEUE_OUTBOX_STATUS.Sent),
-            unfinishedMaker: database
-                .prepare(
-                    "SELECT run_id,status,step,failures,created_at,updated_at,lease_owner,lease_until,last_error FROM maker_order_revalidation_runs WHERE chain_id=1 AND status<>? ORDER BY run_id",
-                )
-                .all(MAKER_REVALIDATION_STATUS.Completed),
-            canonicalChecks: database
-                .prepare(
-                    "SELECT block_number,block_hash FROM blocks WHERE chain_id=1 AND canonical_check_pending=1 ORDER BY block_number",
-                )
-                .all(),
-            observations: database
-                .prepare(
-                    "SELECT channel,event_type,order_id,source_event_at FROM offchain_order_observations WHERE chain_id=1 AND collection_id=? ORDER BY observation_id",
-                )
-                .all(collectionId),
-        }))
+                    .all(),
+                // Do not join through parents: orphan items are part of the oracle.
+                fillItems: database
+                    .prepare(
+                        "SELECT execution_id,item_index,side,item_type,contract_address,identifier,amount,recipient,unit_offset FROM fill_execution_items ORDER BY execution_id,item_index",
+                    )
+                    .all(),
+                fillAttributions: database
+                    .prepare(
+                        "SELECT chain_id,collection_id,execution_id,item_index,kind,order_id,order_side,maker,taker,contract_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index FROM fills WHERE chain_id=1 ORDER BY execution_id,item_index,collection_id",
+                    )
+                    .all(),
+                owners: database
+                    .prepare(
+                        "SELECT token_id,owner,amount,last_block_number FROM nft_balances WHERE chain_id=1 AND collection_id=? ORDER BY token_id,owner",
+                    )
+                    .all(collectionId),
+                orders: database
+                    .prepare(
+                        "SELECT id,side,fillability_status,source_status,validated_at,state_revision,seaport_data_source_kind FROM orders WHERE chain_id=1 AND collection_id=? ORDER BY id",
+                    )
+                    .all(collectionId),
+                transfers: database
+                    .prepare(
+                        "SELECT chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind FROM nft_transfer_events WHERE chain_id=1 AND collection_id=? ORDER BY block_number,log_index,token_id",
+                    )
+                    .all(collectionId),
+                activities: database
+                    .prepare(
+                        "SELECT kind,block_number,token_id,order_id FROM activities WHERE chain_id=1 AND collection_id=? ORDER BY id",
+                    )
+                    .all(collectionId),
+                coverage: database
+                    .prepare(
+                        "SELECT block_number FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? ORDER BY block_number",
+                    )
+                    .all(collectionId),
+                headers: database
+                    .prepare(
+                        "SELECT block_number,block_hash,parent_hash FROM blocks WHERE chain_id=1 ORDER BY block_number",
+                    )
+                    .all(),
+                revision:
+                    database
+                        .prepare(
+                            "SELECT revision FROM chain_sync_revisions WHERE chain_id=1",
+                        )
+                        .get()?.revision ?? 0,
+                recovery: database
+                    .prepare(
+                        "SELECT * FROM chain_reorg_recoveries WHERE chain_id=1",
+                    )
+                    .all(),
+                pendingDemand: database
+                    .prepare(
+                        "SELECT order_id,next_attempt_at,lease_until,last_error FROM order_validation_demand WHERE chain_id=1 AND pending=1 ORDER BY order_id",
+                    )
+                    .all(),
+                validationProofs: database
+                    .prepare(
+                        "SELECT order_id,generation,pending,proof_revision,proof_at,proof_block,proof_chain_revision FROM order_validation_demand WHERE chain_id=1 ORDER BY order_id",
+                    )
+                    .all(),
+                pendingOutbox: database
+                    .prepare(
+                        "SELECT outbox_id,status FROM queue_outbox WHERE status<>? ORDER BY outbox_id LIMIT 100",
+                    )
+                    .all(QUEUE_OUTBOX_STATUS.Sent),
+                unfinishedMaker: makerRuns,
+                canonicalChecks: database
+                    .prepare(
+                        "SELECT block_number,block_hash FROM blocks WHERE chain_id=1 AND canonical_check_pending=1 ORDER BY block_number",
+                    )
+                    .all(),
+                observations: database
+                    .prepare(
+                        "SELECT channel,event_type,order_id,source_event_at FROM offchain_order_observations WHERE chain_id=1 AND collection_id=? ORDER BY observation_id",
+                    )
+                    .all(collectionId),
+            };
+        })
         .deferred();
 }
 
@@ -474,6 +489,7 @@ export async function runDataPlane(
     let observer;
     let collectionId;
     let headProgress;
+    let staleResultCut;
     const checkpoints = [];
     const checks = {};
     const expectedSourceStatuses = {};
@@ -898,6 +914,36 @@ export async function runDataPlane(
         if (scenario.journey === DATA_PLANE_JOURNEY.Fork) {
             activeCheck = CHECK.ReorgRecovery;
             checks[activeCheck] = false;
+            if (scenario.staleResultCut) {
+                // Periodic REST input must finish before the captured attempt.
+                // Keep the real stream subscriber idle for the later S action.
+                await closeSources([
+                    RUNTIME_PROCESS.OpenSeaReconcileScheduler,
+                    RUNTIME_PROCESS.OpenSeaBootstrap,
+                ]);
+                const manager = await broker.connection.jetstreamManager();
+                await eventually(
+                    async () => {
+                        const current = snapshot();
+                        const stream = await manager.streams.info(
+                            resolveNatsJobStreamName(env.NATS_STREAM_PREFIX),
+                        );
+                        return (
+                            current.pendingDemand.length === 0 &&
+                            current.pendingOutbox.length === 0 &&
+                            current.unfinishedMaker.length === 0 &&
+                            current.recovery.length === 0 &&
+                            stream.state.messages === 0
+                        );
+                    },
+                    "retained REST prefix settles before the stale-result cut",
+                    120_000,
+                );
+                checkpoints.push({
+                    name: "stale-result-quiet-prefix",
+                    state: snapshot(),
+                });
+            }
             server.world.setPhase("sale");
             server.world.market.listings = [];
             server.world.advanceHead(104);
@@ -958,20 +1004,119 @@ export async function runDataPlane(
                 http: saleHttp,
                 activity: saleActivity,
             });
+            if (scenario.staleResultCut)
+                staleResultCut = createStaleResultCut({
+                    world: server.world,
+                    ledger,
+                    observe: snapshot,
+                    eventually,
+                    assertAlive: alive,
+                    async admitFreshBidRequirement({ before, orderId }) {
+                        const previous = before.orders.find(
+                            (order) => order.id === orderId,
+                        );
+                        const previousProof = before.validationProofs.find(
+                            (proof) => proof.order_id === orderId,
+                        );
+                        assert.equal(
+                            previous?.seaport_data_source_kind,
+                            ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
+                            "The guarded bid must still be owned by its real REST prefix",
+                        );
+                        const priorSourceEventAt = Math.max(
+                            0,
+                            ...before.observations
+                                .filter((entry) => entry.order_id === orderId)
+                                .map((entry) => entry.source_event_at ?? 0),
+                        );
+                        await eventually(
+                            () =>
+                                Math.floor(Date.now() / 1000) >
+                                priorSourceEventAt,
+                            "a current bid stream timestamp newer than its retained audit input",
+                            ORDER_VALIDATION_BATCH_POLICY.snapshotLifetimeMs,
+                        );
+                        const sourceEventAt = Math.floor(Date.now() / 1000);
+                        const deliveredRecipients = server.pushStreamEvent(
+                            server.world.streamEventFor("bid", {
+                                observedAt: sourceEventAt,
+                            }),
+                        );
+                        assert.ok(
+                            deliveredRecipients > 0,
+                            "The fresh bid requirement must reach the actual stream subscriber",
+                        );
+                        await eventually(
+                            () => {
+                                const current = snapshot();
+                                const order = current.orders.find(
+                                    (row) => row.id === orderId,
+                                );
+                                const proof = current.validationProofs.find(
+                                    (row) => row.order_id === orderId,
+                                );
+                                const fresh = server.world
+                                    .snapshot()
+                                    .responseGates.find(
+                                        (gate) =>
+                                            gate.name ===
+                                            STALE_RESULT_GATE.FreshStatus,
+                                    );
+                                return (
+                                    order?.state_revision >
+                                        previous.state_revision &&
+                                    order.seaport_data_source_kind ===
+                                        ORDER_SEAPORT_DATA_SOURCE_KIND.Stream &&
+                                    proof?.generation >
+                                        (previousProof?.generation ?? 0) &&
+                                    proof.pending === 1 &&
+                                    fresh?.captures.some(
+                                        (capture) =>
+                                            capture.pending &&
+                                            capture.view.branch === "B" &&
+                                            capture.blockNumber === 107 &&
+                                            capture.matchingCalls.some(
+                                                (call) =>
+                                                    call.functionName ===
+                                                        RESPONSE_GATE_FUNCTION.OrderStatus &&
+                                                    call.args[0].toLowerCase() ===
+                                                        orderId,
+                                            ),
+                                    )
+                                );
+                            },
+                            "the first real bid stream input admits a new requirement behind the fresh B status gate",
+                            ORDER_VALIDATION_BATCH_POLICY.snapshotLifetimeMs,
+                        );
+                        return {
+                            sourceEventAt,
+                            priorSourceEventAt,
+                            deliveredRecipients,
+                        };
+                    },
+                });
             server.world.setPhase("fork-held");
             server.world.advanceHead(105);
-            let validationHeld = false;
-            void server.world.waitForBarrier("old-validation").then(() => {
-                validationHeld = true;
-            });
-            await eventually(
-                () => {
-                    alive();
-                    return validationHeld;
-                },
-                "No actual validation reached the requested external response barrier",
-                120_000,
-            );
+            if (staleResultCut) {
+                activeCheck = CHECK.StaleResultSafetyCut;
+                checkpoints.push({
+                    name: STALE_RESULT_PROPERTY.Held,
+                    staleResultCut: await staleResultCut.captureHeld(),
+                });
+            } else {
+                let validationHeld = false;
+                void server.world.waitForBarrier("old-validation").then(() => {
+                    validationHeld = true;
+                });
+                await eventually(
+                    () => {
+                        alive();
+                        return validationHeld;
+                    },
+                    "No actual validation reached the requested external response barrier",
+                    120_000,
+                );
+            }
             if (scenario.splitProviderFork) {
                 const split = await executeSplitProviderFork(
                     scenario.splitProviderFork,
@@ -995,15 +1140,32 @@ export async function runDataPlane(
                 switch (action) {
                     case EXTERNAL_ACTION.CanonicalSwitch:
                         server.world.switchBranch("B", { head: 107 });
-                        await eventually(
-                            () => snapshot().revision > 0,
-                            "actual canonical check and committed rollback",
-                            180_000,
-                        );
+                        if (staleResultCut)
+                            checkpoints.push({
+                                name: STALE_RESULT_PROPERTY.Rollback,
+                                staleResultCut:
+                                    await staleResultCut.captureRollback(),
+                            });
+                        else
+                            await eventually(
+                                () => snapshot().revision > 0,
+                                "actual canonical check and committed rollback",
+                                180_000,
+                            );
                         detail = { committedRevision: snapshot().revision };
                         break;
                     case EXTERNAL_ACTION.ReleaseValidation:
-                        server.world.release("old-validation");
+                        if (staleResultCut) {
+                            const cut =
+                                await staleResultCut.releaseAndAssertRejected();
+                            checks[CHECK.StaleResultSafetyCut] = true;
+                            activeCheck = CHECK.ReorgRecovery;
+                            detail = { staleResultSafetyCut: true };
+                            checkpoints.push({
+                                name: STALE_RESULT_PROPERTY.Rejected,
+                                staleResultCut: cut,
+                            });
+                        } else server.world.release("old-validation");
                         if (
                             scenario.validationRelease ===
                             VALIDATION_RELEASE.BeforeRollback
@@ -1309,29 +1471,30 @@ export async function runDataPlane(
                     resolveNatsJobStreamName(env.NATS_STREAM_PREFIX),
                 );
                 const head = server.world.providerView("default").head;
-                const settled =
-                    current.pendingDemand.length === 0 &&
-                    current.pendingOutbox.length === 0 &&
-                    current.unfinishedMaker.length === 0 &&
-                    current.recovery.length === 0 &&
+                const businessDrained = publishedBusinessWorkDrained(
+                    current,
+                    stream.state.messages,
+                );
+                if (businessDrained && headProgress && !progressStopped) {
+                    headProgress.stop();
+                    progressStopped = true;
+                    // Freeze the finite outside world before requiring its last
+                    // block and mature checks. A consumer may legally trail an
+                    // advancing tip forever while every business job is done.
+                    return false;
+                }
+                return (
+                    businessDrained &&
                     current.canonicalChecks.every(
                         (check) => check.block_number > head - 2,
                     ) &&
-                    stream.state.messages === 0 &&
                     current.coverage.filter(
                         (row) =>
                             row.block_number > acquisitionLedger.anchorBlock,
                     ).length ===
                         head - acquisitionLedger.anchorBlock &&
-                    current.headers.some((row) => row.block_number === head);
-                if (settled && headProgress && !progressStopped) {
-                    headProgress.stop();
-                    progressStopped = true;
-                    // Observe durable obligations once more with the external
-                    // producer stopped, inside the same bounded wait.
-                    return false;
-                }
-                return settled;
+                    current.headers.some((row) => row.block_number === head)
+                );
             },
             "closed-producer durable obligation convergence",
             180_000,
@@ -1419,12 +1582,17 @@ export async function runDataPlane(
                 runtimeProfile:
                     scenario.runtimeProfile ?? RUNTIME_PROFILE.Unrestricted,
                 headProgress: headProgress?.evidence(),
+                staleResultCut: staleResultCut?.evidence(),
                 ...scheduleEvidence(server.world),
             },
         };
     } catch (error) {
         if (scenario.expectedChecks.includes(activeCheck))
             checks[activeCheck] = false;
+        // A missing or expired captured attempt is a coverage gap. Preserve
+        // actual mutation assertions as failed properties of the new check.
+        if (isStaleResultCutUnreached(error))
+            delete checks[CHECK.StaleResultSafetyCut];
         const logTails = await Promise.all(
             processes.map(async (entry) => ({
                 process: entry.id,
@@ -1518,6 +1686,7 @@ export async function runDataPlane(
         };
         throw error;
     } finally {
+        staleResultCut?.abort();
         headProgress?.stop();
         await writeFile(
             path.join(output, "world-trace.json"),

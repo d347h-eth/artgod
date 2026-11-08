@@ -11,6 +11,7 @@ import {
     createHeadProgress,
     HEAD_PROGRESS_EVENT,
     HEAD_PROGRESS_PROPERTY,
+    publishedBusinessWorkDrained,
 } from "./head-progress.mjs";
 
 function fixture(maximumHead = 110) {
@@ -90,6 +91,47 @@ test("a stable final cut cancels further publication before exact assertions", (
     assert.equal(f.cancelled(), true);
     assert.equal(f.events.at(-1).type, HEAD_PROGRESS_EVENT.Cut);
     assert.deepEqual(f.progress.stop(), cut);
+});
+test("business drain freezes a continuously lagging tip before final acquisition and mature checks", () => {
+    const f = fixture();
+    const work = {
+        pendingDemand: [],
+        pendingOutbox: [],
+        unfinishedMaker: [],
+        recovery: [],
+    };
+    const consumer = { head: 106, unchecked: [] };
+    const consume = () => {
+        const head = f.views.default.head;
+        // This bounded lag is a legal async consumer. It catches the fixed tip
+        // only after publication stops; no production timer is mocked here.
+        consumer.head = f.progress.evidence().active ? head - 1 : head;
+        consumer.unchecked = [consumer.head - 2];
+    };
+    f.progress.start();
+    for (const number of [108, 109]) {
+        f.setTime(f.ledger.blockAt("B", number).timestamp * 1000);
+        f.tick();
+        consume();
+        assert.equal(consumer.head, f.views.default.head - 1);
+    }
+    for (const key of Object.keys(work)) {
+        const pending = { ...work, [key]: [{}] };
+        assert.equal(publishedBusinessWorkDrained(pending, 0), false);
+    }
+    assert.equal(publishedBusinessWorkDrained(work, 1), false);
+    assert.equal(publishedBusinessWorkDrained(work, 0), true);
+    const cut = f.progress.stop();
+    assert.equal(cut.head, 109);
+    assert.equal(consumer.head, 108);
+    assert.ok(consumer.unchecked.some((height) => height <= cut.head - 2));
+    f.setTime(f.ledger.blockAt("B", 110).timestamp * 1000);
+    f.tick();
+    consume();
+    assert.equal(f.views.default.head, cut.head);
+    assert.equal(consumer.head, cut.head);
+    // Stopping publication does not complete retained checks on its own.
+    assert.deepEqual(consumer.unchecked, [107]);
 });
 test("exhausting declared history or diverging providers remains an explicit fixture failure", () => {
     const exhausted = fixture(109);

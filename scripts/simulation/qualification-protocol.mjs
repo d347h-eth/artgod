@@ -45,5 +45,6 @@ export const DATA_PLANE_CHECK = Object.freeze({
     StartupMaintenance: "startup-maintenance",
     SafeRefusal: "safe-refusal",
     CollectionBootstrap: "collection-bootstrap",
+    StaleResultSafetyCut: "stale-result-safety-cut",
 });
 export const DATA_PLANE_CHECKS = Object.freeze(Object.values(DATA_PLANE_CHECK));

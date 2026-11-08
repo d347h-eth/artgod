@@ -110,3 +110,72 @@ test("unsupported journeys and hidden external inputs fail rather than qualify a
         /Unknown external world field/,
     );
 });
+
+test("the stale-result safety cut cannot hide its check or run source healing before the guarded release", async () => {
+    const source = JSON.parse(
+        await readFile(
+            new URL(
+                "../scenarios/stale-result-safety-cut.json",
+                import.meta.url,
+            ),
+            "utf8",
+        ),
+    );
+    const action = EXTERNAL_ACTION;
+    for (const schedule of [
+        [
+            action.ReleaseValidation,
+            action.CanonicalSwitch,
+            action.RestoreInventory,
+            action.StreamListing,
+        ],
+        [
+            action.CanonicalSwitch,
+            action.RestoreInventory,
+            action.ReleaseValidation,
+            action.StreamListing,
+        ],
+        [
+            action.CanonicalSwitch,
+            action.StreamListing,
+            action.ReleaseValidation,
+            action.RestoreInventory,
+        ],
+    ])
+        assert.throws(
+            () => validateScenario({ ...source, schedule }),
+            /isolated fork variant/,
+        );
+    assert.throws(
+        () =>
+            validateScenario({
+                ...source,
+                expectedChecks: source.expectedChecks.slice(0, -1),
+            }),
+        /every check/,
+    );
+    assert.throws(
+        () =>
+            validateScenario({
+                ...source,
+                world: {
+                    ...source.world,
+                    scripts: [
+                        {
+                            when: { functionName: "getCounter" },
+                            after: { barrier: "duplicate-old-counter" },
+                        },
+                    ],
+                },
+            }),
+        /isolated fork variant/,
+    );
+    assert.throws(
+        () =>
+            validateScenario({
+                ...source,
+                validationRelease: VALIDATION_RELEASE.BeforeRollback,
+            }),
+        /before-rollback|isolated fork variant/,
+    );
+});

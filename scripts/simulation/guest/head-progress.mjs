@@ -10,6 +10,18 @@ export const HEAD_PROGRESS_PROPERTY = Object.freeze({
 });
 const POLL_MS = 1_000;
 
+/** Whether publication may stop after admitted business work drains. Acquisition
+ * and mature header checks still have to finish against the resulting fixed cut. */
+export function publishedBusinessWorkDrained(observation, retainedMessages) {
+    return (
+        observation.pendingDemand.length === 0 &&
+        observation.pendingOutbox.length === 0 &&
+        observation.unfinishedMaker.length === 0 &&
+        observation.recovery.length === 0 &&
+        retainedMessages === 0
+    );
+}
+
 /** A finite external chain producer. Every header comes from the immutable ledger. */
 export function createHeadProgress({
     world,

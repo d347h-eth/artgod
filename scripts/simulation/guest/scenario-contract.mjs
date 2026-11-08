@@ -90,6 +90,7 @@ export function validateScenario(value) {
         "validationRelease",
         "headProgress",
         "splitProviderFork",
+        "staleResultCut",
     ];
     for (const key of Object.keys(value))
         if (!allowed.includes(key))
@@ -115,12 +116,16 @@ export function validateScenario(value) {
         throw new Error(
             "Data-plane scenario requires an explicit supported journey",
         );
-    const required =
+    const journeyChecks =
         SCENARIO_CHECKS[
             value.kind === SCENARIO_KIND.Qualification
                 ? value.kind
                 : value.journey
         ];
+    const required =
+        value.staleResultCut === true
+            ? [...journeyChecks, CHECK.StaleResultSafetyCut]
+            : journeyChecks;
     if (
         !Array.isArray(value.expectedChecks) ||
         value.expectedChecks.length !== required.length ||
@@ -278,6 +283,27 @@ export function validateScenario(value) {
         )
             throw new Error(
                 "Non-fork head progress requires explicitly declared quiet branch B providers",
+            );
+    }
+    if (value.staleResultCut !== undefined) {
+        const schedule = value.schedule ?? DEFAULT_FORK_SCHEDULE;
+        if (
+            value.staleResultCut !== true ||
+            value.journey !== DATA_PLANE_JOURNEY.Fork ||
+            value.splitProviderFork !== undefined ||
+            (value.world?.scripts?.length ?? 0) !== 0 ||
+            value.validationRelease === VALIDATION_RELEASE.BeforeRollback ||
+            !(
+                schedule.indexOf(EXTERNAL_ACTION.CanonicalSwitch) <
+                    schedule.indexOf(EXTERNAL_ACTION.ReleaseValidation) &&
+                schedule.indexOf(EXTERNAL_ACTION.ReleaseValidation) <
+                    schedule.indexOf(EXTERNAL_ACTION.RestoreInventory) &&
+                schedule.indexOf(EXTERNAL_ACTION.ReleaseValidation) <
+                    schedule.indexOf(EXTERNAL_ACTION.StreamListing)
+            )
+        )
+            throw new Error(
+                "The stale-result safety cut requires an isolated fork variant with canonical switch before release and both source actions later",
             );
     }
     return structuredClone(value);

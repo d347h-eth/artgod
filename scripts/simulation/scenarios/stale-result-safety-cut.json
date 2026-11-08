@@ -1,0 +1,43 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-stale-result-safety-cut-v1",
+    "journey": "fork",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "reorg-recovery",
+        "stale-result-safety-cut"
+    ],
+    "world": {
+        "maximumBlock": 140,
+        "tailBlockIntervalSeconds": 12,
+        "providers": {
+            "default": {
+                "branch": "A",
+                "head": 103
+            },
+            "a": {
+                "branch": "A",
+                "head": 103
+            },
+            "b": {
+                "branch": "A",
+                "head": 103
+            }
+        }
+    },
+    "headProgress": {
+        "maximumHead": 140
+    },
+    "staleResultCut": true,
+    "schedule": [
+        "canonical-switch",
+        "release-validation",
+        "restore-inventory",
+        "stream-listing"
+    ]
+}
