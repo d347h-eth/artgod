@@ -25,6 +25,31 @@ function fixture(options = {}) {
     f.context.processes.splice(0, 1, ...originals);
     let nextPid = 30000;
     let maintenanceCalls = 0;
+    let restartCalls = 0;
+    const proof = {
+        order_id: f.input.orderId,
+        generation: 4,
+        pending: 0,
+        proof_revision: 2,
+        proof_at: 1_800_000_000,
+        proof_block: 103,
+        proof_chain_revision: 0,
+    };
+    f.state.orders[0].state_revision = proof.proof_revision;
+    f.state.validationProofs = options.emptyCoverage ? [] : [proof];
+    if (options.pendingCoverage) proof.pending = 1;
+    if (options.incompleteCoverage) proof.proof_block = null;
+    if (options.removeOrder) {
+        f.state.orders.push({ id: "expired-order", state_revision: 2 });
+        f.state.validationProofs.push({ ...proof, order_id: "expired-order" });
+    }
+    const coverageReads = [];
+    const observe = f.context.observe;
+    f.context.observe = async () => {
+        if (originals.every((entry) => entry.child.signalCode !== null))
+            coverageReads.push({ maintenanceCalls, restartCalls });
+        return observe();
+    };
     const declarations = {
         collections: [{ collection_id: 1, slug: "simulation-two-tokens" }],
         tradingJobs: [
@@ -59,6 +84,7 @@ function fixture(options = {}) {
         }),
     );
     f.context.restartProcess = async (id) => {
+        restartCalls++;
         const index = f.context.processes.findIndex((entry) => entry.id === id);
         const before = f.context.processes[index];
         const replacement = {
@@ -81,6 +107,18 @@ function fixture(options = {}) {
         f.actions.push(["maintenance", spec.id]);
         if (maintenanceCalls === 2 && options.rewriteIntent)
             declarations.tradingJobs[0].floor_wei = "1";
+        if (maintenanceCalls === 2 && options.dropCoverage)
+            f.state.validationProofs = [];
+        if (maintenanceCalls === 2 && options.changeCoverage)
+            proof.proof_block++;
+        if (maintenanceCalls === 2 && options.removeOrder) {
+            f.state.orders = f.state.orders.filter(
+                (order) => order.id !== "expired-order",
+            );
+            f.state.validationProofs = f.state.validationProofs.filter(
+                (item) => item.order_id !== "expired-order",
+            );
+        }
         return {
             artifact: spec.artifact,
             filename: spec.filename,
@@ -99,7 +137,7 @@ function fixture(options = {}) {
             ...(maintenanceCalls === 2 ? { matchingInputRetained: false } : {}),
         });
     }
-    return { ...f, originals, declarations };
+    return { ...f, originals, declarations, coverageReads };
 }
 
 test("complete runtime restart invokes real-artifact maintenance in order and preserves nonempty declared intent", async () => {
@@ -118,12 +156,91 @@ test("complete runtime restart invokes real-artifact maintenance in order and pr
         Object.values(evidence.declarations.counts).every((count) => count > 0),
     );
     assert.equal(evidence.finalQueue.streamMessages, 0);
+    assert.deepEqual(
+        evidence.coverageRetention.before,
+        evidence.coverageRetention.after,
+    );
+    assert.deepEqual(f.coverageReads.slice(0, 2), [
+        { maintenanceCalls: 0, restartCalls: 0 },
+        { maintenanceCalls: 2, restartCalls: 0 },
+    ]);
     assert.ok(
         evidence.restarted.every((actor) => actor.pid !== actor.previousPid),
     );
     assert.equal(
         f.actions.filter((action) => action[0] === "sources-closed").length,
         2,
+    );
+});
+
+test("empty completed coverage cannot qualify the maintenance retention fixture", async () => {
+    for (const options of [
+        { emptyCoverage: true },
+        { pendingCoverage: true },
+        { incompleteCoverage: true },
+    ]) {
+        const f = fixture(options);
+        await assert.rejects(executeStartupMaintenance(f.context), (error) => {
+            assert.equal(
+                error.failureProperty,
+                STARTUP_LIFECYCLE_PROPERTY.CoverageFixture,
+            );
+            assert.deepEqual(
+                error.simulation.lifecycle.coverageRetention.before
+                    .validationProofs,
+                f.state.validationProofs,
+            );
+            return /nonempty completed validation coverage/.test(error.message);
+        });
+        assert.ok(!f.actions.some(([action]) => action === "maintenance"));
+    }
+});
+
+test("lost or changed saved coverage fails before any actor restarts with both snapshots retained", async () => {
+    for (const options of [{ dropCoverage: true }, { changeCoverage: true }]) {
+        const f = fixture(options);
+        await assert.rejects(executeStartupMaintenance(f.context), (error) => {
+            assert.equal(
+                error.failureProperty,
+                STARTUP_LIFECYCLE_PROPERTY.CoverageRetained,
+            );
+            const retained = error.simulation.lifecycle.coverageRetention;
+            assert.equal(retained.before.validationProofs.length, 1);
+            assert.notDeepEqual(
+                retained.before.validationProofs,
+                retained.after.validationProofs,
+            );
+            assert.deepEqual(retained.retainedOrderIds, [f.input.orderId]);
+            assert.deepEqual(f.coverageReads.at(-1), {
+                maintenanceCalls: 2,
+                restartCalls: 0,
+            });
+            assert.ok(
+                f.context.processes.every(
+                    (entry) => entry.child.signalCode === "SIGKILL",
+                ),
+            );
+            return /preserve saved completed validation coverage unchanged/.test(
+                error.message,
+            );
+        });
+    }
+});
+
+test("proof removal for a genuinely removed order does not violate retained-order coverage", async () => {
+    const f = fixture({ removeOrder: true });
+    const evidence = await executeStartupMaintenance(f.context);
+    assert.deepEqual(evidence.coverageRetention.removedOrderIds, [
+        "expired-order",
+    ]);
+    assert.deepEqual(evidence.coverageRetention.retainedOrderIds, [
+        f.input.orderId,
+    ]);
+    assert.ok(
+        evidence.events.some(
+            (item) =>
+                item.event === STARTUP_LIFECYCLE_PROPERTY.CoverageRetained,
+        ),
     );
 });
 

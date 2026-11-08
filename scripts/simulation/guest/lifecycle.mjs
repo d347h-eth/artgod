@@ -12,7 +12,9 @@ export const STARTUP_LIFECYCLE_KIND = "startup-maintenance";
 export const STARTUP_LIFECYCLE_PROPERTY = Object.freeze({
     Fixture: "nonempty-operator-declaration-fixture",
     Stopped: "complete-runtime-stopped",
+    CoverageFixture: "nonempty-completed-validation-coverage",
     Maintenance: "production-startup-maintenance-completed",
+    CoverageRetained: "completed-validation-coverage-retained",
     Retained: "maintenance-preserves-retained-input",
     Restarted: "complete-production-runtime-restarted",
     Preserved: "operator-declarations-and-commands-preserved",
@@ -39,6 +41,32 @@ function assertDeclarations(snapshot) {
         );
 }
 
+async function observeValidationCoverage(context) {
+    const snapshot = await context.observe();
+    assert.ok(
+        Array.isArray(snapshot?.orders) &&
+            Array.isArray(snapshot?.validationProofs),
+        "Read-only canonical orders and saved validation coverage are required",
+    );
+    return structuredClone({
+        orders: snapshot.orders,
+        validationProofs: snapshot.validationProofs,
+    });
+}
+
+function completedCoverage(snapshot) {
+    const orders = new Set(snapshot.orders.map((order) => order.id));
+    return snapshot.validationProofs.filter(
+        (proof) =>
+            orders.has(proof.order_id) &&
+            proof.pending === 0 &&
+            Number.isSafeInteger(proof.proof_revision) &&
+            proof.proof_at > 0 &&
+            Number.isSafeInteger(proof.proof_block) &&
+            Number.isSafeInteger(proof.proof_chain_revision),
+    );
+}
+
 /**
  * Start with actual user-authored job/tier input through backend HTTP. Capture
  * only declared fields and pending trading commands through observeDeclarations;
@@ -52,7 +80,12 @@ export async function executeStartupMaintenance(
     context,
     { timeoutMs = 180_000 } = {},
 ) {
-    for (const name of ["restartProcess", "runOneShot", "observeDeclarations"])
+    for (const name of [
+        "restartProcess",
+        "runOneShot",
+        "observeDeclarations",
+        "observe",
+    ])
         assert.equal(
             typeof context?.[name],
             "function",
@@ -131,6 +164,19 @@ export async function executeStartupMaintenance(
                 record(STARTUP_LIFECYCLE_PROPERTY.Stopped, {
                     actors: originals.map(({ id, pid }) => ({ id, pid })),
                 });
+                phase = current.phase =
+                    STARTUP_LIFECYCLE_PROPERTY.CoverageFixture;
+                const coverage = (current.coverageRetention = {
+                    before: await observeValidationCoverage(context),
+                });
+                const completed = completedCoverage(coverage.before);
+                assert.ok(
+                    completed.length > 0,
+                    "Startup retention requires nonempty completed validation coverage before maintenance",
+                );
+                record(STARTUP_LIFECYCLE_PROPERTY.CoverageFixture, {
+                    orderIds: completed.map((proof) => proof.order_id),
+                });
                 phase = current.phase = STARTUP_LIFECYCLE_PROPERTY.Maintenance;
                 const outputs = new Set();
                 current.maintenance = [];
@@ -171,6 +217,38 @@ export async function executeStartupMaintenance(
                 }
                 record(STARTUP_LIFECYCLE_PROPERTY.Maintenance, {
                     artifacts: maintenance.map((spec) => spec.artifact),
+                });
+                phase = current.phase =
+                    STARTUP_LIFECYCLE_PROPERTY.CoverageRetained;
+                coverage.after = await observeValidationCoverage(context);
+                const retainedOrders = new Set(
+                    coverage.after.orders.map((order) => order.id),
+                );
+                const retained = completed.filter((proof) =>
+                    retainedOrders.has(proof.order_id),
+                );
+                coverage.retainedOrderIds = retained.map(
+                    (proof) => proof.order_id,
+                );
+                coverage.removedOrderIds = completed
+                    .filter((proof) => !retainedOrders.has(proof.order_id))
+                    .map((proof) => proof.order_id);
+                assert.ok(
+                    retained.length > 0,
+                    "Startup retention requires completed coverage for at least one retained canonical order",
+                );
+                for (const proof of retained)
+                    assert.deepEqual(
+                        coverage.after.validationProofs.find(
+                            (candidate) =>
+                                candidate.order_id === proof.order_id,
+                        ),
+                        proof,
+                        `Maintenance must preserve saved completed validation coverage unchanged for retained order ${proof.order_id}`,
+                    );
+                record(STARTUP_LIFECYCLE_PROPERTY.CoverageRetained, {
+                    orderIds: coverage.retainedOrderIds,
+                    removedOrderIds: coverage.removedOrderIds,
                 });
                 phase = current.phase = STARTUP_LIFECYCLE_PROPERTY.Retained;
                 const pending = await context.queueState(input);
