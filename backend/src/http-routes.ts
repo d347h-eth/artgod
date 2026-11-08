@@ -643,7 +643,7 @@ export function registerApiRoutes(
     registerObservedGet<ListCollectionBiddingPriceTiersRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/bidding/price-tiers",
+        TRADING_API_ROUTE_TEMPLATE.BiddingPriceTiers,
         listCollectionBiddingPriceTiersAdapter.handle,
     );
     registerObservedGet<ListBiddingJobCeilingPrefillsRoute>(
@@ -655,13 +655,13 @@ export function registerApiRoutes(
     registerObservedGet<PreviewBiddingPriceTierReapplyRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview",
+        TRADING_API_ROUTE_TEMPLATE.BiddingPriceTierReapplyPreview,
         previewBiddingPriceTierReapplyAdapter.handle,
     );
     registerObservedGet<GetTokenBiddingJobRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        TRADING_API_ROUTE_TEMPLATE.TokenBiddingJob,
         getTokenBiddingJobAdapter.handle,
     );
     registerObservedPost<LookupBiddingJobTargetRoute>(
@@ -739,7 +739,7 @@ export function registerApiRoutes(
     registerObservedPut<UpsertTokenBiddingJobRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        TRADING_API_ROUTE_TEMPLATE.TokenBiddingJob,
         upsertTokenBiddingJobAdapter.handle,
     );
     registerObservedPut<UpsertTraitBiddingJobRoute>(
@@ -763,7 +763,7 @@ export function registerApiRoutes(
     registerObservedPut<UpsertCollectionBiddingPriceTierRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/bidding/price-tiers",
+        TRADING_API_ROUTE_TEMPLATE.BiddingPriceTiers,
         upsertCollectionBiddingPriceTierAdapter.handle,
     );
     registerObservedPut<UpdateCollectionBiddingSettingsRoute>(
@@ -775,13 +775,13 @@ export function registerApiRoutes(
     registerObservedPost<ApplyBiddingPriceTierReapplyRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply",
+        TRADING_API_ROUTE_TEMPLATE.BiddingPriceTierReapply,
         applyBiddingPriceTierReapplyAdapter.handle,
     );
     registerObservedDelete<ArchiveTokenBiddingJobRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        TRADING_API_ROUTE_TEMPLATE.TokenBiddingJob,
         archiveTokenBiddingJobAdapter.handle,
     );
     registerObservedDelete<ArchiveBiddingJobRoute>(
@@ -793,7 +793,7 @@ export function registerApiRoutes(
     registerObservedDelete<ArchiveCollectionBiddingPriceTierRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id",
+        TRADING_API_ROUTE_TEMPLATE.BiddingPriceTier,
         archiveCollectionBiddingPriceTierAdapter.handle,
     );
     registerObservedPost<RetryBootstrapRunFailedTasksRoute>(

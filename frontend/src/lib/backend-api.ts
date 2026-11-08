@@ -1,5 +1,9 @@
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import {
+	buildBiddingPriceTiersPath,
+	buildBiddingPriceTierReapplyPreviewPath,
+	buildBiddingPriceTierReapplyPath,
+	buildTokenBiddingJobPath,
 	buildCompetitionPresetsPath,
 	buildCompetitionPresetReapplyPreviewPath,
 	buildCompetitionPresetReapplyPath
@@ -461,7 +465,7 @@ export async function getCollectionBiddingPriceTiers(
 ): Promise<CollectionBiddingPriceTiersApiResponse> {
 	return requestJson<CollectionBiddingPriceTiersApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`
+		buildBiddingPriceTiersPath(chainRef, collectionRef)
 	);
 }
 
@@ -473,7 +477,7 @@ export async function getTokenBiddingJob(
 ): Promise<TokenBiddingJobApiResponse> {
 	return requestJson<TokenBiddingJobApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef)
 	);
 }
 
@@ -505,7 +509,7 @@ export async function upsertTokenBiddingJob(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef),
 		'PUT',
 		body
 	);
@@ -520,7 +524,7 @@ export async function archiveTokenBiddingJob(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef),
 		'DELETE',
 		{}
 	);
@@ -711,7 +715,7 @@ export async function upsertCollectionBiddingPriceTier(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`,
+		buildBiddingPriceTiersPath(chainRef, collectionRef),
 		'PUT',
 		body
 	);
@@ -744,7 +748,7 @@ export async function archiveCollectionBiddingPriceTier(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}`,
+		buildBiddingPriceTiersPath(chainRef, collectionRef, tierId),
 		'DELETE',
 		{}
 	);
@@ -758,7 +762,7 @@ export async function previewBiddingPriceTierReapply(
 ): Promise<BiddingPriceTierReapplyPreviewApiResponse> {
 	return requestJson<BiddingPriceTierReapplyPreviewApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`
+		buildBiddingPriceTierReapplyPreviewPath(chainRef, collectionRef, tierId)
 	);
 }
 
@@ -774,7 +778,7 @@ export async function applyBiddingPriceTierReapply(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BiddingPriceTierReapplyApplyApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply`,
+		buildBiddingPriceTierReapplyPath(chainRef, collectionRef, tierId),
 		'POST',
 		body
 	);

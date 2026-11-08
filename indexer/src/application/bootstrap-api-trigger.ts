@@ -22,9 +22,8 @@ import {
 import { SETTINGS_DEFAULTS } from "@artgod/shared/config/generated-settings-defaults";
 import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import {
-    API_CSRF_COOKIE_NAME,
-    API_CSRF_HEADER_NAME,
     API_CSRF_ROUTE_PATH,
+    buildApiCsrfHeaders,
 } from "@artgod/shared/http/api-security";
 import {
     buildInspectBootstrapSamplePath,
@@ -83,8 +82,6 @@ const BOOTSTRAP_TRIGGER_HTTP_METHOD = {
 const BOOTSTRAP_TRIGGER_HEADER = {
     Accept: "accept",
     ContentType: "content-type",
-    Cookie: "cookie",
-    Origin: "origin",
 } as const;
 
 export type BootstrapTriggerCliArgs = {
@@ -802,11 +799,5 @@ function csrfHeaders(
     backendOrigin: string,
     csrfToken: string,
 ): Record<string, string> {
-    return {
-        [BOOTSTRAP_TRIGGER_HEADER.ContentType]:
-            BOOTSTRAP_TRIGGER_JSON_CONTENT_TYPE,
-        [BOOTSTRAP_TRIGGER_HEADER.Cookie]: `${API_CSRF_COOKIE_NAME}=${csrfToken}`,
-        [BOOTSTRAP_TRIGGER_HEADER.Origin]: backendOrigin,
-        [API_CSRF_HEADER_NAME]: csrfToken,
-    };
+    return buildApiCsrfHeaders(backendOrigin, csrfToken);
 }
