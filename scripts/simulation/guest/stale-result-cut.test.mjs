@@ -8,7 +8,16 @@ import {
     custom,
 } from "viem";
 import { createSimulationWorld } from "../world/world.mjs";
-import { CONTRACT_ABI, wireQuantity } from "../world/wire.mjs";
+import {
+    CONTRACT_ABI,
+    wireQuantity,
+    ZERO_ADDRESS,
+    DEPLOYLESS_MULTICALL3,
+} from "../world/wire.mjs";
+import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
+import { REORG_RECOVERY_PHASE } from "../../../indexer/src/domain/reorg-recovery.ts";
+import { baselineFillFacts } from "./fixtures/fill-facts.mjs";
+import { parseRpcHttpRequestTimeoutMs } from "../../../shared/config/rpc-resilience.ts";
 import { MAKER_REVALIDATION_STATUS } from "../../../indexer/src/domain/maker-revalidation.ts";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../../indexer/src/domain/order-validation-policy.ts";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
@@ -26,6 +35,7 @@ import {
     isStaleResultCutUnreached,
     isStaleResultCutRuntimeFailure,
     STALE_RESULT_GATE,
+    STALE_RESULT_FINISH_FAILURE,
     STALE_RESULT_PROPERTY as PROPERTY,
 } from "./stale-result-cut.mjs";
 
@@ -39,15 +49,34 @@ async function fixture({
     freshAdmission = true,
     livenessError,
     counterRetry,
+    freshStatusCapture = true,
+    releaseReason = STALE_RESULT_FINISH_FAILURE,
+    requestTimeoutMs = parseRpcHttpRequestTimeoutMs({}),
+    finishReadCount = 1,
+    escapedStatus = false,
 } = {}) {
     const world = createSimulationWorld({
         epochSeconds: 1_000_000,
         providers: { default: { branch: "A", head: 105 } },
+        scripts: escapedStatus
+            ? [
+                  {
+                      when: {
+                          functionName:
+                              escapedStatus === "aggregate"
+                                  ? DEPLOYLESS_MULTICALL3.functionName
+                                  : "getOrderStatus",
+                      },
+                      after: { barrier: "prearmed-status" },
+                  },
+              ]
+            : [],
     });
     const { ledger } = world;
     let time = ledger.epochSeconds * 1000 + 10_000;
     let retryResult;
     const state = {
+        ...baselineFillFacts(ledger, { branch: "A", head: 105 }),
         revision: 0,
         recovery: [],
         coverage: [],
@@ -131,6 +160,31 @@ async function fixture({
                 wireQuantity(number),
             ],
         });
+    const aggregate = (functionName, args, number) =>
+        createPublicClient({
+            transport: custom({
+                request: ({ method, params }) =>
+                    world.handleRpc("default", {
+                        jsonrpc: "2.0",
+                        id: 4,
+                        method,
+                        params,
+                    }),
+            }),
+        }).multicall({
+            contracts: [
+                {
+                    address: ledger.addresses.seaport,
+                    abi: CONTRACT_ABI,
+                    functionName,
+                    args,
+                },
+            ],
+            blockNumber: BigInt(number),
+            deployless: true,
+            batchSize: 0,
+            allowFailure: true,
+        });
     const controller = createStaleResultCut({
         world,
         ledger,
@@ -139,6 +193,7 @@ async function fixture({
             if (livenessError) throw livenessError;
         },
         now: () => time,
+        requestTimeoutMs,
         admitFreshBidRequirement() {
             if (!freshAdmission) {
                 track(
@@ -161,7 +216,10 @@ async function fixture({
                 channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
                 source_event_at: sourceEventAt,
             });
-            track(call("getOrderStatus", [ledger.orders.bid.orderHash], 107));
+            if (freshStatusCapture)
+                track(
+                    call("getOrderStatus", [ledger.orders.bid.orderHash], 107),
+                );
             return { sourceEventAt, deliveredRecipients: 1 };
         },
         async eventually(predicate, label) {
@@ -188,34 +246,18 @@ async function fixture({
                             ),
                         });
                     if (counterRetry === "aggregate") {
-                        const client = createPublicClient({
-                            transport: custom({
-                                request: ({ method, params }) =>
-                                    world.handleRpc("default", {
-                                        jsonrpc: "2.0",
-                                        id: 4,
-                                        method,
-                                        params,
-                                    }),
-                            }),
-                        });
-                        const results = await client.multicall({
-                            contracts: [
-                                {
-                                    address: ledger.addresses.seaport,
-                                    abi: CONTRACT_ABI,
-                                    functionName: "getCounter",
-                                    args: [ledger.addresses.bidder],
-                                },
-                            ],
-                            blockNumber: 105n,
-                            deployless: true,
-                            batchSize: 0,
-                            allowFailure: true,
-                        });
+                        const results = await aggregate(
+                            "getCounter",
+                            [ledger.addresses.bidder],
+                            105,
+                        );
                         retryResult = results[0].result;
                     }
-                    if (finishRead)
+                    for (
+                        let index = 0;
+                        finishRead && index < finishReadCount;
+                        index++
+                    )
                         await world.handleRpc("default", {
                             jsonrpc: "2.0",
                             id: 3,
@@ -226,6 +268,8 @@ async function fixture({
                         state.makerRuns[0].failures++;
                         state.makerRuns[0].lease_owner = null;
                         state.makerRuns[0].lease_until = 0;
+                        state.makerRuns[0].last_error = releaseReason;
+                        state.makerRuns[0].updated_at = time;
                     }
                     onOldReply?.(state, world);
                 },
@@ -233,16 +277,70 @@ async function fixture({
         );
     startOld();
     await world.waitForResponseGate(STALE_RESULT_GATE.OldCounter);
+    if (escapedStatus) {
+        track(
+            escapedStatus === "aggregate"
+                ? aggregate(
+                      "getOrderStatus",
+                      [ledger.orders.bid.orderHash],
+                      105,
+                  )
+                : call("getOrderStatus", [ledger.orders.bid.orderHash], 105),
+        );
+        await world.waitForBarrier("prearmed-status");
+    }
     const rollback = () => {
         world.switchBranch("B", { head: 107 });
         state.revision = 1;
-        state.coverage = Array.from({ length: 7 }, (_, i) => ({
+        state.recovery = [
+            {
+                chain_id: ledger.chainId,
+                recovery_id: "actual-retained-recovery",
+                revision: 1,
+                phase: REORG_RECOVERY_PHASE.Resync,
+                checked_block: 104,
+                stored_hash: ledger.blockAt("A", 104).hash,
+                observed_hash: ledger.blockAt("B", 104).hash,
+                range_from: 104,
+                range_to: 105,
+                target_block: 107,
+            },
+        ];
+        state.coverage = Array.from({ length: 3 }, (_, i) => ({
             block_number: 101 + i,
         }));
         state.headers = state.coverage.map(({ block_number }) => ({
             block_number,
             block_hash: ledger.blockAt("B", block_number).hash,
+            parent_hash: ledger.blockAt("B", block_number).parentHash,
         }));
+        state.owners = ["1", "2"].map((token_id) => ({
+            token_id,
+            owner: ledger.addresses.seller,
+            amount: "1",
+        }));
+        // Reviewed two-mint wire truth table, independent of product reducers.
+        state.transfers = [101, 102].map((number) => {
+            const block = ledger.blockAt("B", number);
+            return {
+                chain_id: ledger.chainId,
+                collection_id: state.collectionId,
+                contract_address: ledger.addresses.nft,
+                from_address: ZERO_ADDRESS,
+                to_address: ledger.addresses.seller,
+                token_id: String(number - 100),
+                amount: "1",
+                block_number: number,
+                block_hash: block.hash,
+                block_timestamp: block.timestamp,
+                tx_hash: block.logs[0].transactionHash,
+                log_index: 0,
+                kind: COLLECTION_STANDARD.Erc721,
+            };
+        });
+        state.fillExecutions = [];
+        state.fillItems = [];
+        state.fillAttributions = [];
     };
     return {
         world,
@@ -666,15 +764,214 @@ test("native actor death preserves the original liveness cause instead of becomi
     }
 });
 
-test("the baseline is captured only after real B headers, coverage and recovery observations", async () => {
+test("the committed rollback cut rejects orphan effects and requires its real retained recovery range", async () => {
+    for (const corrupt of [
+        (f) => {
+            f.state.recovery = [];
+        },
+        (f) => {
+            f.state.recovery[0].target_block = 106;
+        },
+        (f) => {
+            f.state.headers[2].block_hash = f.ledger.blockAt("A", 105).hash;
+        },
+        (f) => {
+            f.state.owners[0].owner = f.ledger.addresses.buyer;
+        },
+        (f) => {
+            f.state.fillItems.push({ execution_id: "orphan-child" });
+        },
+    ]) {
+        const f = await fixture();
+        try {
+            await f.controller.captureHeld();
+            f.rollback();
+            corrupt(f);
+            await assert.rejects(
+                f.controller.captureRollback(),
+                isStaleResultCutUnreached,
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("active recovery may retain pending fresh demand without starting any new status RPC", async () => {
+    const f = await fixture({ freshStatusCapture: false });
+    try {
+        await prepare(f);
+        const result = await f.controller.releaseAndAssertRejected();
+        assert.equal(result.baseline.proof.pending, 1);
+        assert.equal(
+            result.rollback.recovery.phase,
+            REORG_RECOVERY_PHASE.Resync,
+        );
+        const fresh = result.responseGatesAtCut.find(
+            (gate) => gate.name === STALE_RESULT_GATE.FreshStatus,
+        );
+        assert.deepEqual(fresh.captures, []);
+        assert.deepEqual(result.freshStatusResponses, []);
+        assert.equal(
+            result.failedRelease.last_error,
+            STALE_RESULT_FINISH_FAILURE,
+        );
+        assert.ok(result.timing.completedAt < result.timing.transportDeadline);
+    } finally {
+        await f.close();
+    }
+});
+
+test("concurrent valid B acquisition does not require resync to finish before the cut", async () => {
     const f = await fixture();
     try {
         await f.controller.captureHeld();
         f.rollback();
-        f.state.headers[4].block_hash = f.ledger.blockAt("A", 105).hash;
+        for (const number of [106, 107]) {
+            const block = f.ledger.blockAt("B", number);
+            f.state.coverage.push({ block_number: number });
+            f.state.headers.push({
+                block_number: number,
+                block_hash: block.hash,
+                parent_hash: block.parentHash,
+            });
+        }
+        await f.controller.captureRollback();
+        assert.equal(
+            (await f.controller.releaseAndAssertRejected()).reached
+                .durableFailedRelease,
+            true,
+        );
+    } finally {
+        await f.close();
+    }
+});
+
+test("generic durable errors plus a completed B105 header cannot credit snapshot refusal", async () => {
+    for (const releaseReason of [
+        "Error: unrelated SQLite error",
+        "Error: ABI decode failed",
+        "OrderValidationSnapshotUnavailable: Validation snapshot lifetime exceeded",
+    ]) {
+        const f = await fixture({ releaseReason });
+        try {
+            await prepare(f);
+            await assert.rejects(
+                f.controller.releaseAndAssertRejected(),
+                isStaleResultCutUnreached,
+            );
+            assert.equal(f.state.makerRuns[0].failures, 1);
+            assert.ok(
+                f.world.trace.some(
+                    (entry) =>
+                        entry.type === "response" &&
+                        entry.method === "eth_getBlockByNumber",
+                ),
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("the exact finish reason cannot credit a different maker or a replacement lease", async () => {
+    for (const replacement of ["maker", "lease"]) {
+        const f = await fixture({
+            durableRelease: replacement !== "maker",
+            onOldReply(state) {
+                if (replacement === "maker")
+                    state.makerRuns.push({
+                        ...state.makerRuns[0],
+                        run_id: "different-maker-run",
+                        failures: 1,
+                        lease_owner: null,
+                        lease_until: 0,
+                        last_error: STALE_RESULT_FINISH_FAILURE,
+                    });
+                else state.makerRuns[0].lease_version++;
+            },
+        });
+        try {
+            await prepare(f);
+            await assert.rejects(
+                f.controller.releaseAndAssertRejected(),
+                isStaleResultCutUnreached,
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("a status response encoded before the global gate cannot escape unnoticed after arm", async () => {
+    for (const escapedStatus of [true, "aggregate"]) {
+        const f = await fixture({ escapedStatus });
+        try {
+            await f.controller.captureHeld();
+            f.rollback();
+            f.world.release("prearmed-status");
+            await setImmediate();
+            await assert.rejects(
+                f.controller.captureRollback(),
+                (error) =>
+                    error.property === PROPERTY.Projection &&
+                    !isStaleResultCutUnreached(error),
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("the original HTTP deadline is stricter than lease and snapshot lifetime", async () => {
+    const f = await fixture({ requestTimeoutMs: 1500 });
+    try {
+        await f.controller.captureHeld();
+        f.rollback();
+        f.setTime(f.state.makerRuns[0].pass_started_at + 1501);
         await assert.rejects(
             f.controller.captureRollback(),
             isStaleResultCutUnreached,
+        );
+    } finally {
+        await f.close();
+    }
+});
+
+test("supporting B105 traffic may be concurrent when the original row has the exact finish refusal", async () => {
+    const f = await fixture({ finishReadCount: 2 });
+    try {
+        await prepare(f);
+        const result = await f.controller.releaseAndAssertRejected();
+        assert.equal(
+            result.failedRelease.last_error,
+            STALE_RESULT_FINISH_FAILURE,
+        );
+        assert.equal(result.oldSnapshotHeaderCandidates.length, 2);
+    } finally {
+        await f.close();
+    }
+});
+
+test("an exact refusal completed beyond the original transport deadline remains unproved", async () => {
+    const f = await fixture({
+        onOldReply(state) {
+            f.setTime(
+                state.makerRuns[0].pass_started_at +
+                    parseRpcHttpRequestTimeoutMs({}) +
+                    1,
+            );
+        },
+    });
+    try {
+        await prepare(f);
+        await assert.rejects(
+            f.controller.releaseAndAssertRejected(),
+            isStaleResultCutUnreached,
+        );
+        assert.equal(
+            f.state.makerRuns[0].last_error,
+            STALE_RESULT_FINISH_FAILURE,
         );
     } finally {
         await f.close();

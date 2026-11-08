@@ -8,12 +8,15 @@ import {
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../../indexer/src/domain/order-validation-policy.ts";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import { OFFCHAIN_OBSERVATION_CHANNEL } from "../../../indexer/src/domain/offchain-jobs.ts";
+import { REORG_RECOVERY_PHASE } from "../../../indexer/src/domain/reorg-recovery.ts";
+import { OrderValidationSnapshotUnavailable } from "../../../indexer/src/domain/order-validation-failure.ts";
 import {
     RESPONSE_GATE_FUNCTION,
     RESPONSE_GATE_EVENT,
 } from "../world/contract.mjs";
 import { decodeCall, decodeDeploylessMulticall } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
+import { assertCanonicalAcquisition } from "./oracle.mjs";
 
 export const STALE_RESULT_GATE = Object.freeze({
     OldCounter: "stale-old-counter",
@@ -35,6 +38,17 @@ export const isStaleResultCutUnreached = (error) =>
     error?.code === STALE_RESULT_CUT_UNREACHED_CODE;
 export const isStaleResultCutRuntimeFailure = (error) =>
     error?.property === STALE_RESULT_PROPERTY.Runtime;
+
+// Deliberate SQLite storage-wire assertion: SqliteMakerRevalidations.release
+// serializes String(error). The message has one production throw site in
+// application/offchain/seaport-validation-batch.ts finish(), while the error
+// class/name remains owned by domain/order-validation-failure.ts. A generic
+// failed release plus unrelated header traffic cannot establish this cut.
+export const STALE_RESULT_FINISH_FAILURE = String(
+    new OrderValidationSnapshotUnavailable(
+        "Validation snapshot changed before commit",
+    ),
+);
 
 const PAGE_FIELDS = [
     "after_id",
@@ -68,8 +82,9 @@ const pick = (row, keys) =>
  *
  * Caller quiesces periodic REST producers and retained source input first. The
  * real stream subscriber admits one explicitly authored first bid observation
- * after B recovery, establishing a newer source-revision/demand fence before
- * the old reply is released. Later canonical re-admission remains external too.
+ * after the committed rollback while resync is still active, establishing a
+ * newer source-revision/demand fence before the old reply is released. Full
+ * resync and final canonical/HTTP convergence remain the caller's later checks.
  */
 export function createStaleResultCut({
     world,
@@ -78,6 +93,7 @@ export function createStaleResultCut({
     eventually,
     assertAlive,
     admitFreshBidRequirement,
+    requestTimeoutMs,
     now = Date.now,
 }) {
     for (const callback of [
@@ -88,6 +104,7 @@ export function createStaleResultCut({
         now,
     ])
         assert.equal(typeof callback, "function");
+    assert.ok(Number.isSafeInteger(requestTimeoutMs) && requestTimeoutMs > 0);
     const orderId = ledger.orders.bid.orderHash;
     const evidence = {
         version: 1,
@@ -152,6 +169,10 @@ export function createStaleResultCut({
             original && time < original.lease_until,
             "The captured maker lease expired before the controlled rejection cut",
         );
+        requireCut(
+            original && time < original.pass_started_at + requestTimeoutMs,
+            "The original RPC transport lifetime cannot be proved at this cut",
+        );
         // pass_started_at precedes snapshot creation, giving a conservative
         // lifetime bound without an internal validator hook or fabricated clock.
         requireCut(
@@ -199,11 +220,20 @@ export function createStaleResultCut({
         );
         return capture;
     };
+    const assertFixedRecoveryHead = () => {
+        requireCut(
+            ORDER_VALIDATION_BATCH_POLICY.maxHeadAdvance === 2 &&
+                Object.values(world.snapshot().providers).every(
+                    (view) => view.branch === "B" && view.head === 107,
+                ),
+            "The controlled finish cut requires fixed B107 providers and the owning two-block advance policy",
+        );
+    };
     const completedOldSnapshotHeader = (afterSequence) => {
+        const candidates = [];
         for (const request of world.trace) {
             if (
                 request.type !== "request" ||
-                request.sequence <= afterSequence ||
                 request.method !== "eth_getBlockByNumber" ||
                 request.params?.[0] !== "0x69"
             )
@@ -223,9 +253,90 @@ export function createStaleResultCut({
                     entry.requestIndex === request.requestIndex &&
                     entry.sequence > (read?.sequence ?? Infinity),
             );
-            if (read && completion) return { request, read, completion };
+            if (
+                request.sequence > afterSequence ||
+                completion?.sequence > afterSequence
+            )
+                candidates.push({ request, read, completion });
         }
-        return undefined;
+        evidence.oldSnapshotHeaderCandidates = structuredClone(candidates);
+        return candidates.find(
+            (candidate) =>
+                candidate.request.sequence > afterSequence &&
+                candidate.read &&
+                candidate.completion,
+        );
+    };
+    const callsForRequest = (request) => {
+        const aggregate = world.trace.find(
+            (entry) =>
+                entry.type === "read" &&
+                entry.requestIndex === request.requestIndex,
+        )?.aggregateCalls;
+        const transaction = request.params?.[0];
+        return (
+            aggregate ??
+            (transaction.to
+                ? [
+                      {
+                          target: transaction.to,
+                          ...decodeCall(transaction.data ?? transaction.input),
+                      },
+                  ]
+                : decodeDeploylessMulticall(
+                      transaction.data ?? transaction.input,
+                  ).map((call) => ({
+                      target: call.target,
+                      ...decodeCall(call.callData),
+                  })))
+        );
+    };
+    const assertFreshRepliesBlocked = () => {
+        const current = gate(STALE_RESULT_GATE.FreshStatus);
+        const armedAt = current?.events.find(
+            (entry) => entry.type === RESPONSE_GATE_EVENT.Armed,
+        )?.sequence;
+        const responses = world.trace.filter((entry) => {
+            if (
+                entry.type !== "response" ||
+                entry.sequence <= armedAt ||
+                entry.method !== "eth_call"
+            )
+                return false;
+            const request = world.trace.find(
+                (candidate) =>
+                    candidate.type === "request" &&
+                    candidate.requestIndex === entry.requestIndex,
+            );
+            return (
+                request &&
+                callsForRequest(request).some(
+                    (call) =>
+                        call.functionName ===
+                            RESPONSE_GATE_FUNCTION.OrderStatus &&
+                        call.target?.toLowerCase() === ledger.addresses.seaport,
+                )
+            );
+        });
+        evidence.freshStatusResponses = structuredClone(responses);
+        property(STALE_RESULT_PROPERTY.Projection, () => {
+            assert.ok(
+                current &&
+                    current.argument === null &&
+                    !current.released &&
+                    !current.aborted &&
+                    current.captures.every(
+                        (capture) => capture.pending && !capture.delivered,
+                    ),
+                "Every fresh Seaport status reply must remain externally gated",
+            );
+            assert.equal(
+                responses.length,
+                0,
+                "A decoded fresh Seaport status response escaped before the rejection cut",
+            );
+        });
+        return current;
     };
     const assertSingleCounterAttempt = () => {
         const armedAt = gate(STALE_RESULT_GATE.OldCounter).events.find(
@@ -241,34 +352,15 @@ export function createStaleResultCut({
                 continue;
             let calls;
             try {
-                const aggregate = world.trace.find(
-                    (entry) =>
-                        entry.type === "read" &&
-                        entry.requestIndex === request.requestIndex,
-                )?.aggregateCalls;
-                const transaction = request.params?.[0];
                 // Reuse the external wire owner's decoders, including a request
                 // whose before-gate has not yet produced a decoded read entry.
-                calls =
-                    aggregate ??
-                    (transaction.to
-                        ? [
-                              {
-                                  target: transaction.to,
-                                  ...decodeCall(
-                                      transaction.data ?? transaction.input,
-                                  ),
-                              },
-                          ]
-                        : decodeDeploylessMulticall(
-                              transaction.data ?? transaction.input,
-                          ).map((call) => ({
-                              target: call.target,
-                              ...decodeCall(call.callData),
-                          })));
-            } catch {
-                continue;
-            } // Unknown calls already fail closed in the world.
+                calls = callsForRequest(request);
+            } catch (error) {
+                throw unreached(
+                    "RPC call decoding could not prove the sole original counter attempt",
+                    error,
+                );
+            }
             if (
                 calls.some(
                     (call) =>
@@ -415,6 +507,13 @@ export function createStaleResultCut({
                 );
                 evidence.original = original;
                 evidence.before = structuredClone(state);
+                evidence.timing = {
+                    requestTimeoutMs,
+                    passStartedAt: original.pass_started_at,
+                    transportDeadline:
+                        original.pass_started_at + requestTimeoutMs,
+                    capturedAt: now(),
+                };
                 world.armResponseGate({
                     name: STALE_RESULT_GATE.FreshStatus,
                     functionName: RESPONSE_GATE_FUNCTION.OrderStatus,
@@ -441,33 +540,85 @@ export function createStaleResultCut({
                 await boundedWait(async () => {
                     assertRuntimeAlive();
                     assertAttemptFresh();
+                    assertFixedRecoveryHead();
                     state = await observe();
-                    return (
-                        state.revision > evidence.before.revision &&
-                        state.recovery.length === 0 &&
-                        state.canonicalChecks.every(
-                            (row) => row.block_number > 105,
-                        ) &&
-                        Array.from(
-                            { length: 107 - ledger.anchorBlock },
-                            (_, index) => ledger.anchorBlock + index + 1,
-                        ).every(
-                            (number) =>
-                                state.coverage.some(
-                                    (row) => row.block_number === number,
-                                ) &&
-                                state.headers.some(
-                                    (row) =>
-                                        row.block_number === number &&
-                                        row.block_hash ===
-                                            ledger.blockAt("B", number).hash,
-                                ),
+                    const recovery = state.recovery[0];
+                    if (
+                        !(
+                            state.revision === evidence.before.revision + 1 &&
+                            state.recovery.length === 1 &&
+                            recovery.chain_id === ledger.chainId &&
+                            recovery.revision === state.revision &&
+                            recovery.phase === REORG_RECOVERY_PHASE.Resync &&
+                            typeof recovery.recovery_id === "string" &&
+                            recovery.recovery_id.length > 0 &&
+                            recovery.range_from >= 104 &&
+                            recovery.range_from <= recovery.range_to &&
+                            recovery.range_to <= 107 &&
+                            recovery.target_block === 107 &&
+                            [104, 105].includes(recovery.checked_block) &&
+                            recovery.stored_hash ===
+                                ledger.blockAt("A", recovery.checked_block)
+                                    .hash &&
+                            recovery.observed_hash ===
+                                ledger.blockAt("B", recovery.checked_block).hash
                         )
-                    );
-                }, "Canonical B rollback and resync did not complete before the live attempt expired");
+                    )
+                        return false;
+                    // Reuse the independent chain/fill oracle for the retained
+                    // shared prefix and exact rollback ownership/fill/transfer
+                    // effects. Concurrent B acquisition may append a partial
+                    // range; require its identity without assuming completeness.
+                    try {
+                        assertCanonicalAcquisition({
+                            snapshot: {
+                                ...state,
+                                headers: state.headers.filter(
+                                    (row) => row.block_number <= 103,
+                                ),
+                                coverage: state.coverage.filter(
+                                    (row) => row.block_number <= 103,
+                                ),
+                            },
+                            ledger,
+                            branch: "B",
+                            head: 103,
+                        });
+                        const appended = state.headers.filter(
+                            (row) => row.block_number > 103,
+                        );
+                        assert.equal(
+                            new Set(appended.map((row) => row.block_number))
+                                .size,
+                            appended.length,
+                        );
+                        for (const row of appended) {
+                            assert.ok(row.block_number <= 107);
+                            const expected = ledger.blockAt(
+                                "B",
+                                row.block_number,
+                            );
+                            assert.equal(row.block_hash, expected.hash);
+                            assert.equal(row.parent_hash, expected.parentHash);
+                        }
+                        const coverage = state.coverage.map(
+                            (row) => row.block_number,
+                        );
+                        assert.equal(new Set(coverage).size, coverage.length);
+                        assert.ok(coverage.every((number) => number <= 107));
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                }, "Committed B rollback effects and retained resync were not observed during the original live transport");
                 oldCounter();
                 let target = requireOriginalAttempt(state);
                 const beforeAdmission = structuredClone(state);
+                evidence.rollback = {
+                    observedAt: now(),
+                    recovery: structuredClone(state.recovery[0]),
+                    state: structuredClone(state),
+                };
                 stage = STALE_RESULT_PROPERTY.FreshRequirement;
                 requireCut(
                     target.order?.seaport_data_source_kind ===
@@ -477,6 +628,7 @@ export function createStaleResultCut({
                 const input = await admitFreshBidRequirement({
                     before: beforeAdmission,
                     orderId,
+                    assertLive: assertAttemptFresh,
                 });
                 requireCut(
                     input?.deliveredRecipients > 0 &&
@@ -493,9 +645,10 @@ export function createStaleResultCut({
                 await boundedWait(async () => {
                     assertRuntimeAlive();
                     assertAttemptFresh();
+                    assertFixedRecoveryHead();
                     state = await observe();
                     target = findTarget(state);
-                    const blocked = gate(STALE_RESULT_GATE.FreshStatus);
+                    assertFreshRepliesBlocked();
                     return (
                         target.order?.state_revision >
                             beforeAdmission.orders.find(
@@ -514,26 +667,9 @@ export function createStaleResultCut({
                                 row.channel ===
                                     OFFCHAIN_OBSERVATION_CHANNEL.Stream &&
                                 row.source_event_at === input.sourceEventAt,
-                        ) &&
-                        blocked &&
-                        !blocked.released &&
-                        blocked.captures.some(
-                            (capture) =>
-                                capture.pending &&
-                                capture.view.branch === "B" &&
-                                capture.blockNumber === 107 &&
-                                capture.blockHash ===
-                                    ledger.blockAt("B", 107).hash &&
-                                capture.matchingCalls.some(
-                                    (call) =>
-                                        call.success &&
-                                        call.functionName ===
-                                            RESPONSE_GATE_FUNCTION.OrderStatus &&
-                                        call.args[0].toLowerCase() === orderId,
-                                ),
                         )
                     );
-                }, "The actual new bid revision/demand and held B107 status response were not proved");
+                }, "The actual new bid revision and retained pending demand were not proved");
                 evidence.freshInput = structuredClone(input);
                 evidence.freshAdmission = {
                     beforeOrder: beforeAdmission.orders.find(
@@ -545,6 +681,7 @@ export function createStaleResultCut({
                 evidence.reached.freshSourceRequirementHeld = true;
                 oldCounter();
                 assertAttemptFresh();
+                assertFixedRecoveryHead();
                 assertSingleCounterAttempt();
                 stage = STALE_RESULT_PROPERTY.Rollback;
                 target = requireOriginalAttempt(state);
@@ -571,12 +708,15 @@ export function createStaleResultCut({
                     "A post-rollback baseline is required before releasing old bytes",
                 );
                 assertAttemptFresh();
+                assertFixedRecoveryHead();
                 oldCounter();
                 const fresh = gate(STALE_RESULT_GATE.FreshStatus);
                 requireCut(
                     fresh && !fresh.released && !fresh.aborted,
                     "Fresh status replies must remain gated before the old release",
                 );
+                assertFreshRepliesBlocked();
+                evidence.timing.releasedAt = now();
                 world.releaseResponseGate(STALE_RESULT_GATE.OldCounter);
                 let finalState;
                 await boundedWait(async () => {
@@ -585,45 +725,23 @@ export function createStaleResultCut({
                     const current = assertNoMutation(state);
                     assertSingleCounterAttempt();
                     assertAttemptFresh();
+                    assertFixedRecoveryHead();
                     const old = gate(STALE_RESULT_GATE.OldCounter).captures[0];
-                    const blocked = gate(STALE_RESULT_GATE.FreshStatus);
-                    property(STALE_RESULT_PROPERTY.Projection, () =>
-                        assert.ok(
-                            !blocked.released &&
-                                !blocked.aborted &&
-                                blocked.captures.every(
-                                    (capture) =>
-                                        capture.pending && !capture.delivered,
-                                ),
-                            "A fresh status reply escaped before stale-result safety was checked",
-                        ),
-                    );
+                    assertFreshRepliesBlocked();
                     const failedRelease =
-                        current.run.failures > original.failures &&
-                        current.run.lease_version >= original.lease_version &&
-                        (current.run.lease_version > original.lease_version ||
-                            (current.run.lease_owner === null &&
-                                current.run.lease_until === 0));
-                    const newBReplyHeld = blocked.captures.some(
-                        (capture) =>
-                            capture.pending &&
-                            capture.view.branch === "B" &&
-                            capture.blockNumber === 107 &&
-                            capture.blockHash ===
-                                ledger.blockAt("B", capture.blockNumber).hash &&
-                            capture.matchingCalls.some(
-                                (call) =>
-                                    call.success &&
-                                    call.functionName ===
-                                        RESPONSE_GATE_FUNCTION.OrderStatus &&
-                                    call.args[0].toLowerCase() === orderId,
-                            ),
-                    );
-                    // Mature canonical checks were drained before this cut.
-                    // A fresh validation snapshot starts at B107; the old
-                    // snapshot's B105 verification must complete after its
-                    // counter bytes return, so a timed-out transport alone
-                    // cannot earn rejection coverage.
+                        current.run.failures === original.failures + 1 &&
+                        current.run.lease_version === original.lease_version &&
+                        current.run.lease_owner === null &&
+                        current.run.lease_until === 0 &&
+                        current.run.updated_at >= evidence.timing.releasedAt &&
+                        current.run.updated_at <
+                            evidence.timing.transportDeadline &&
+                        current.run.last_error === STALE_RESULT_FINISH_FAILURE;
+                    // Numeric header traffic alone is not caller-exclusive.
+                    // Its supporting event is accepted only with the exact
+                    // persisted finish-refusal reason, original lease version,
+                    // no retry, and completion before the conservative HTTP
+                    // deadline. Other legitimate B105 traffic is not excluded.
                     const verification = completedOldSnapshotHeader(
                         old.deliveredAt,
                     );
@@ -631,7 +749,6 @@ export function createStaleResultCut({
                         !old.delivered ||
                         old.pending ||
                         !failedRelease ||
-                        !newBReplyHeld ||
                         !verification
                     )
                         return false;
@@ -639,8 +756,13 @@ export function createStaleResultCut({
                         structuredClone(verification);
                     finalState = state;
                     return true;
-                }, "The original attempt's durable failed release and blocked fresh B reply were not proved");
+                }, "The original attempt's exact snapshot-finish refusal was not proved before its RPC deadline");
                 assertSingleCounterAttempt();
+                evidence.timing.completedAt = now();
+                evidence.failedRelease = structuredClone(
+                    findTarget(finalState).run,
+                );
+                evidence.refusalReason = STALE_RESULT_FINISH_FAILURE;
                 evidence.afterRejection = structuredClone(finalState);
                 evidence.reached.durableFailedRelease = true;
                 evidence.reached.unchangedProjectionAndPage = true;

@@ -16,7 +16,6 @@ import {
 } from "./split-provider-fork.mjs";
 import {
     createStaleResultCut,
-    STALE_RESULT_GATE,
     STALE_RESULT_PROPERTY,
 } from "./stale-result-cut.mjs";
 import { recordDataPlaneFailureChecks } from "./data-plane-failure.mjs";
@@ -47,10 +46,10 @@ import {
 } from "../../../shared/market-data/orders.ts";
 import { resolveNatsJobStreamName } from "../../../shared/queue/nats-job-stream.ts";
 import { startWorldServer } from "../world/server.mjs";
-import { RESPONSE_GATE_FUNCTION } from "../world/contract.mjs";
 import { QUEUE_OUTBOX_STATUS } from "../../../indexer/src/domain/queue-outbox.ts";
 import { MAKER_REVALIDATION_STATUS } from "../../../indexer/src/domain/maker-revalidation.ts";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../../indexer/src/domain/order-validation-policy.ts";
+import { parseRpcHttpRequestTimeoutMs } from "../../../shared/config/rpc-resilience.ts";
 import {
     DATA_PLANE_JOURNEY,
     EXTERNAL_ACTION,
@@ -1015,7 +1014,12 @@ export async function runDataPlane(
                     observe: snapshot,
                     eventually,
                     assertAlive: alive,
-                    async admitFreshBidRequirement({ before, orderId }) {
+                    requestTimeoutMs: parseRpcHttpRequestTimeoutMs(env),
+                    async admitFreshBidRequirement({
+                        before,
+                        orderId,
+                        assertLive,
+                    }) {
                         const previous = before.orders.find(
                             (order) => order.id === orderId,
                         );
@@ -1034,9 +1038,13 @@ export async function runDataPlane(
                                 .map((entry) => entry.source_event_at ?? 0),
                         );
                         await eventually(
-                            () =>
-                                Math.floor(Date.now() / 1000) >
-                                priorSourceEventAt,
+                            () => {
+                                assertLive();
+                                return (
+                                    Math.floor(Date.now() / 1000) >
+                                    priorSourceEventAt
+                                );
+                            },
                             "a current bid stream timestamp newer than its retained audit input",
                             ORDER_VALIDATION_BATCH_POLICY.snapshotLifetimeMs,
                         );
@@ -1052,6 +1060,7 @@ export async function runDataPlane(
                         );
                         await eventually(
                             () => {
+                                assertLive();
                                 const current = snapshot();
                                 const order = current.orders.find(
                                     (row) => row.id === orderId,
@@ -1059,13 +1068,6 @@ export async function runDataPlane(
                                 const proof = current.validationProofs.find(
                                     (row) => row.order_id === orderId,
                                 );
-                                const fresh = server.world
-                                    .snapshot()
-                                    .responseGates.find(
-                                        (gate) =>
-                                            gate.name ===
-                                            STALE_RESULT_GATE.FreshStatus,
-                                    );
                                 return (
                                     order?.state_revision >
                                         previous.state_revision &&
@@ -1073,23 +1075,10 @@ export async function runDataPlane(
                                         ORDER_SEAPORT_DATA_SOURCE_KIND.Stream &&
                                     proof?.generation >
                                         (previousProof?.generation ?? 0) &&
-                                    proof.pending === 1 &&
-                                    fresh?.captures.some(
-                                        (capture) =>
-                                            capture.pending &&
-                                            capture.view.branch === "B" &&
-                                            capture.blockNumber === 107 &&
-                                            capture.matchingCalls.some(
-                                                (call) =>
-                                                    call.functionName ===
-                                                        RESPONSE_GATE_FUNCTION.OrderStatus &&
-                                                    call.args[0].toLowerCase() ===
-                                                        orderId,
-                                            ),
-                                    )
+                                    proof.pending === 1
                                 );
                             },
-                            "the first real bid stream input admits a new requirement behind the fresh B status gate",
+                            "the first real bid stream input admits a newer retained source requirement",
                             ORDER_VALIDATION_BATCH_POLICY.snapshotLifetimeMs,
                         );
                         return {
