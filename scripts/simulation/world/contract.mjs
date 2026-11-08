@@ -3,3 +3,14 @@ export const METADATA_TRANSPORT = Object.freeze({
     Http: "http",
     DataUri: "data-uri",
 });
+
+export const SCRIPTED_CHAIN_END_BLOCK = 107;
+
+/** Optional immutable tail cadence; existing fixtures retain one-second blocks. */
+export function tailBlockIntervalSeconds(value = 1) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > 60)
+        throw new Error(
+            "World tail block interval must be an integer from 1 to 60 seconds",
+        );
+    return value;
+}

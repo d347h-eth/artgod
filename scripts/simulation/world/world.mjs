@@ -735,6 +735,8 @@ export function createSimulationWorld(scenario = {}) {
                 version: 1,
                 phase,
                 epochSeconds: ledger.epochSeconds,
+                maximumBlock: ledger.maximumBlock,
+                tailBlockIntervalSeconds: ledger.tailBlockIntervalSeconds,
                 addresses: ledger.addresses,
                 collectionSlug: ledger.collectionSlug,
                 orders: ledger.orders,

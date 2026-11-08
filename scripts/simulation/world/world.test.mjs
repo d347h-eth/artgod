@@ -527,6 +527,47 @@ test("fault coverage requires actual injection rather than a matched request blo
     );
 });
 
+test("a declared immutable tail cadence preserves the scripted fork window and empty canonical recovery blocks", () => {
+    const world = createSimulationWorld({
+        epochSeconds,
+        tailBlockIntervalSeconds: 12,
+        providers: { default: { branch: "B", head: 103 } },
+    });
+    const before = JSON.stringify(world.ledger.blockAt("B", 107));
+    assert.equal(world.ledger.blockAt("B", 107).timestamp, epochSeconds + 4);
+    assert.equal(world.ledger.blockAt("B", 108).timestamp, epochSeconds + 16);
+    assert.equal(world.ledger.blockAt("B", 109).timestamp, epochSeconds + 28);
+    world.advanceHead(110);
+    assert.equal(JSON.stringify(world.ledger.blockAt("B", 107)), before);
+    for (let number = 108; number <= 110; number++) {
+        const block = world.ledger.blockAt("B", number);
+        assert.deepEqual(block.events, []);
+        assert.deepEqual(block.logs, []);
+        assert.equal(
+            block.parentHash,
+            world.ledger.blockAt("B", number - 1).hash,
+        );
+    }
+    assert.deepEqual(
+        world.ledger.stateAt("B", 110),
+        world.ledger.stateAt("B", 107),
+    );
+    const snapshot = world.snapshot();
+    assert.equal(snapshot.maximumBlock, 140);
+    assert.equal(snapshot.tailBlockIntervalSeconds, 12);
+    const legacy = createSimulationWorld({ epochSeconds });
+    assert.equal(legacy.ledger.blockAt("B", 108).timestamp, epochSeconds + 5);
+    for (const interval of [null, 0, -1, 61, "12", 12.5])
+        assert.throws(
+            () =>
+                createSimulationWorld({
+                    epochSeconds,
+                    tailBlockIntervalSeconds: interval,
+                }),
+            /tail block interval/,
+        );
+});
+
 test("HTTP metadata repair changes only the external document, never historical tokenURI", async () => {
     const server = await startWorldServer({
         scenario: {

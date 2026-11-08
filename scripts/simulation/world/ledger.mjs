@@ -10,6 +10,10 @@ import {
     WORLD_FIXTURE_ACCOUNTS,
     counterLog,
 } from "./wire.mjs";
+import {
+    SCRIPTED_CHAIN_END_BLOCK,
+    tailBlockIntervalSeconds as validateTailBlockInterval,
+} from "./contract.mjs";
 
 export const BASELINE_ADDRESSES = Object.freeze({
     nft: "0x1111111111111111111111111111111111111111",
@@ -27,11 +31,13 @@ export function createBaselineLedger({
     maximumBlock = 140,
     addresses = {},
     transferOnly = false,
+    tailBlockIntervalSeconds,
 } = {}) {
     if (!Number.isSafeInteger(epochSeconds) || epochSeconds < 1)
         throw new Error("World requires a positive integer epochSeconds");
     if (!Number.isSafeInteger(maximumBlock) || maximumBlock < 107)
         throw new Error("World maximumBlock must be at least 107");
+    const tailInterval = validateTailBlockInterval(tailBlockIntervalSeconds);
     const a = { ...BASELINE_ADDRESSES, ...addresses };
     const listing = prepareMarketOrder({
         addresses: a,
@@ -139,7 +145,14 @@ export function createBaselineLedger({
                         : hashIdentity(
                               `artgod-world:${parentIdentity}:${number - 1}`,
                           ),
-                timestamp: epochSeconds + number - 103,
+                // Keep the authored fork window intact. Later empty canonical
+                // blocks have a declared immutable cadence for fair recovery.
+                timestamp:
+                    epochSeconds +
+                    Math.min(number, SCRIPTED_CHAIN_END_BLOCK) -
+                    103 +
+                    Math.max(0, number - SCRIPTED_CHAIN_END_BLOCK) *
+                        tailInterval,
                 events,
                 transactions: [],
                 logs: [],
@@ -253,6 +266,7 @@ export function createBaselineLedger({
         addresses: a,
         epochSeconds,
         maximumBlock,
+        tailBlockIntervalSeconds: tailInterval,
         chainId: 1,
         collectionSlug: "simulation-two-tokens",
         anchorBlock: 100,
