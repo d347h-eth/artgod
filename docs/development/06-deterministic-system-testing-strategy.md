@@ -1,8 +1,9 @@
 # Production Runtime Simulation Workbench
 
 Design updated 2026-11-08. The user authorized the full workbench direction and
-its milestones. Implementation is in progress; this document is not evidence
-that those milestones have passed. The initial architecture inventory remains
+its milestones. The baseline workbench is implemented; local evidence and
+unresolved findings are recorded in the execution guide. Implementation alone
+is not evidence that every milestone property or scenario family has passed. The initial architecture inventory remains
 at source baseline `24cff044` in [discovery](05-deterministic-system-testing-discovery.md).
 See the [scenario catalog](07-deterministic-system-testing-scenarios.md) and
 [execution guide](08-simulation-workbench-execution.md) for acceptance and commands.
@@ -57,9 +58,11 @@ The saved tool image reports QEMU `8.2.2`; the input profile selects
 `pc-i440fx-8.2`, qboot direct Linux boot and a modern virtio device with
 observed Linux DMA bounce buffering. Three earlier M0 pairs and the production
 baseline passed locally with exact serial and complete disk parity under the
-original CPU and six-check gate. A later VM-only crypto failure requires fresh
-qualification of the candidate `max` CPU and expanded eight-check gate; those
-earlier passes do not transfer automatically. Legacy host-QEMU
+original CPU and six-check gate. After a later VM-only crypto failure, the
+`max` CPU and expanded eight-check gate passed separate local qualification;
+the complete 26-case cohort also passed strict replay/disk comparison while
+retaining its failed properties. Seven native crashes remain unattributed, so
+these passes do not establish correct computation on every exercised path. Legacy host-QEMU
 `10.1.5` runs retain their separate provenance. Retained reports distinguish
 replay from scenario properties; actual adversarial journeys qualify separately.
 The saved tool-container image now pins the emulator's complete userspace as

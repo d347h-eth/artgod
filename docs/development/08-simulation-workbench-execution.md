@@ -1,13 +1,86 @@
 # Simulation Workbench Execution
 
-Updated 2026-11-08. Earlier local reports qualify their original input/check
-versions. The expanded runtime gate, candidate CPU profile and current
-adversarial corpus require fresh qualification. This guide
-describes the current local tooling contract; source commands and retained run
-reports own execution evidence. Read the
+Updated 2026-11-08. The baseline workbench is implemented. The complete local
+26-case cohort at source `63221604` is recorded and replayed; its failed
+properties remain failures. This guide describes the current tooling contract;
+source commands and retained reports own execution evidence. Read the
 [strategy](06-deterministic-system-testing-strategy.md) and
 [scenario catalog](07-deterministic-system-testing-scenarios.md) before adding
 workloads.
+
+## Current Local Evidence
+
+The sealed cohort is retained under
+`tmp/simulation-final-cohorts/cohort-8fWEDa/`: `plan.json`, four lane results,
+`final-assessment.json`, `audited-classification.json` and
+`weighted-fork-analysis.json`. All 26 declared cases executed, with no missing
+or unqualified pairs. Every pair passed exact serial replay and complete raw
+disk equality. Property results remain separate:
+
+| Lane                           | Executed | Passed | Failed |
+| ------------------------------ | -------: | -----: | -----: |
+| Named regressions, shard 1     |        7 |      4 |      3 |
+| Named regressions, shard 2     |        7 |      4 |      3 |
+| Held-validation command orders |        6 |      4 |      2 |
+| Header-error command orders    |        6 |      3 |      3 |
+| Total                          |       26 |     15 |     11 |
+
+The failures have different meanings:
+
+- Two fresh-proof cases, including actual weighted routing, accept an ownership
+  read from the other fork and expose an invalid seller listing through HTTP.
+  Both have a real newer source revision, a completed current-generation proof,
+  explicit provider healing and no pending validation debt. These are reached
+  application consistency counterexamples.
+- Startup maintenance removes two completed validation proof rows while both
+  canonical orders survive unchanged. This is observed immediately after real
+  successful maintenance, with all actors stopped and before restart. It proves
+  lost reusable coverage, not lost pending work or incorrect fillability.
+- Seven cases reproduce a domain `SIGSEGV` before their intended recovery
+  history. Its cause remains unattributed. In source `63221604`, ordinary exits
+  inherit the active check label; their retained history gaps prevent crediting
+  that label as a reached reorg oracle. Commit `21ef56ad` separately corrects
+  typed runtime-exit attribution; `68de8eb2` also preserves runtime property
+  identity through oracle wrappers. Original reports remain unchanged.
+- The weighted fork observes incompatible stored A105/B106 ancestry after
+  actual divergent headers and explicit healing, then times out waiting for
+  rollback. Only checks 106/107 remain, ineligible at fixed head 107 with depth
+  3, and head publication waits behind that rollback acknowledgement. The
+  retained mixed boundary is a finding; permanent failure under fair post-heal
+  head progression and full recovery remain unproved. No deadlock is inferred.
+
+The passing cases include actual bootstrap pause/retry/restart, the default RPC
+budget, lagging providers, broker/offchain restart, unsupported-fork refusal,
+the transient stale-result cut and seven complete adversarial command histories.
+Only seven of the twelve campaign histories reached their complete assertions;
+executing all twelve does not supply the missing history coverage.
+
+A separate native-Node audit of the explicit 15-pass list is retained at
+`native-host-audit-meKkSC/receipt.json` inside that cohort. It found no discrepancy:
+exact header/ownership/transfer/fill facts were checked for all 15, full settled
+market assertions for 14, and 26 active proof identities through their owning
+contract. Available A104 sale checkpoints also passed nonempty fill checks.
+The oracle/world/proof owner files and lockfile match source `63221604` byte for
+byte. This reevaluates retained observations with shared model/oracle algorithms;
+it reruns no production actor, database, broker or wire request and does not
+recompute raw disk parity. Proof projections omit `required_at` and
+`minimum_block`, so neutral requirements check identity without establishing
+unavailable source-time/event-floor freshness. Bootstrap pre-anchor completeness
+and refused-recovery winning-branch or terminal-proof convergence are excluded;
+this additional execution does not qualify other CPU, RPC-model or runtime paths.
+
+Measured pair times range from 283.769 to 941.765 seconds, with median 340.584
+seconds. The slowest lane sums to 3,195.473 seconds of pair execution. Paired run
+directories allocate 2,303,414,272 bytes, excluding reusable guest/capsule/case
+inputs. These are local shared-host measurements, not hosted CI budgets or peak
+memory measurements. The guest is configured with 2 GiB and one vCPU; native
+multicore data races are outside this execution profile.
+
+This is a working problem-finding baseline, not yet a replacement for all manual
+QA. Its current property failures keep the recorded corpus red. Native runtime
+diagnosis, unsupported scenario families, hosted execution, other hosts and
+desktop/release qualification remain separate work. No failed application
+assertion is waived and no production hardening is included.
 
 ## Execution Boundary
 
@@ -209,7 +282,7 @@ host watchdog permits slow emulation; guest application deadlines still use the
 production clock and policies.
 
 New manifests declare `cpu`; old frozen manifests without it retain their exact
-`Nehalem` arguments. The candidate `max` profile uses the
+`Nehalem` arguments. The preferred `max` profile uses the
 [software-supported TCG feature set](https://github.com/qemu/qemu/blob/v8.2.2/target/i386/cpu.c#L5531-L5579)
 and saved engine. Selecting it requires fresh qualification; it cannot change an
 existing recording's CPU model.
@@ -355,7 +428,8 @@ nonempty completed coverage with all production actors stopped and asserts
 before restarting actors. It retains both snapshots and requires unchanged
 proof rows for surviving canonical orders. Deleting an owning order may delete
 its proof; an empty fixture cannot earn this property. The old run predates
-this more precise boundary assertion, which still needs a fresh guest run.
+this more precise boundary assertion. Fresh runs `run-QPatdk` and `run-ne43ve`
+both reached it and reproduced the coverage loss with strict serial/disk replay.
 
 The initial 25-case cohort at source `15ce0ecb` was intentionally stopped with
 its missing cases retained. Qualified failed run `run-eFT7fD` reached actual
@@ -367,7 +441,9 @@ consumer. The corrected fixture freezes publication when business work drains,
 then retains the complete coverage, header, mature-check and final property
 assertions on that fixed cut within the same deadline. This is a harness
 correction; the old failure is not assigned to ArtGod, and original reports are
-unchanged. Fresh qualification of the corrected cohort remains required.
+unchanged. The corrected 26-case cohort is now fully accounted for in
+[Current Local Evidence](#current-local-evidence); its own remaining failures
+retain their separate causes and coverage gaps.
 
 The targeted stale-result trial `run-gvHMAC`, at source `1169f39c`, reproduced
 the domain worker exiting with `SIGSEGV` before any A105 counter request reached
@@ -380,7 +456,8 @@ native dependency or emulation. No production fix is inferred from that run.
 New guests additionally retain bounded, read-only kernel-ring, core-policy and
 coordinator-resource-limit observations in `native-failure.json` on failure.
 Missing access, timeouts and output truncation remain explicit diagnostic
-results. The workbench does not enable core dumps or change kernel policy.
+results. These default observations do not enable core dumps or change kernel
+policy; the opt-in guest-only capture profile is described below.
 The targeted cut also requires a single bidder-counter request through its
 rejection observation. A transport retry makes consumption of the captured old
 result unproved, even if a later snapshot check fails; it cannot earn that
@@ -421,8 +498,94 @@ that exact ten-second transport was an invalid fixture precondition. The
 corrected cut observes committed rollback with active resync, requires the
 unique persisted finish-refusal reason before the earliest request timeout,
 and retains complete resync/HTTP convergence afterward. It does not change
-application deadlines. Fresh qualification of that corrected cut and corpus
-remains required.
+application deadlines. Fresh runs `run-08BUfD` and cohort case `run-uvGGmS`
+passed all seven checks with exact serial and complete disk parity. They earn
+snapshot-finish refusal with an additional source-revision fence present, not
+isolated database-checkpoint-fence coverage.
+
+## Guest Native Crash Diagnostics
+
+The [native evidence owner](../../scripts/simulation/guest/native-failure-evidence.mjs)
+provides an explicit `bounded-core-v1` profile for a fork diagnostic variant.
+Normal cases keep their original Node executable/arguments and inherited core
+limit. The profile enables only domain generation zero, with an exact 32 MiB
+hard/soft limit through the already admitted guest `prlimit`. It sets a fixed
+private-guest core path and filter `0x10`, excluding heap/stack mappings, then
+records the effective actor limits, filter, executable and unchanged argv.
+There are no JavaScript signal handlers or host sysctl/prlimit changes.
+
+At capture-image source `6d0b6308`, all 315 supporting workbench tests passed
+without skips. A later reporting-only correction at `68de8eb2` normalizes typed
+runtime property identity through oracle wrappers; all 318 supporting tests
+passed without skips. That correction is absent from the frozen capture guest;
+its retained inputs and byte pins stay unchanged. Guest `guest-coordinator-14tsty`
+and the M0/probe/trials below use source `6d0b6308`. It passed normal eight-check
+M0 at `run-4Bq9CJ`, including
+strict serial and disk comparison, in 182.118 seconds. This is separate from the
+26-case cohort at source `63221604` and does not erase its original failures.
+
+The [capture probe owner](../../scripts/simulation/guest/native-core-probe.mjs)
+exports an explicit descriptor outside the regression corpus. Materialize it
+under a fresh worktree temporary directory:
+
+```sh
+yarn node --input-type=module <<'NODE'
+import { createArtifactRunDirectory } from "./scripts/simulation/artifacts.mjs";
+import { NATIVE_CORE_PROBE_SCENARIO } from "./scripts/simulation/guest/native-core-probe.mjs";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+const directory = await createArtifactRunDirectory("tmp/simulation-native-diagnostic-inputs", "probe-");
+const filename = path.join(directory, "scenario.json");
+await writeFile(filename, `${JSON.stringify(NATIVE_CORE_PROBE_SCENARIO, null, 2)}\n`, { flag: "wx" });
+console.log(filename);
+NODE
+```
+
+Run that actual descriptor with `yarn simulation run --base-manifest ... --scenario ...`
+after normal M0 passes. The probe writes and pins a reviewed 126-byte static
+x86-64 ELF **inside the guest only**. Its zero-address store must produce
+SIGSEGV/MAPERR, address zero, RIP `0x40007a`, and the exact fixture file mapping
+and offset. It rechecks fixture bytes after exit. Never execute that artifact
+on the host. Probe success additionally requires complete signal/register/file
+notes, effective policy receipts, strict replay and full disk parity; a core
+file or child signal alone cannot pass. Its check does not replace or expand
+the eight mandatory M0 checks.
+
+Use the existing read-only extraction command on the completed run to retain
+raw cores, then match each size/SHA-256 to `output/native-core.json` before and
+after independent installed `readelf -h -l -n` and `eu-readelf -n` inspection.
+Their supported decoded signal/register/mapping fields must agree with the
+receipt. Parser-only Buffer tests are not evidence that actual capture works.
+
+The actual probe `run-J41GMt` passed its property, exact serial and full disk
+comparison in 151.273 seconds. Its 36,864-byte raw core was extracted under
+`extract-7myyAx`; independent GNU/elfutils inspection at
+`tmp/simulation-native-diagnostic-inspections/probe-gH9bS8/inspection.json`
+agreed on SIGSEGV/MAPERR, address zero, TID 110, RIP `0x40007a`, and the fixture
+mapping/file offset `0x7a`. Core and fixture byte pins remained unchanged.
+This qualifies the selected capture path locally, not the cause of an ArtGod
+runtime crash or another machine.
+
+The subsequent three-trial fork diagnostic series is retained separately at
+`tmp/simulation-native-diagnostic-inputs/final-trials-assessment.json`.
+`run-e37SS6` reproduced a sync-worker `SIGSEGV` before recovery;
+`run-4n5InS` and `run-DC2tyh` passed all six ordinary fork checks. All three
+passed exact serial and full disk replay. The selected domain actor stayed alive
+in each, so this domain-only profile expected and captured no runtime core.
+The synthetic fault qualifies capture; it does not locate the cause of either
+the original domain crashes or the additional sync crash. No engine, CPU, Node
+flag or application-policy change was made, and the later passes clear no
+retained failure. These three runs are additional diagnostics, not part of the
+26-case cohort or its 15-pass native audit.
+
+The [bounded parser](../../scripts/simulation/guest/elf-core-notes.mjs) consumes
+only the pinned Linux x86-64 format. It preserves raw siginfo, decodes known
+unions, and uses the pinned kernel's first-PRSTATUS fault-thread ordering rather
+than selecting the leader PID. Missing/truncated/unsupported evidence remains
+explicit; raw cores survive parser failure. Filter `0x10` deliberately provides
+no heap/stack/JIT-byte capture or promised unwindable stack. A mapped RIP locates
+a code region and does not establish whether the cause belongs to ArtGod, a
+native dependency, V8, the kernel or emulation.
 
 ## Workbench Commands and Campaigns
 
@@ -536,6 +699,15 @@ A local relocated replay of the pinned M0 bundle also passed serial and raw
 disk parity at `tmp/simulation-replays/replay-lwKAq3/report.json`. That exercised
 new input paths and a copied reference overlay using the saved userspace on the
 same host kernel; it does not establish arbitrary-host portability.
+
+A genuine failed provider case from the complete cohort, `run-zylfy6`, was
+exported as local hardlink bundle `bundle-KAtV1c` (519,403,443 logical bytes).
+After explicit saved-image restore/admission, relocated original-log replay
+`replay-XhLY1t` reproduced its failed property with exact serial and complete
+raw-disk parity. The CLI correctly remained nonzero. This qualifies that
+counterexample's same-host path relocation, not independent backup storage or
+another host kernel. Original inputs and the pinned record overlay remain
+unchanged.
 
 The [QEMU image utility documentation](https://www.qemu.org/docs/master/tools/qemu-img.html)
 describes comparison and backing-file rebase semantics. The workbench uses the
