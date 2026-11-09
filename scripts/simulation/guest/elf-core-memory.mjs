@@ -10,6 +10,7 @@ export const ELF_CORE_MEMORY_LIMITS = Object.freeze({
     windows: 2,
     windowBytes: 64 * 1024,
     derivedBytes: ELF_CORE_LIMITS.bytes + 192 * 1024,
+    loadAlignment: 4096,
 });
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hex = (value) => `0x${value.toString(16)}`;
@@ -131,7 +132,6 @@ export function enrichElfCoreMemory(raw, windows) {
                 memoryBytes: stop - start,
                 fileBytes: BigInt(data?.length ?? 0),
                 data: data ?? Buffer.alloc(0),
-                alignment: 1n,
                 source,
                 sourceOffset,
             });
@@ -140,14 +140,30 @@ export function enrichElfCoreMemory(raw, windows) {
     if (segments.length > ELF_CORE_LIMITS.headers)
         throw new Error("Enriched core header limit exceeded");
     let offset = 64 + segments.length * 56;
+    let extent = offset;
     for (const segment of segments) {
-        offset = Math.ceil(offset / 8) * 8;
-        segment.outputOffset = offset;
-        offset += segment.data.length;
-        if (offset > ELF_CORE_MEMORY_LIMITS.derivedBytes)
+        const alignment =
+            segment.type === 4 ? 4 : ELF_CORE_MEMORY_LIMITS.loadAlignment;
+        const remainder =
+            segment.type === 4
+                ? 0
+                : Number(segment.address % BigInt(alignment));
+        // Preserve Linux page-congruent LOAD layout: repacking with p_align=1
+        // made libdwfl report spurious modules at omitted ranges in an actual
+        // retained runtime core, although all captured bytes still matched.
+        segment.outputOffset =
+            offset +
+            ((remainder - (offset % alignment) + alignment) % alignment);
+        const end = segment.outputOffset + segment.data.length;
+        extent = Math.max(extent, end);
+        // An omitted mapping contributes no memory bytes. Its congruent file
+        // offset may overlap padding/later data, and costs at most one final
+        // page of file extent rather than one allocation per zero-data range.
+        if (segment.data.length) offset = end;
+        if (extent > ELF_CORE_MEMORY_LIMITS.derivedBytes)
             throw new Error("Enriched core byte limit exceeded");
     }
-    const bytes = Buffer.alloc(offset);
+    const bytes = Buffer.alloc(extent);
     raw.copy(bytes, 0, 0, 64);
     bytes.writeBigUInt64LE(64n, 32);
     bytes.writeBigUInt64LE(0n, 40);
@@ -164,7 +180,12 @@ export function enrichElfCoreMemory(raw, windows) {
         bytes.writeBigUInt64LE(0n, at + 24);
         bytes.writeBigUInt64LE(BigInt(segment.data.length), at + 32);
         bytes.writeBigUInt64LE(segment.memoryBytes, at + 40);
-        bytes.writeBigUInt64LE(segment.type === 4 ? 4n : 1n, at + 48);
+        bytes.writeBigUInt64LE(
+            segment.type === 4
+                ? 4n
+                : BigInt(ELF_CORE_MEMORY_LIMITS.loadAlignment),
+            at + 48,
+        );
         segment.data.copy(bytes, segment.outputOffset);
         if (segment.data.length)
             provenance.push({
