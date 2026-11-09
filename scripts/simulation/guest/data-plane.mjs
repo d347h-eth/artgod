@@ -66,7 +66,10 @@ import {
 } from "./oracle.mjs";
 import { assertSimulationProperty } from "./oracle-assertions.mjs";
 import { completedCounterValidationRead } from "./committed-cancellation.mjs";
-import { executeProcessFault } from "./process-faults.mjs";
+import {
+    executeProcessFault,
+    assertRestartedRuntime,
+} from "./process-faults.mjs";
 import { executeStartupMaintenance } from "./lifecycle.mjs";
 import { declareTradingIntent } from "./operator-inputs.mjs";
 import { DATA_PLANE_CHECK as CHECK } from "../qualification-protocol.mjs";
@@ -653,6 +656,38 @@ export async function runDataPlane(
                 );
             },
         };
+        const restartReorgForStaleCut = async () => {
+            const identity = (id) => {
+                const entry = processes.find((item) => item.id === id);
+                assert.ok(entry);
+                return {
+                    id: entry.id,
+                    pid: entry.child.pid,
+                    generation: entry.generation ?? 0,
+                    artifact: entry.artifact,
+                    filename: entry.filename,
+                };
+            };
+            const receipt = {
+                before: identity(RUNTIME_PROCESS.Reorg),
+                domainBefore: identity(RUNTIME_PROCESS.Domain),
+            };
+            try {
+                const replacement = await faultContext.restartProcess(
+                    RUNTIME_PROCESS.Reorg,
+                );
+                receipt.after = identity(RUNTIME_PROCESS.Reorg);
+                receipt.domainAfter = identity(RUNTIME_PROCESS.Domain);
+                assertRestartedRuntime(receipt.before, replacement, processes);
+                return receipt;
+            } catch (error) {
+                error.simulation = {
+                    ...error.simulation,
+                    reorgRestart: receipt,
+                };
+                throw error;
+            }
+        };
         if (bootstrapJourney) {
             activeCheck = CHECK.CollectionBootstrap;
             checks[activeCheck] = false;
@@ -1094,13 +1129,21 @@ export async function runDataPlane(
                             cancellationHealingSequence =
                                 server.world.trace.at(-1)?.sequence;
                         }
-                        if (staleResultCut)
+                        if (staleResultCut) {
+                            if (scenario.staleResultReorgRestart)
+                                checkpoints.push({
+                                    name: STALE_RESULT_PROPERTY.RecoveryRestart,
+                                    staleResultCut:
+                                        await staleResultCut.restartRecovery(
+                                            restartReorgForStaleCut,
+                                        ),
+                                });
                             checkpoints.push({
                                 name: STALE_RESULT_PROPERTY.Rollback,
                                 staleResultCut:
                                     await staleResultCut.captureRollback(),
                             });
-                        else
+                        } else
                             await eventually(
                                 () => snapshot().revision > 0,
                                 "actual canonical check and committed rollback",

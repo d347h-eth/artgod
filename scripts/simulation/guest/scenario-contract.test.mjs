@@ -41,6 +41,37 @@ for (const filename of (
     });
 }
 
+test("reorg restart staging is explicit and limited to the stale-result cut", async () => {
+    const source = JSON.parse(
+        await readFile(
+            new URL(
+                "../scenarios/stale-result-safety-cut.json",
+                import.meta.url,
+            ),
+            "utf8",
+        ),
+    );
+    assert.equal(source.staleResultReorgRestart, true);
+    assert.deepEqual(validateScenario(source), source);
+    const { staleResultReorgRestart, ...legacy } = source;
+    assert.deepEqual(validateScenario(legacy), legacy);
+    for (const value of [false, null, "true", 1])
+        assert.throws(
+            () =>
+                validateScenario({ ...source, staleResultReorgRestart: value }),
+            /Reorg restart staging/,
+        );
+    const { staleResultCut, ...withoutCut } = source;
+    assert.throws(
+        () =>
+            validateScenario({
+                ...withoutCut,
+                expectedChecks: withoutCut.expectedChecks.slice(0, -1),
+            }),
+        /Reorg restart staging/,
+    );
+});
+
 test("a committed-before-fork witness cannot run the canonical switch before release", async () => {
     const source = JSON.parse(
         await readFile(

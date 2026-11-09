@@ -18,6 +18,10 @@ import { decodeRpcContractCalls } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalAcquisition } from "./oracle.mjs";
 import { findRuntimeProcessExit } from "./runtime-process.mjs";
+import {
+    RUNTIME_PROCESS,
+    PRODUCTION_RUNTIME_PROCESSES,
+} from "./runtime-manifest.mjs";
 
 export const STALE_RESULT_GATE = Object.freeze({
     OldCounter: "stale-old-counter",
@@ -27,6 +31,7 @@ export const STALE_RESULT_PROPERTY = Object.freeze({
     Runtime: "stale-cut-production-runtime-liveness",
     Held: "stale-cut-held-a105-counter",
     Maker: "stale-cut-captured-maker-attempt",
+    RecoveryRestart: "stale-cut-recovery-worker-restart",
     Rollback: "stale-cut-post-rollback-baseline",
     FreshRequirement: "stale-cut-new-source-requirement-held",
     Rejected: "stale-cut-durable-failed-release",
@@ -526,6 +531,189 @@ export function createStaleResultCut({
                         ? error
                         : unreached(error.message, error),
                 );
+            }
+        },
+        /** Restart the real recovery actor through a lifecycle port. Readiness
+         * changes the authored schedule; it does not establish rollback or
+         * rejection, and never restarts the captured domain attempt's clock. */
+        async restartRecovery(restartPort) {
+            stage = STALE_RESULT_PROPERTY.RecoveryRestart;
+            let restart;
+            try {
+                requireCut(
+                    !evidence.recoveryRestart,
+                    "The controlled cut permits one explicit recovery-worker restart",
+                );
+                restart = {
+                    property: STALE_RESULT_PROPERTY.RecoveryRestart,
+                    startedAt: now(),
+                    completed: false,
+                };
+                evidence.recoveryRestart = restart;
+                assert.equal(
+                    typeof restartPort,
+                    "function",
+                    "A real recovery-worker restart port is required",
+                );
+                requireCut(
+                    !baseline,
+                    "Recovery restart must precede the post-rollback baseline",
+                );
+                const guardAttempt = async () => {
+                    assertRuntimeAlive();
+                    assertAttemptFresh();
+                    assertFixedRecoveryHead();
+                    oldCounter();
+                    assertFreshRepliesBlocked();
+                    assertSingleCounterAttempt();
+                    const target = requireOriginalAttempt(await observe());
+                    requireCut(
+                        target.run.pass_started_at === original.pass_started_at,
+                        "Recovery restart cannot replace the captured maker pass start",
+                    );
+                    assertAttemptFresh();
+                };
+                await guardAttempt();
+                const viewSequence = world.trace.findLast(
+                    (entry) =>
+                        entry.type === "provider-view" &&
+                        entry.view?.branch === "B" &&
+                        entry.view?.head === 107,
+                )?.sequence;
+                requireCut(
+                    Number.isSafeInteger(viewSequence) && viewSequence >= 0,
+                    "Recovery restart needs the actual provided B107 view sequence",
+                );
+                restart.providedViewSequence = viewSequence;
+                restart.providedViews = world.snapshot().providers;
+                const head = ledger.blockAt("B", 107);
+                restart.head = {
+                    branch: "B",
+                    number: head.number,
+                    hash: head.hash,
+                    timestamp: head.timestamp,
+                };
+                restart.heldCounter = structuredClone(oldCounter());
+                restart.originalTiming = structuredClone(evidence.timing);
+                // Await the owner so an unready replacement cannot outlive a
+                // shorter racing timer and escape the normal process cleanup.
+                const receipt = await restartPort();
+                restart.readyAt = now();
+                const plain = (value) =>
+                    value &&
+                    typeof value === "object" &&
+                    [Object.prototype, null].includes(
+                        Object.getPrototypeOf(value),
+                    );
+                const identity = (value) =>
+                    plain(value)
+                        ? Object.fromEntries(
+                              ["id", "pid", "generation", "artifact"].map(
+                                  (key) => {
+                                      const field = value[key];
+                                      return [
+                                          key,
+                                          field === null ||
+                                          [
+                                              "string",
+                                              "number",
+                                              "boolean",
+                                              "undefined",
+                                          ].includes(typeof field)
+                                              ? field
+                                              : { providedType: typeof field },
+                                      ];
+                                  },
+                              ),
+                          )
+                        : { providedType: typeof value };
+                restart.receipt = Object.fromEntries(
+                    ["before", "after", "domainBefore", "domainAfter"].map(
+                        (key) => [key, identity(receipt?.[key])],
+                    ),
+                );
+                requireCut(
+                    plain(receipt),
+                    "Recovery restart must return a plain actor-identity receipt",
+                );
+                const actor = (value, id, label) => {
+                    requireCut(
+                        plain(value) &&
+                            value.id === id &&
+                            Number.isSafeInteger(value.pid) &&
+                            value.pid > 0 &&
+                            Number.isSafeInteger(value.generation) &&
+                            value.generation >= 0 &&
+                            value.artifact ===
+                                PRODUCTION_RUNTIME_PROCESSES.find(
+                                    (spec) => spec.id === id,
+                                )?.artifact,
+                        `Recovery restart requires a valid ${label} production actor identity`,
+                    );
+                };
+                actor(receipt.before, RUNTIME_PROCESS.Reorg, "previous reorg");
+                actor(
+                    receipt.after,
+                    RUNTIME_PROCESS.Reorg,
+                    "replacement reorg",
+                );
+                actor(
+                    receipt.domainBefore,
+                    RUNTIME_PROCESS.Domain,
+                    "previous domain",
+                );
+                actor(
+                    receipt.domainAfter,
+                    RUNTIME_PROCESS.Domain,
+                    "current domain",
+                );
+                requireCut(
+                    receipt.after.pid !== receipt.before.pid &&
+                        receipt.after.generation ===
+                            receipt.before.generation + 1 &&
+                        receipt.after.artifact === receipt.before.artifact,
+                    "Recovery restart must replace the reorg PID and advance exactly one generation of the same artifact",
+                );
+                requireCut(
+                    isDeepStrictEqual(
+                        identity(receipt.domainBefore),
+                        identity(receipt.domainAfter),
+                    ),
+                    "Recovery restart cannot replace or change the captured domain actor",
+                );
+                requireCut(
+                    receipt.before.pid !== receipt.domainBefore.pid &&
+                        receipt.after.pid !== receipt.domainAfter.pid,
+                    "Recovery and domain actor identities must remain distinct",
+                );
+                await guardAttempt();
+                restart.heldCounterAfter = structuredClone(oldCounter());
+                restart.providedViewsAfter = world.snapshot().providers;
+                restart.completed = true;
+                return structuredClone(evidence);
+            } catch (error) {
+                if (restart) {
+                    restart.failedAt = now();
+                    restart.failure = {
+                        name: error?.name,
+                        message: String(error?.message ?? error),
+                        ...(typeof error?.code === "string"
+                            ? { code: error.code }
+                            : {}),
+                    };
+                }
+                // An actual runtime failure is still an execution failure.
+                // Preserve generic liveness fallback labels as well as typed
+                // exit causes; neither establishes a reached safety cut.
+                if (isStaleResultCutRuntimeFailure(error)) throw attach(error);
+                const failure =
+                    isStaleResultCutUnreached(error) &&
+                    error.property === STALE_RESULT_PROPERTY.RecoveryRestart
+                        ? error
+                        : unreached(String(error?.message ?? error), error);
+                if (error?.simulation && failure !== error)
+                    failure.simulation = error.simulation;
+                throw attach(failure);
             }
         },
         async captureRollback() {

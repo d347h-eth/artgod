@@ -43,6 +43,10 @@ import {
     STALE_RESULT_FINISH_FAILURE,
     STALE_RESULT_PROPERTY as PROPERTY,
 } from "./stale-result-cut.mjs";
+import {
+    RUNTIME_PROCESS,
+    PRODUCTION_RUNTIME_PROCESSES,
+} from "./runtime-manifest.mjs";
 
 // Driver guard tests use real external wire/gates and synthetic read-only
 // observations. They do not prove the production worker rejects a stale result.
@@ -371,6 +375,400 @@ const prepare = async (f) => {
     f.rollback();
     await f.controller.captureRollback();
 };
+
+const restartReceipt = () => {
+    const actor = (id, pid, generation) => ({
+        id,
+        pid,
+        generation,
+        artifact: PRODUCTION_RUNTIME_PROCESSES.find((spec) => spec.id === id)
+            .artifact,
+    });
+    const domain = actor(RUNTIME_PROCESS.Domain, 301, 0);
+    return {
+        before: actor(RUNTIME_PROCESS.Reorg, 201, 0),
+        after: actor(RUNTIME_PROCESS.Reorg, 202, 1),
+        domainBefore: domain,
+        domainAfter: { ...domain },
+    };
+};
+
+const prepareRestart = async (f) => {
+    await f.controller.captureHeld();
+    f.world.switchBranch("B", { head: 107 });
+};
+
+test("a valid recovery restart records actor readiness without crediting rollback or changing the original deadline", async () => {
+    for (const generation of [0, 2]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            const originalTiming = structuredClone(
+                f.controller.evidence().timing,
+            );
+            const receipt = restartReceipt();
+            receipt.before.generation = generation;
+            receipt.after.generation = generation + 1;
+            const result = await f.controller.restartRecovery(async () => {
+                f.setTime(originalTiming.capturedAt + 20);
+                return receipt;
+            });
+            assert.deepEqual(result.timing, originalTiming);
+            assert.deepEqual(result.reached, { heldLiveMakerAttempt: true });
+            assert.equal(result.recoveryRestart.completed, true);
+            assert.equal(
+                result.recoveryRestart.startedAt,
+                originalTiming.capturedAt,
+            );
+            assert.equal(
+                result.recoveryRestart.readyAt,
+                originalTiming.capturedAt + 20,
+            );
+            assert.deepEqual(result.recoveryRestart.receipt, receipt);
+            assert.deepEqual(
+                result.recoveryRestart.originalTiming,
+                originalTiming,
+            );
+            assert.equal(
+                result.recoveryRestart.head.hash,
+                f.ledger.blockAt("B", 107).hash,
+            );
+            assert.ok(
+                result.recoveryRestart.providedViewSequence >
+                    result.counter.capturedAt,
+            );
+            assert.equal(result.recoveryRestart.heldCounter.pending, true);
+            assert.equal(result.recoveryRestart.heldCounterAfter.pending, true);
+            assert.equal(f.state.revision, 0);
+            assert.equal(result.baseline, undefined);
+            await assert.rejects(f.controller.captureRollback(), (error) => {
+                assert.equal(isStaleResultCutUnreached(error), true);
+                assert.equal(error.property, PROPERTY.Rollback);
+                assert.equal(
+                    error.simulation.staleResultCut.recoveryRestart.completed,
+                    true,
+                );
+                assert.equal(
+                    error.simulation.staleResultCut.reached
+                        .postRollbackBaseline,
+                    undefined,
+                );
+                return true;
+            });
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("the recovery restart requires its lifecycle port and retains startup-failure diagnostics", async () => {
+    for (const failure of [
+        undefined,
+        new Error("Production restart readiness timed out"),
+    ]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            if (failure)
+                failure.simulation = {
+                    restartPort: { replacementSpawned: true },
+                };
+            await assert.rejects(
+                f.controller.restartRecovery(
+                    failure
+                        ? async () => {
+                              throw failure;
+                          }
+                        : undefined,
+                ),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(error.property, PROPERTY.RecoveryRestart);
+                    assert.equal(
+                        error.simulation.staleResultCut.outcome,
+                        "unreached",
+                    );
+                    const restart =
+                        error.simulation.staleResultCut.recoveryRestart;
+                    assert.equal(restart.completed, false);
+                    assert.ok(Number.isSafeInteger(restart.startedAt));
+                    assert.ok(Number.isSafeInteger(restart.failedAt));
+                    assert.ok(restart.failure.message);
+                    if (failure) {
+                        assert.equal(error.cause, failure);
+                        assert.deepEqual(
+                            error.simulation.restartPort,
+                            failure.simulation.restartPort,
+                        );
+                        assert.equal(restart.heldCounter.pending, true);
+                    }
+                    return true;
+                },
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("wrong recovery actors, reused PID or generation, and any changed domain identity leave restart unreached", async () => {
+    for (const corrupt of [
+        (receipt) => {
+            receipt.before.id = RUNTIME_PROCESS.Domain;
+        },
+        (receipt) => {
+            receipt.after.id = RUNTIME_PROCESS.Domain;
+        },
+        (receipt) => {
+            receipt.after.pid = receipt.before.pid;
+        },
+        (receipt) => {
+            receipt.after.pid = receipt.domainAfter.pid;
+        },
+        (receipt) => {
+            receipt.after.pid = 0;
+        },
+        (receipt) => {
+            receipt.before.generation = -1;
+        },
+        (receipt) => {
+            receipt.after.generation = receipt.before.generation;
+        },
+        (receipt) => {
+            receipt.after.generation = receipt.before.generation + 2;
+        },
+        (receipt) => {
+            receipt.before.artifact = receipt.after.artifact =
+                "unrecognized-entrypoint";
+        },
+        (receipt) => {
+            receipt.domainAfter.id = RUNTIME_PROCESS.Reorg;
+        },
+        (receipt) => {
+            receipt.domainAfter.pid++;
+        },
+        (receipt) => {
+            receipt.domainAfter.generation++;
+        },
+        (receipt) => {
+            receipt.domainAfter.artifact = receipt.after.artifact;
+        },
+    ]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            const receipt = restartReceipt();
+            corrupt(receipt);
+            await assert.rejects(
+                f.controller.restartRecovery(async () => receipt),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(error.property, PROPERTY.RecoveryRestart);
+                    assert.equal(
+                        error.simulation.staleResultCut.recoveryRestart
+                            .completed,
+                        false,
+                    );
+                    assert.equal(
+                        error.simulation.staleResultCut.recoveryRestart.receipt
+                            .after.pid,
+                        receipt.after.pid,
+                    );
+                    assert.equal(
+                        error.simulation.staleResultCut.reached
+                            .postRollbackBaseline,
+                        undefined,
+                    );
+                    return true;
+                },
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("non-plain restart metadata cannot hide its failed identity admission", async () => {
+    for (const receipt of [
+        undefined,
+        null,
+        [],
+        42,
+        { ...restartReceipt(), after: new Date(0) },
+    ]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            await assert.rejects(
+                f.controller.restartRecovery(async () => receipt),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(error.property, PROPERTY.RecoveryRestart);
+                    assert.equal(
+                        error.simulation.staleResultCut.recoveryRestart
+                            .completed,
+                        false,
+                    );
+                    assert.ok(
+                        error.simulation.staleResultCut.recoveryRestart.receipt,
+                    );
+                    return true;
+                },
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("an already-expired or restart-expired original transport cannot obtain a new deadline", async () => {
+    for (const expireBefore of [true, false]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            const timing = structuredClone(f.controller.evidence().timing);
+            let calls = 0;
+            if (expireBefore) f.setTime(timing.transportDeadline);
+            await assert.rejects(
+                f.controller.restartRecovery(async () => {
+                    calls++;
+                    f.setTime(timing.transportDeadline);
+                    return restartReceipt();
+                }),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(error.property, PROPERTY.RecoveryRestart);
+                    assert.deepEqual(
+                        error.simulation.staleResultCut.timing,
+                        timing,
+                    );
+                    assert.equal(
+                        error.simulation.staleResultCut.recoveryRestart
+                            .completed,
+                        false,
+                    );
+                    if (!expireBefore)
+                        assert.equal(
+                            error.simulation.staleResultCut.recoveryRestart
+                                .readyAt,
+                            timing.transportDeadline,
+                        );
+                    return true;
+                },
+            );
+            assert.equal(calls, expireBefore ? 0 : 1);
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("a readiness receipt cannot replace the original maker lease or the required provider/status fences", async () => {
+    for (const mutate of [
+        (f) => {
+            f.state.makerRuns[0].lease_version++;
+        },
+        (f) => {
+            f.state.makerRuns[0].pass_started_at++;
+        },
+        (f) => {
+            f.world.switchBranch("A", { head: 105 });
+        },
+        (f) => {
+            f.world.releaseResponseGate(STALE_RESULT_GATE.FreshStatus);
+        },
+    ]) {
+        const f = await fixture();
+        try {
+            await prepareRestart(f);
+            await assert.rejects(
+                f.controller.restartRecovery(async () => {
+                    mutate(f);
+                    return restartReceipt();
+                }),
+                (error) => {
+                    assert.equal(isStaleResultCutUnreached(error), true);
+                    assert.equal(error.property, PROPERTY.RecoveryRestart);
+                    assert.equal(
+                        error.simulation.staleResultCut.recoveryRestart
+                            .completed,
+                        false,
+                    );
+                    return true;
+                },
+            );
+        } finally {
+            await f.close();
+        }
+    }
+});
+
+test("a typed replacement startup exit preserves runtime attribution and leaves the restart cut unreached", async () => {
+    const f = await fixture();
+    const failure = new RuntimeProcessExit({
+        actorId: RUNTIME_PROCESS.Reorg,
+        pid: 202,
+        signal: "SIGSEGV",
+    });
+    try {
+        await prepareRestart(f);
+        await assert.rejects(
+            f.controller.restartRecovery(async () => {
+                throw failure;
+            }),
+            (error) => {
+                assert.equal(error, failure);
+                assert.equal(isStaleResultCutUnreached(error), false);
+                assert.equal(isStaleResultCutRuntimeFailure(error), true);
+                assert.equal(findRuntimeProcessExit(error), failure);
+                assert.equal(error.property, RUNTIME_PROCESS_PROPERTY.Liveness);
+                assert.equal(
+                    error.simulation.staleResultCut.recoveryRestart.property,
+                    PROPERTY.RecoveryRestart,
+                );
+                assert.equal(
+                    error.simulation.staleResultCut.outcome,
+                    "unreached",
+                );
+                return true;
+            },
+        );
+    } finally {
+        await f.close();
+    }
+});
+
+test("an existing generic runtime fallback is not relabelled as an ordinary restart-window miss", async () => {
+    const f = await fixture();
+    const failure = Object.assign(
+        new Error("Production runtime log pipe failed"),
+        { property: PROPERTY.Runtime },
+    );
+    try {
+        await prepareRestart(f);
+        await assert.rejects(
+            f.controller.restartRecovery(async () => {
+                throw failure;
+            }),
+            (error) => {
+                assert.equal(error, failure);
+                assert.equal(isStaleResultCutRuntimeFailure(error), true);
+                assert.equal(error.property, PROPERTY.Runtime);
+                assert.equal(
+                    error.simulation.staleResultCut.recoveryRestart.completed,
+                    false,
+                );
+                assert.equal(
+                    error.simulation.staleResultCut.outcome,
+                    "unreached",
+                );
+                return true;
+            },
+        );
+    } finally {
+        await f.close();
+    }
+});
 
 test("the cut observes failed release with an unchanged target/page while actual fresh B replies remain held", async () => {
     const f = await fixture();

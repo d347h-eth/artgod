@@ -97,6 +97,7 @@ export function validateScenario(value) {
         "headProgress",
         "splitProviderFork",
         "staleResultCut",
+        "staleResultReorgRestart",
         "nativeDiagnostics",
     ];
     for (const key of Object.keys(value))
@@ -314,6 +315,14 @@ export function validateScenario(value) {
                 "Non-fork head progress requires explicitly declared quiet branch B providers",
             );
     }
+    if (
+        value.staleResultReorgRestart !== undefined &&
+        (value.staleResultReorgRestart !== true ||
+            value.staleResultCut !== true)
+    )
+        throw new Error(
+            "Reorg restart staging requires an explicit stale-result safety cut",
+        );
     if (value.staleResultCut !== undefined) {
         const schedule = value.schedule ?? DEFAULT_FORK_SCHEDULE;
         if (

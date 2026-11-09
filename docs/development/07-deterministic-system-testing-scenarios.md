@@ -129,7 +129,18 @@ authored one-ERC721/WETH sale; other payment shapes and extension-owned facts
 require their own independent fixtures.
 
 The dedicated `stale-result-safety-cut` case addresses transient writes that
-later convergence could hide. Hold the actual A105 bidder-counter reply, then
+later convergence could hide. Version 2 explicitly declares
+`staleResultReorgRestart: true`: after publishing B107, kill and restart only the
+actual production reorg worker through the maintained lifecycle owner. Its
+replacement starts real recovery before its first ordinary idle sleep. Record
+old/new PID, generation, artifact and readiness; the domain process, captured
+maker lease and original RPC deadline remain unchanged. Cold startup and actual
+recovery still consume that same deadline, so missing the cut stays unreached.
+The restart recreates the worker's RPC and budget clients too.
+This qualifies the restart schedule, not uninterrupted-worker timing; replacement
+generation-one core capture is outside the current diagnostic profile.
+
+Hold the actual A105 bidder-counter reply, then
 block every fresh Seaport status reply while real B rollback commits.
 A genuine first bid Stream observation creates newer source evidence and demand
 before the baseline, while the actual resync obligation remains active. Release

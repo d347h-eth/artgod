@@ -87,6 +87,13 @@ retention from a weaker permitted terminal outcome whose commit timing remains
 unknown. A real negative protocol view must support that alternative, and it
 cannot replace the dedicated stale-result cut or weaken unrelated order checks.
 
+The native warm-worker cut also exposed a reachability constraint: an ordinary
+12-second idle poll can miss the original 10-second RPC lifetime. Preserve that
+unreached recording. A separately named version-2 schedule restarts the real
+reorg worker after B107 publication to begin actual recovery immediately; it
+keeps the captured domain attempt and all production deadlines unchanged. A
+missed restart cut still earns no guard coverage.
+
 ## 3. Weighted-Fork Fairness
 
 Backlog: `BKL-075`.

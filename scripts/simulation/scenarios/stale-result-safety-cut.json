@@ -1,7 +1,7 @@
 {
     "version": 1,
     "kind": "data-plane",
-    "qualificationId": "artgod-stale-result-safety-cut-v1",
+    "qualificationId": "artgod-stale-result-safety-cut-v2",
     "journey": "fork",
     "expectedChecks": [
         "runtime-entrypoints",
@@ -34,6 +34,7 @@
         "maximumHead": 140
     },
     "staleResultCut": true,
+    "staleResultReorgRestart": true,
     "schedule": [
         "canonical-switch",
         "release-validation",
