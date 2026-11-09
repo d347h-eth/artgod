@@ -185,11 +185,14 @@ The milestone column is rollout intent; it is not execution status.
 | SC-24 | Indexed fallback versus fresh bot projection and incomplete direct snapshot; canonical orders cannot authorize competitiveness.                                   | P6, P9              | M4                            |
 | SC-25 | Startup/shutdown/maintenance and extension-triggered side lanes overlap chain/order recovery without bypassing runtime composition.                               | P1–P9 as applicable | M4                            |
 
-SC-05 is deliberately a candidate problem-finding case. Source inspection found
-numeric block reads within the current validation path; that is not a reproduced
-system failure or an instruction to fix production code. The workbench must
-show the actual routing, result and violated contract before classifying it.
-Do not make a bad result an expected pass to complete the milestone.
+SC-05 began as a source-inspection hypothesis around numeric validation reads.
+The retained cohort now contains two reached counterexamples, including actual
+weighted routing: a completed current proof accepts another fork's ownership
+and exposes an invalid seller listing through HTTP. See the
+[execution evidence](08-simulation-workbench-execution.md#current-local-evidence)
+for their scope and independent checks. That reproduction does not qualify
+every SC-05 variant or authorize unrelated hardening. Preserve failed results;
+do not make a bad outcome an expected pass to complete the milestone.
 
 ## Exploration and Completion
 
