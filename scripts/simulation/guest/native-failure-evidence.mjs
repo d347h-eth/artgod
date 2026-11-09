@@ -9,6 +9,7 @@ import { parseElfCoreNotes, ELF_CORE_LIMITS } from "./elf-core-notes.mjs";
 export const NATIVE_FAILURE_ARTIFACT = "native-failure.json";
 export const NATIVE_DIAGNOSTIC_PROFILE = Object.freeze({
     BoundedCore: "bounded-core-v1",
+    RegisteredContext: "registered-core-context-v2",
 });
 export const NATIVE_DIAGNOSTIC_CHECK = "guest-native-core-capture";
 export const NATIVE_DIAGNOSTIC_ACTOR = Object.freeze({
@@ -21,6 +22,32 @@ export const NATIVE_CORE_POLICY = Object.freeze({
     executable: "/usr/bin/prlimit",
     artifact: "native-core.json",
     directory: "native-core",
+});
+export const NATIVE_CORE_CONTEXT_POLICY = Object.freeze({
+    pattern:
+        "|/usr/local/bin/node /workbench/guest/guest.mjs --native-core-collector %P %s",
+    collectorArgument: "--native-core-collector",
+    pipeLimit: 1,
+    helperCoreBytes: 1,
+    timeoutMs: 10_000,
+    mapsBytes: 256 * 1024,
+    mapEntries: 4096,
+    registryBytes: 64 * 1024,
+    receiptBytes: 2 * 1024 * 1024,
+    stackBytes: 64 * 1024,
+    instructionBytes: 512,
+    registry: "registry.json",
+    claim: "claim.json",
+    receipt: "collector.json",
+    timeoutArtifact: "helper-timeout.json",
+    timeoutBytes: 8192,
+    raw: "raw.core",
+    maps: "maps.txt",
+    derived: "analysis.core",
+});
+export const NATIVE_MEMORY_WINDOW = Object.freeze({
+    Stack: "stack",
+    Instructions: "instructions",
 });
 export const NATIVE_FAILURE_POLICY = Object.freeze({
     timeoutMs: 2_000,
@@ -136,17 +163,17 @@ export async function captureGuestNativeFailure({
     };
 }
 
-/** One opt-in profile, no arbitrary kernel paths, actors, limits or launch arguments. */
+/** Versioned opt-in profiles, without arbitrary paths, actors or launch arguments. */
 export function validateNativeDiagnostics(value) {
     if (
         !value ||
         typeof value !== "object" ||
         Array.isArray(value) ||
         Object.keys(value).join(",") !== "profile" ||
-        value.profile !== NATIVE_DIAGNOSTIC_PROFILE.BoundedCore
+        !Object.values(NATIVE_DIAGNOSTIC_PROFILE).includes(value.profile)
     )
         throw new Error(
-            "nativeDiagnostics requires exactly the supported bounded core profile",
+            "nativeDiagnostics requires exactly one supported core profile",
         );
     return { profile: value.profile };
 }
@@ -187,6 +214,28 @@ export function assertNativeCoreLimits(limits, filter) {
     };
 }
 
+/** Every mutating diagnostic and collector entry is restricted to the private VM. */
+export async function assertPrivateNativeGuest({
+    root,
+    output,
+    io = filesystem,
+}) {
+    const failure =
+        "Native capture may run only inside the private replay guest";
+    if (root !== "/workbench" || output !== "/workbench/output")
+        throw new Error(failure);
+    try {
+        if (
+            (await io.readlink("/proc/1/exe")) ===
+            (await io.realpath("/bin/busybox"))
+        )
+            return;
+    } catch (cause) {
+        throw new Error(failure, { cause });
+    }
+    throw new Error(failure);
+}
+
 /** Mutates only the admitted private guest. Never call host sysctl/prlimit. */
 export async function prepareNativeDiagnostics({
     settings,
@@ -196,15 +245,18 @@ export async function prepareNativeDiagnostics({
     io = filesystem,
 }) {
     validateNativeDiagnostics(settings);
-    if (
-        root !== "/workbench" ||
-        output !== "/workbench/output" ||
-        (await io.readlink("/proc/1/exe")) !==
-            (await io.realpath("/bin/busybox"))
-    )
-        throw new Error(
-            "Native capture may run only inside the private replay guest",
-        );
+    await assertPrivateNativeGuest({ root, output, io });
+    if (settings.profile === NATIVE_DIAGNOSTIC_PROFILE.RegisteredContext) {
+        const { prepareRegisteredNativeDiagnostics } =
+            await import("./native-core-collector.mjs");
+        return prepareRegisteredNativeDiagnostics({
+            settings,
+            root,
+            output,
+            actorId,
+            io,
+        });
+    }
     if (
         ![RUNTIME_PROCESS.Domain, NATIVE_DIAGNOSTIC_ACTOR.Probe].includes(
             actorId,

@@ -100,7 +100,7 @@ export async function launchRuntime(
             });
     };
     try {
-        nativeDiagnostics?.track(spec, child);
+        await nativeDiagnostics?.track(spec, child);
         await eventually(
             () => {
                 assertAlive();

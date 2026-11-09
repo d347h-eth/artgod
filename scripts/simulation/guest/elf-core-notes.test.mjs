@@ -43,10 +43,17 @@ function thread({ tid = CRASHING_TID, rip = RIP, rsp = RSP } = {}) {
     return data;
 }
 
-function processInfo() {
+function processInfo({
+    pid = LEADER,
+    parentPid = 202,
+    executableName = "fixture",
+    argumentsText = "fixture --worker",
+} = {}) {
     const data = Buffer.alloc(136);
-    data.writeInt32LE(LEADER, 24);
-    Buffer.from("fixture\0").copy(data, 40);
+    data.writeInt32LE(pid, 24);
+    data.writeInt32LE(parentPid, 28);
+    Buffer.from(executableName).copy(data, 40, 0, 16);
+    Buffer.from(argumentsText).copy(data, 56, 0, 80);
     return data;
 }
 
@@ -144,6 +151,83 @@ test("Linux writer order selects a crashing worker TID instead of leader or matc
     );
     assert.equal(actual.crashingThread.tid, CRASHING_TID);
     assert.notEqual(actual.crashingThread.tid, LEADER);
+});
+
+test("x86-64 PRPSINFO identifies the process leader and arguments independently of the faulting worker TID", () => {
+    const actual = parseElfCoreNotes(core());
+    assert.deepEqual(actual.process, {
+        pid: LEADER,
+        parentPid: 202,
+        executableName: "fixture",
+        arguments: "fixture --worker",
+    });
+    assert.equal(actual.crashingThread.tid, CRASHING_TID);
+    assert.notEqual(actual.crashingThread.tid, actual.process.pid);
+    assert.deepEqual(
+        actual.threads.map(({ currentSignal }) => currentSignal),
+        [11, 11],
+    );
+});
+
+test("optional PRPSINFO uses exact bounded name/argument fields and does not make legacy cores incomplete", () => {
+    const required = defaultNotes().filter(
+        (entry) => entry.readUInt32LE(8) !== 3,
+    );
+    const legacy = parseElfCoreNotes(core({ notes: required }));
+    assert.equal(legacy.process, undefined);
+    assert.equal(legacy.notesComplete, true);
+    const executableName = "0123456789abcdef";
+    const argumentsText = "argument".repeat(10);
+    const actual = parseElfCoreNotes(
+        core({
+            notes: [
+                ...required,
+                note(3, processInfo({ executableName, argumentsText })),
+            ],
+        }),
+    );
+    assert.equal(actual.process.executableName, executableName);
+    assert.equal(actual.process.arguments, argumentsText);
+    const otherOwner = parseElfCoreNotes(
+        core({
+            notes: [
+                ...required,
+                note(3, Buffer.alloc(1), Buffer.from("OTHER\0")),
+            ],
+        }),
+    );
+    assert.equal(otherOwner.process, undefined);
+    assert.equal(otherOwner.notesComplete, true);
+});
+
+test("duplicate or incorrectly sized PRPSINFO notes cannot publish ambiguous process identity", () => {
+    assert.throws(
+        () =>
+            parseElfCoreNotes(
+                core({
+                    notes: [
+                        ...defaultNotes(),
+                        note(3, processInfo({ pid: 909 })),
+                    ],
+                }),
+            ),
+        /Duplicate.*PRPSINFO/,
+    );
+    for (const bytes of [0, 135, 137])
+        assert.throws(
+            () =>
+                parseElfCoreNotes(
+                    core({
+                        notes: [
+                            ...defaultNotes().filter(
+                                (entry) => entry.readUInt32LE(8) !== 3,
+                            ),
+                            note(3, Buffer.alloc(bytes)),
+                        ],
+                    }),
+                ),
+            /unsupported.*PRPSINFO/,
+        );
 });
 
 test("x86-64 PRSTATUS retains exact registers beyond Number precision and the ABI RIP/RSP offsets", () => {

@@ -10,6 +10,7 @@ export const ELF_CORE_LIMITS = Object.freeze({
 });
 export const ELF_CORE_NOTE = Object.freeze({
     Prstatus: 1,
+    Prpsinfo: 3,
     Siginfo: 0x53494749,
     File: 0x46494c45,
 });
@@ -52,7 +53,7 @@ const hex = (value) => `0x${value.toString(16)}`;
 const X86_SEGV_ADDRESS_CODES = new Set([1, 2, 3, 4, 10]);
 const SIGNAL_SENDER_CODES = new Set([0, -1, -6]); // SI_USER, SI_QUEUE, SI_TKILL.
 
-export function parseElfCoreNotes(bytes) {
+export function readElfCoreLayout(bytes) {
     if (
         !Buffer.isBuffer(bytes) ||
         bytes.length < 64 ||
@@ -95,6 +96,7 @@ export function parseElfCoreNotes(bytes) {
     const phoff = number(bytes.readBigUInt64LE(32), "program-header offset");
     span(phoff, phnum * 56, "program headers");
     const noteSegments = [];
+    const headers = [];
     const loads = [];
     let loadSegmentsComplete = true;
     for (let index = 0; index < phnum; index++) {
@@ -104,6 +106,15 @@ export function parseElfCoreNotes(bytes) {
         const fileBytes = bytes.readBigUInt64LE(offset + 32);
         if (fileOffset + fileBytes >= 1n << 64n)
             throw new Error("Overflowing ELF file range");
+        headers.push({
+            type,
+            flags: bytes.readUInt32LE(offset + 4),
+            offset: fileOffset,
+            fileBytes,
+            address: bytes.readBigUInt64LE(offset + 16),
+            memoryBytes: bytes.readBigUInt64LE(offset + 40),
+            alignment: bytes.readBigUInt64LE(offset + 48),
+        });
         if (type === 4) {
             const start = number(fileOffset, "note offset"),
                 size = number(fileBytes, "note size");
@@ -123,8 +134,15 @@ export function parseElfCoreNotes(bytes) {
             });
         }
     }
+    return { span, number, noteSegments, loads, headers, loadSegmentsComplete };
+}
+
+export function parseElfCoreNotes(bytes) {
+    const { span, number, noteSegments, loads, loadSegmentsComplete } =
+        readElfCoreLayout(bytes);
     const threads = [];
     let signal,
+        processInfo,
         files,
         totalNotes = 0;
     const decodeThread = (data, noteOffset) => {
@@ -238,6 +256,23 @@ export function parseElfCoreNotes(bytes) {
                         signal.senderPid = data.readInt32LE(16);
                         signal.senderUid = data.readUInt32LE(20);
                     }
+                } else if (type === ELF_CORE_NOTE.Prpsinfo) {
+                    if (processInfo || data.length !== 136)
+                        throw new Error(
+                            "Duplicate or unsupported x86-64 PRPSINFO",
+                        );
+                    processInfo = {
+                        pid: data.readInt32LE(24),
+                        parentPid: data.readInt32LE(28),
+                        executableName: data
+                            .subarray(40, 56)
+                            .toString("utf8")
+                            .split("\0")[0],
+                        arguments: data
+                            .subarray(56, 136)
+                            .toString("utf8")
+                            .split("\0")[0],
+                    };
                 } else if (type === ELF_CORE_NOTE.File) {
                     if (files) throw new Error("Duplicate NT_FILE");
                     files = decodeFiles(data);
@@ -283,6 +318,7 @@ export function parseElfCoreNotes(bytes) {
         notesComplete: !missingNotes.length,
         missingNotes,
         signal,
+        process: processInfo,
         crashingThread,
         threadSelection: "linux-v6.6-first-prstatus",
         threads,

@@ -116,3 +116,120 @@ test("capture qualification rejects incomplete notes, user signals, wrong instru
         assert.throws(() => assertNativeProbeCapture(value, filename, pid));
     }
 });
+
+test("the context fixture preserves the old fault bytes and independently pushes a reviewed return address and marker", async () => {
+    const { nativeContextFaultFixture, NATIVE_CORE_CONTEXT_PROBE_SCENARIO } =
+        await import("./native-core-probe.mjs");
+    const bytes = nativeContextFaultFixture();
+    assert.equal(bytes.readBigUInt64LE(24), 0x400100n);
+    assert.equal(bytes.subarray(120, 126).toString("hex"), "31c089000f0b");
+    assert.equal(bytes.subarray(0x100, 0x102).toString("hex"), "48b8");
+    assert.equal(bytes.readBigUInt64LE(0x102), 0x415254474f444b41n);
+    assert.equal(bytes.subarray(0x10a, 0x10c).toString("hex"), "50e8");
+    assert.equal(0x110 + bytes.readInt32LE(0x10c), 0x78);
+    assert.equal(bytes.subarray(0x110).toString("hex"), "0f0b");
+    assert.equal(NATIVE_CORE_CONTEXT_PROBE_SCENARIO.expectedChecks.length, 1);
+    assert.notEqual(
+        NATIVE_CORE_CONTEXT_PROBE_SCENARIO.nativeDiagnostics.profile,
+        "bounded-core-v1",
+    );
+});
+
+test("context qualification requires independently known retained stack/code bytes and their exact artifact pins", async () => {
+    const { assertNativeProbeContext } =
+        await import("./native-core-probe.mjs");
+    const { nativeCoreWireFixture } =
+        await import("./fixtures/native-core-wire.mjs");
+    const { parseElfCoreNotes } = await import("./elf-core-notes.mjs");
+    const { createHash } = await import("node:crypto");
+    const fixture = nativeCoreWireFixture(),
+        notes = parseElfCoreNotes(fixture.raw);
+    const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+    const windows = {
+        stack: fixture.stack.subarray(128, 128 + 65536),
+        instructions: fixture.code.subarray(0x5a, 0x5a + 512),
+    };
+    const valid = {
+        missing: false,
+        cores: [
+            {
+                ...notes,
+                pid: fixture.pid,
+                signalNumber: 11,
+                capReached: false,
+                sizeBytes: fixture.raw.length,
+                sha256: digest(fixture.raw),
+            },
+        ],
+        collector: {
+            complete: true,
+            memoryComplete: true,
+            notes: { process: { pid: fixture.pid } },
+            derived: { rawSha256: digest(fixture.raw) },
+            windows: Object.fromEntries(
+                Object.entries(windows).map(([kind, bytes]) => [
+                    kind,
+                    {
+                        complete: true,
+                        file: `native-core/${kind}.bin`,
+                        sizeBytes: bytes.length,
+                        sha256: digest(bytes),
+                        registerOffset: kind === "stack" ? 128 : 32,
+                    },
+                ]),
+            ),
+        },
+    };
+    const makeIo = (buffers) => ({
+        lstat: async (filename) => ({
+            isFile: () => true,
+            size: buffers[path.basename(filename, ".bin")].length,
+        }),
+        readFile: async (filename) => buffers[path.basename(filename, ".bin")],
+    });
+    await assertNativeProbeContext(
+        valid,
+        fixture.filename,
+        fixture.pid,
+        makeIo(windows),
+    );
+    for (const mutate of [
+        (value) => {
+            value.collector.memoryComplete = false;
+        },
+        (value) => {
+            value.collector.windows.stack.sha256 = "a".repeat(64);
+        },
+        (value) => {
+            value.collector.derived.rawSha256 = "b".repeat(64);
+        },
+        (value) => {
+            value.collector.windows.instructions.file = "../outside";
+        },
+    ]) {
+        const copy = structuredClone(valid);
+        mutate(copy);
+        await assert.rejects(
+            assertNativeProbeContext(
+                copy,
+                fixture.filename,
+                fixture.pid,
+                makeIo(windows),
+            ),
+        );
+    }
+    for (const kind of ["stack", "instructions"]) {
+        const copy = structuredClone(valid),
+            buffers = { ...windows, [kind]: Buffer.from(windows[kind]) };
+        buffers[kind][copy.collector.windows[kind].registerOffset] ^= 1;
+        copy.collector.windows[kind].sha256 = digest(buffers[kind]); // A valid pin cannot replace the independent known answer.
+        await assert.rejects(
+            assertNativeProbeContext(
+                copy,
+                fixture.filename,
+                fixture.pid,
+                makeIo(buffers),
+            ),
+        );
+    }
+});

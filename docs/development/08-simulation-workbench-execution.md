@@ -1,6 +1,6 @@
 # Simulation Workbench Execution
 
-Updated 2026-11-08. The baseline workbench is implemented. The complete local
+Updated 2026-11-09. The baseline workbench is implemented. The complete local
 26-case cohort at source `63221604` is recorded and replayed; its failed
 properties remain failures. This guide describes the current tooling contract;
 source commands and retained reports own execution evidence. Read the
@@ -593,11 +593,37 @@ flag or application-policy change was made, and the later passes clear no
 retained failure. These three runs are additional diagnostics, not part of the
 26-case cohort or its 15-pass native audit.
 
+The separate opt-in `registered-core-context-v2` profile covers generation-zero
+Node actors from the runtime manifest, including sync and collection bootstrap.
+It retains only the first claimed fatal dump; NATS, one-shot maintenance and
+restarted generations are explicitly excluded. Normal runtime arguments and
+the version-1 profile remain intact. Fresh VM qualification is pending.
+
+Its fixed guest-only pipe collector bounds raw input to 32 MiB, maps to 256 KiB,
+stack memory to 64 KiB and instruction memory to 512 bytes. It retains the
+kernel-assigned core-limit sentinel of one to prevent recursive helper dumps.
+For the pinned kernel, an open pipe reader retains the dying task's memory;
+the helper owns fd0 until its bounded memory reads and receipts finish. Its
+10-second JavaScript deadline is cooperative; the outer VM watchdog remains
+the backstop for synchronous/native hangs. Timeout evidence cannot replace an
+earlier claimed core receipt.
+
+The raw core, maps and memory sidecars have separate byte pins. `analysis.core`
+is explicitly derived from the raw notes and those windows, with source ranges
+and hashes. Match actual guest executable/library bytes for analysis; do not
+silently resolve guest mappings against host libraries. Missing windows, extra
+faults outside the one-capture budget and incomplete unwinding remain gaps.
+Use the exported `NATIVE_CORE_CONTEXT_PROBE_SCENARIO` in the materialization
+recipe above for this profile. In addition to the known zero-address store,
+its saved stack must contain the authored return address and marker. Inspect
+raw notes and sidecars independently before using a real runtime capture to
+choose an informed comparison. No synthetic fault fixture runs on the host.
+
 The [bounded parser](../../scripts/simulation/guest/elf-core-notes.mjs) consumes
 only the pinned Linux x86-64 format. It preserves raw siginfo, decodes known
 unions, and uses the pinned kernel's first-PRSTATUS fault-thread ordering rather
 than selecting the leader PID. Missing/truncated/unsupported evidence remains
-explicit; raw cores survive parser failure. Filter `0x10` deliberately provides
+explicit; raw cores survive parser failure. By itself, filter `0x10` provides
 no heap/stack/JIT-byte capture or promised unwindable stack. A mapped RIP locates
 a code region and does not establish whether the cause belongs to ArtGod, a
 native dependency, V8, the kernel or emulation.

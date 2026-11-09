@@ -27,12 +27,22 @@ export const NATIVE_CORE_PROBE_SCENARIO = Object.freeze({
     }),
 });
 
+export const NATIVE_CORE_CONTEXT_PROBE_SCENARIO = Object.freeze({
+    ...NATIVE_CORE_PROBE_SCENARIO,
+    qualificationId: "artgod-native-core-context-probe-v2",
+    nativeDiagnostics: Object.freeze({
+        profile: NATIVE_DIAGNOSTIC_PROFILE.RegisteredContext,
+    }),
+});
+
 export const NATIVE_CORE_PROBE = Object.freeze({
     directory: "native-probe",
     binary: "null-write",
     instruction: "0x40007a",
     maximumMs: 10000,
     outputBytes: 8192,
+    stackMarker: "0x415254474f444b41",
+    stackReturn: "0x400110",
 });
 
 /** Synthetic Linux/x86-64 fixture only. Never execute this artifact on the host. */
@@ -57,6 +67,77 @@ export function nativeFaultFixture() {
     // xor eax,eax; mov DWORD PTR [rax],eax; ud2 (unreachable fail-closed guard).
     bytes.set([0x31, 0xc0, 0x89, 0x00, 0x0f, 0x0b], 120);
     return bytes;
+}
+
+/** The opt-in v2 fixture supplies two independently known stack words. The
+ * reviewed v1 fault instruction and its RIP stay byte-identical. Never run host-side. */
+export function nativeContextFaultFixture() {
+    const bytes = Buffer.alloc(0x112);
+    nativeFaultFixture().copy(bytes);
+    bytes.writeBigUInt64LE(0x400100n, 24);
+    bytes.writeBigUInt64LE(BigInt(bytes.length), 96);
+    bytes.writeBigUInt64LE(BigInt(bytes.length), 104);
+    bytes.set([0x48, 0xb8], 0x100); // movabs rax, marker
+    bytes.writeBigUInt64LE(BigInt(NATIVE_CORE_PROBE.stackMarker), 0x102);
+    bytes[0x10a] = 0x50; // push rax
+    bytes[0x10b] = 0xe8; // call reviewed null-write sequence
+    bytes.writeInt32LE(0x78 - 0x110, 0x10c);
+    bytes.set([0x0f, 0x0b], 0x110); // unreachable guard; also known return word
+    return bytes;
+}
+
+/** Require real retained memory bytes, not only successful metadata flags. */
+export async function assertNativeProbeContext(
+    capture,
+    filename,
+    pid,
+    io = { lstat, readFile },
+) {
+    assertNativeProbeCapture(capture, filename, pid);
+    const collector = capture.collector;
+    assert.equal(collector?.complete, true);
+    assert.equal(collector.memoryComplete, true);
+    assert.equal(collector.notes.process.pid, pid);
+    const readWindow = async (kind) => {
+        const item = collector.windows[kind];
+        assert.equal(item.complete, true);
+        const expectedFile = `native-core/${kind}.bin`;
+        assert.equal(item.file, expectedFile);
+        const file = path.join("/workbench/output", expectedFile);
+        const metadata = await io.lstat(file);
+        assert.equal(metadata.isFile(), true);
+        assert.equal(metadata.size, item.sizeBytes);
+        assert.ok(item.sizeBytes > 0 && item.sizeBytes <= 65536);
+        const bytes = await io.readFile(file);
+        assert.equal(bytes.length, item.sizeBytes);
+        assert.equal(
+            createHash("sha256").update(bytes).digest("hex"),
+            item.sha256,
+        );
+        return { item, bytes };
+    };
+    const stack = await readWindow("stack"),
+        code = await readWindow("instructions");
+    assert.equal(
+        stack.bytes.readBigUInt64LE(stack.item.registerOffset),
+        BigInt(NATIVE_CORE_PROBE.stackReturn),
+    );
+    assert.equal(
+        stack.bytes.readBigUInt64LE(stack.item.registerOffset + 8),
+        BigInt(NATIVE_CORE_PROBE.stackMarker),
+    );
+    assert.equal(
+        code.bytes
+            .subarray(code.item.registerOffset, code.item.registerOffset + 4)
+            .toString("hex"),
+        "89000f0b",
+    );
+    assert.equal(collector.derived?.rawSha256, capture.cores[0].sha256);
+    return {
+        stackReturn: NATIVE_CORE_PROBE.stackReturn,
+        stackMarker: NATIVE_CORE_PROBE.stackMarker,
+        instructionBytes: "89000f0b",
+    };
 }
 
 /** Reuse the artifact pin owner, and reject symlinks before its ordinary file stat. */
@@ -134,7 +215,12 @@ export async function runNativeCoreProbe(scenario, { root, output }) {
     const directory = path.join(output, NATIVE_CORE_PROBE.directory);
     await mkdir(directory, { mode: 0o700 });
     const filename = path.join(directory, NATIVE_CORE_PROBE.binary);
-    const expectedBytes = nativeFaultFixture();
+    const contextProfile =
+        scenario.nativeDiagnostics.profile ===
+        NATIVE_DIAGNOSTIC_PROFILE.RegisteredContext;
+    const expectedBytes = contextProfile
+        ? nativeContextFaultFixture()
+        : nativeFaultFixture();
     await writeFile(filename, expectedBytes, {
         flag: "wx",
         mode: 0o700,
@@ -185,7 +271,7 @@ export async function runNativeCoreProbe(scenario, { root, output }) {
     let capture, failure, afterFixturePin;
     try {
         if (!Number.isSafeInteger(child.pid)) await complete;
-        diagnostics.track(
+        await diagnostics.track(
             { id: NATIVE_DIAGNOSTIC_ACTOR.Probe, filename, generation: 0 },
             child,
         );
@@ -208,6 +294,8 @@ export async function runNativeCoreProbe(scenario, { root, output }) {
         });
         capture = await diagnostics.capture();
         assertNativeProbeCapture(capture, filename, child.pid);
+        if (contextProfile)
+            await assertNativeProbeContext(capture, filename, child.pid);
         return {
             checks: { [NATIVE_DIAGNOSTIC_CHECK]: true },
             evidence: {

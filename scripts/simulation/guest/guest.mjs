@@ -6,17 +6,16 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-    connect,
-    consumerOpts,
-    RetentionPolicy,
-    StorageType,
-    StringCodec,
-} from "nats";
+import { NATIVE_CORE_CONTEXT_POLICY } from "./native-failure-evidence.mjs";
+const collectorMode =
+    process.argv[2] === NATIVE_CORE_CONTEXT_POLICY.collectorArgument;
+// A kernel core helper loads only builtins/pure evidence owners, without NATS
+// initialization or scenario/fixture crypto. Normal coordinator behavior is unchanged.
+const { connect, consumerOpts, RetentionPolicy, StorageType, StringCodec } =
+    collectorMode ? {} : await import("nats");
 import { resolveRuntimeLayout } from "./runtime-manifest.mjs";
 import { inspectStorage } from "./storage-probe.mjs";
 import { formatFailureEvidence } from "./failure-evidence.mjs";
-import { validateScenario, SCENARIO_KIND } from "./scenario-contract.mjs";
 import {
     QUALIFICATION_PROTOCOL_PREFIX,
     QUALIFICATION_PROTOCOL_VERSION,
@@ -31,7 +30,7 @@ const root = process.env.ARTGOD_WORKBENCH_ROOT ?? "/workbench";
 const layout = resolveRuntimeLayout(root);
 const state = path.join(root, "state");
 const output = path.join(root, "output");
-const codec = StringCodec();
+const codec = collectorMode ? undefined : StringCodec();
 let activeScenario;
 const activeChildren = new Set();
 
@@ -436,6 +435,8 @@ async function qualifyNativeQueues(database, databasePath) {
 }
 
 async function main() {
+    const { validateScenario, SCENARIO_KIND } =
+        await import("./scenario-contract.mjs");
     const scenarioPath = process.argv[2] ?? path.join(root, "scenario.json");
     const scenario = validateScenario(
         JSON.parse(await readFile(scenarioPath, "utf8")),
@@ -495,7 +496,14 @@ async function main() {
     });
 }
 
-if (process.argv[2] === CHILD_MODE) {
+if (collectorMode) {
+    const { runNativeCoreCollector } =
+        await import("./native-core-collector.mjs");
+    await runNativeCoreCollector(process.argv.slice(3)).catch((error) => {
+        process.stderr.write(`${String(error.message).slice(0, 1024)}\n`);
+        process.exitCode = 1;
+    });
+} else if (process.argv[2] === CHILD_MODE) {
     const role = process.argv[3];
     const config = JSON.parse(process.argv[4]);
     const task = role.startsWith("writer-")
