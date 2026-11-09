@@ -1,14 +1,146 @@
 # Simulation Workbench Execution
 
-Updated 2026-11-09. The baseline workbench is implemented. The complete local
-26-case cohort at source `63221604` is recorded and replayed; its failed
-properties remain failures. This guide describes the current tooling contract;
+Updated 2026-11-09. The workbench and five qualification follow-ups have a fresh
+full-build local execution at source `0fc446b4`. All 26 cases pass strict machine
+replay; ten retain failed properties. This guide describes the tooling contract;
 source commands and retained reports own execution evidence. Read the
 [strategy](06-deterministic-system-testing-strategy.md) and
 [scenario catalog](07-deterministic-system-testing-scenarios.md) before adding
 workloads.
 
 ## Current Local Evidence
+
+The final sealed cohort is `tmp/simulation-qualification-closure/cohorts/cohort-shGmQp/`.
+Its `plan.json`, four lane results, `closed.json`,
+`assessment-e0OpwA/assessment.json` and `root-reconciliation.json` account for
+all 26 declared cases. The executable source and controller stayed frozen at
+`0fc446b416a5e84f0ec46b1dbdbb123ae24dbeb0` throughout. There were 26 actual record
+phases and 26 replay phases, with no missing cases, interruptions, retries or
+waivers. Every pair passed engine qualification, exact serial equality and
+complete guest-visible disk capacity/byte comparison. Property outcomes are
+separate:
+
+| Lane                           | Executed | Passed | Failed |
+| ------------------------------ | -------: | -----: | -----: |
+| Named regressions, shard 1     |        7 |      5 |      2 |
+| Named regressions, shard 2     |        7 |      4 |      3 |
+| Held-validation command orders |        6 |      4 |      2 |
+| Header-error command orders    |        6 |      3 |      3 |
+| Total                          |       26 |     16 |     10 |
+
+The fresh full guest is `tmp/simulation/guest-oGbmdb/manifest.json`. Before the
+cohort, all 429 supporting tests passed with zero skips, as did formatting and
+documentation verification over 83 Markdown files. Actual M0 `run-0fjk8A` passed all eight checks and
+strict serial/disk replay in 210.990 seconds. Separate native-context probe
+`run-gv0TBU` passed capture and strict replay in 167.811 seconds; independent
+GNU/elfutils/Python inspection qualified the raw/derived ELF notes, bounded
+memory bytes and corrected load alignment. These are specific substrate and
+capture checks, not proof of every runtime computation.
+
+The ten failures remain failed:
+
+- Seven actual `SIGSEGV` exits (six domain workers and one sync worker) are typed
+  runtime-liveness failures. They leave the intended histories partly or wholly
+  unreached; inherited unfinished HTTP/reorg flags do not establish separate
+  business defects. No captured instruction ties these runs to the earlier
+  independently located V8 fault, whose corruption origin remains unknown.
+- `run-nzvHtB` and weighted/default-budget `run-eMVZMt` reach fresh full validation
+  and settle with healthy actors. Actual A104 header → B104 numeric ownership
+  read → A104 header observations produce a Fillable listing and a 1 WETH HTTP
+  ask while canonical persisted ownership belongs to the buyer. Their current
+  source revision, generation, time requirement and proof coverage pass. This
+  is a snapshot-coherence counterexample, not an old-cache or missing-floor
+  assertion. See `BKL-078` in the [backlog](../planning/01-unified-backlog.md#simulation-findings).
+- `run-KqgnDf` stops all ten actors and reaches both successful real maintenance
+  artifacts. Two completed proof rows disappear while the same canonical orders
+  survive with unchanged selected fields, before any actor restart. This proves
+  lost saved coverage; pending-work loss, wrong fillability and subsequent
+  cancellation/authority checks are unproved. See `BKL-079` in the same backlog.
+
+Seven of twelve causal histories completed every owning-model requirement.
+Four native-blocked histories never reached the old-validation prelude; held
+EVRS reached all four external commands and canonical B before a domain crash
+prevented settlement. Neither that prefix nor merely executing all twelve
+cases earns complete-history or dedicated stale-guard credit.
+
+The proof audit observes all required revision, `required_at`, `minimum_block`
+and coverage fields in 158 observations of projected proof rows across
+checkpoints, with none absent. These are not 158 distinct proofs. Every observed
+`minimum_block` is explicitly null. Positive numeric block-floor acceptance and
+rejection are verified by supporting tests, not by these E2E captures. Stored
+older-chain coverage, witnessed new work and terminal endpoints retain their
+separate contracts:
+
+- Committed-validation v2 `run-rxXoQL` witnesses an actual pre-rollback
+  unattributed cancellation and retains it after revision advance. This earns
+  strong retention only.
+- Weighted-fork v2 `run-FGIdjG` passes actual fair recovery and canonical
+  acquisition/debt closure in 415.403 seconds. The split retains A105 as
+  ineligible at head 106/depth 3; B107 makes it eligible. Explicit healing is
+  sequence 505. Before E's rollback-wait acknowledgement at sequence 563,
+  its nested input snapshot records the started producer and fresh B111.
+  Final B111 has empty business-debt arrays and only recent checks 110/111.
+  It exercises the separately
+  permitted unattributed-cancellation endpoint, supported by a real A105
+  counter-one computation before explicit healing. The SQL commit timing was
+  not observed; its retention, stale-rejection and current-executable-bid-proof
+  credit flags are all false. Other order and canonical assertions remain.
+- VM stale-cut v2 `run-GpyieB` crashes in the domain worker after the A-sale
+  prefix, before counter capture. Its reached map is empty: no restart,
+  rollback-cut, rejection or fresh-proof credit is assigned.
+
+A separately authored, real native whole-runtime stale-v2 control,
+`control-ybwIwy`, passes all seven checks in 67.503 seconds. The real reorg worker
+restarts while the domain worker and original ten-second RPC deadline remain
+unchanged. The exact old lease is refused, newer source work stays pending,
+then a fresh proof and HTTP state converge. This is native-only evidence; it
+does not clear the VM failure, qualify uninterrupted worker timing, or exhaust
+finish-to-SQL interleavings. The earlier warm-v1 window miss remains unreached
+and unchanged.
+
+Final-source full/coordinator-reuse logical equivalence passes all 7,843 image
+entries, 546 payload pins, 1,165 source inputs, 630 coordinator inputs and helper
+readbacks. The known coordinator UID/GID/xattr difference remains explicit;
+whole-filesystem metadata equality is not claimed. The independent-copy genuine
+failed-counterexample replay described below also passes strict serial/disk
+comparison with original pins/inodes preserved. Evidence and independent audits
+are indexed by the cohort's `handoff.json`.
+
+The cohort took 2,840.506 seconds locally (47.34 minutes), with at most four
+simultaneous VMs. Pair elapsed times range from 288.977 to 546.980 seconds,
+median 363.1705 seconds; the slowest lane sums to 2,740.951 seconds. Top-level
+paired-run files allocate 2,306,621,440 bytes, excluding reusable guests,
+capsules, case inputs and other retained diagnostics. Each VM is configured
+with one vCPU and 2 GiB. These shared-host measurements neither measure host
+peak memory nor qualify hosted budgets or multicore race coverage.
+
+| Milestone | Demonstrated boundary and remaining limit                                                                                                                                                             |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0        | Fresh full guest, eight-check substrate and separate capture probe qualify this specific execution profile. Unexplained runtime crashes still limit confidence beyond those checks.                   |
+| M1        | Production marketplace → validation → actual fork recovery → HTTP journeys run. Final VM retention is witnessed; the dedicated stale cut is demonstrated natively and remains VM-blocked.             |
+| M2        | Authored disagreement, lag, actual weighted free-RPC routing, refusal and process/broker restarts run. Commit-before-ACK, uncertain publication and additional partition variants remain unqualified. |
+| M3        | Every declared named case and bounded causal order is accounted for; seven causal histories complete. Strict CI lanes and artifact owners exist; hosted execution/retrieval is blocked.               |
+| M4        | Actual bootstrap pause/reopen/retry/completion runs. Maintenance discovers retained-coverage loss before later checks; bot authority and extension-trigger journeys remain unqualified.               |
+
+The scenario catalog remains broader than this corpus. Further current-system
+coverage includes SC-04 WS/HTTP and reverse-head variants, SC-06 archive/hash/revert
+variants, SC-09 production commit-before-ACK, SC-10 publication ambiguity, SC-11
+cursor/lease cuts, SC-13 REST traversals, SC-15 positive block-floor E2E work,
+SC-17 boundary matrices, SC-21 ERC1155/burn/sentinels, SC-22 retention, SC-24 bot
+authority and SC-25 extension triggers. Future P2P/multisource/multichain behavior,
+rendered desktop/release qualification and arbitrary-host portability are not
+implemented or qualified here.
+
+The five follow-ups' [final disposition](09-simulation-qualification-closure.md#final-disposition)
+keeps native-origin/profile qualification and hosted CI partial. The current
+corpus and default CI property gate remain red, with no expected-failure waiver.
+GitHub read-only checks confirm repository access, but SSH authentication fails
+and the OAuth scopes omit `workflow`; no successful publication, PR, hosted run
+or merge is claimed. This is a reviewable problem-finding baseline, not green
+release qualification or replacement for all manual QA. Subsequent documentation
+commits do not claim a rerun of executable source `0fc446b4`.
+
+## Historical Baselines
 
 The sealed cohort is retained under
 `tmp/simulation-final-cohorts/cohort-8fWEDa/`: `plan.json`, four lane results,
@@ -53,8 +185,9 @@ The replacement `artgod-weighted-fork-v2` descriptor keeps the split at B106/A10
 witnesses the supported recovery dependency, explicitly heals every endpoint,
 then publishes eligibility and starts timestamp-driven head growth before the
 rollback wait. Legal earlier A104 recovery is also retained as evidence. The 54
-affected split, producer, admission, corpus and CI checks pass. Fresh execution
-is still required; the original version-1 recording remains unchanged.
+affected split, producer, admission, corpus and CI checks passed at that stage.
+Fresh version-2 results are recorded above; the original version-1 recording
+remains unchanged.
 
 The passing cases include actual bootstrap pause/retry/restart, the default RPC
 budget, lagging providers, broker/offchain restart, unsupported-fork refusal,
@@ -85,8 +218,8 @@ does not make it reusable after rollback. Current-chain coverage is additionally
 required for the stale cut's witnessed new post-rollback bid generation and the
 fresh-provider histories. The native comparison exposed the old unconditional
 chain-equality assertion; its original failed report is retained. Fresh
-final-source runs remain required, and cannot recover fields absent from the
-sealed cohort's observations.
+final-source runs above supply current evidence; they cannot recover fields
+absent from this historical cohort's observations.
 
 Source `793e057b` subsequently passed all 395 supporting tests, a fresh full-build
 M0 (`run-4TxxXk`, 218.072 seconds), the corrected context probe (`run-Y3K6YL`,
@@ -101,7 +234,7 @@ cohort. The review also found historical weighted retry cancellation before
 healing, so the correction must distinguish witnessed retention from a merely
 permitted conservative terminal state across ordinary fork histories.
 
-Measured pair times range from 283.769 to 941.765 seconds, with median 340.584
+Historical baseline pair times range from 283.769 to 941.765 seconds, with median 340.584
 seconds. The slowest lane sums to 3,195.473 seconds of pair execution. Paired run
 directories allocate 2,303,414,272 bytes, excluding reusable guest/capsule/case
 inputs. These are local shared-host measurements, not hosted CI budgets or peak
@@ -480,7 +613,7 @@ then retains the complete coverage, header, mature-check and final property
 assertions on that fixed cut within the same deadline. This is a harness
 correction; the old failure is not assigned to ArtGod, and original reports are
 unchanged. The corrected 26-case cohort is now fully accounted for in
-[Current Local Evidence](#current-local-evidence); its own remaining failures
+[Historical Baselines](#historical-baselines); its own remaining failures
 retain their separate causes and coverage gaps.
 
 The targeted stale-result trial `run-gvHMAC`, at source `1169f39c`, reproduced

@@ -62,10 +62,10 @@ Backlog: `BKL-074`.
 
 Extend the existing read-only projection and owning convergence oracle to verify
 the current source revision and actual source-time/event-height requirements.
-The baseline projection omits `required_at` and `minimum_block`; the generic
-oracle currently checks only positive validation time, settled demand and chain
-revision. Use the owning validation-demand contract, preserve terminal-source
-exceptions and existing optimistic visibility, and keep chain truth independent
+At the preserved baseline, the projection omitted `required_at` and
+`minimum_block`; the generic oracle checked only positive validation time,
+settled demand and chain revision. Use the owning validation-demand contract,
+preserve terminal-source exceptions and existing optimistic visibility, and keep chain truth independent
 of production reducers. Do not introduce a stronger product guarantee.
 
 Acceptance: meaningful negative cases demonstrate rejection of stale revision,
@@ -169,3 +169,41 @@ the required focused and repository gates, document remaining product findings
 and operational limitations, and distinguish merge readiness from a claim that
 all product scenarios pass. Do not weaken the default CI gate or hide known
 failures without an explicit, justified decision.
+
+## Final Disposition
+
+Local execution closed on 2026-11-09 at executable source `0fc446b4`, with the
+fresh full guest and frozen controller. All 26 declared cases actually recorded
+and replayed, with exact serial and full-disk parity, no missing cases and no
+retries or waivers. Sixteen pass their properties; ten remain failed. Seven of
+twelve authored causal histories complete. The
+[execution guide](08-simulation-workbench-execution.md#current-local-evidence)
+owns the lane results, measured resources, diagnostic boundaries and retained
+evidence index.
+
+| Follow-up                      | Disposition                                | Evidence and remaining qualification                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BKL-073: native failures       | Partial; bounded diagnostic work completed | Actual registered-context capture and independent inspection pass; a real earlier fault instruction and invalid operand are located in V8. The corruption origin remains unknown. Real native controls reach selected journeys, but do not clear seven final-cohort SIGSEGV histories or qualify every engine path.                                                                                           |
+| BKL-074: permanent oracle      | Done within the owning oracle scope        | Negative/positive supporting checks cover revision, source-time, numeric block floors and chain identity. All 158 observations of projected proof rows across checkpoints include actual fields; their block floors are null. A positive integer block-floor E2E journey remains unqualified. Cached coverage, witnessed retention, permitted terminal compatibility and fresh work have separate assertions. |
+| BKL-075: fair weighted healing | Done within the authored version-2 history | Native control `control-2GEhlF` at source `0a75bb3c` and the final `0fc446b4` VM journey supply recovery dependencies and converge. Final VM strict replay passes; its permitted bid cancellation earns no retention, stale-rejection or current executable bid-proof credit. Version-1's unfair wait and original failure remain preserved.                                                                  |
+| BKL-076: final source and CI   | Partial; complete local execution finished | Full-build M0/capture checks, all 26 strict pairs, actual history accounting, 429 supporting tests and artifact/resource review are complete. Default property gates remain red. GitHub publication and hosted matrix/artifact retrieval are blocked by unavailable SSH identity and missing OAuth workflow scope. No credentials were changed.                                                               |
+| BKL-077: storage/copies        | Done within the tested local environment   | Actual final-image full/reuse inventories and pinned inputs match, with the documented metadata exception. Ordinary independent-copy relocation of a genuine failed counterexample reproduces the original failure with exact serial/disk equality and unchanged originals. Arbitrary-host portability remains unproved.                                                                                      |
+
+The dedicated final VM stale cut is runtime-blocked before counter capture;
+it earns zero restart or safety-cut credit. The separately authored native v2
+control reaches exact old-lease refusal, newer pending work and a fresh proof
+without changing the domain process or original deadline. Keep those claims
+separate. A warm-v1 timing miss remains unreached and was not retried into a pass.
+
+Two application findings have stable backlog identities: `BKL-078` for fresh
+cross-fork validation/incorrect HTTP ask, and `BKL-079` for completed coverage
+lost during maintenance. They remain Open; no production fix or expected-failure
+promotion was added. Native exits remain runtime findings with unresolved origin.
+
+The review found no additional concrete blocker in the production contract
+extractions, artifact sensitivity or strict CI/accounting owners. The branch is
+ready for review with these explicit limits; it is not unconditionally green
+merge/release qualification. Remaining current-system scenario families and
+unreached guards are listed with the milestone evidence in the execution guide.
+Future P2P and multichain work, desktop packaging/rendering and host portability
+retain their separate scopes. No push, PR, hosted success or merge is claimed.
