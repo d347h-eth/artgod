@@ -19,5 +19,8 @@
   defines deliberate distributed-system histories and required evidence.
 - [Workbench execution](08-simulation-workbench-execution.md) covers explicit
   guest inputs, build, preflight, record/replay and qualification limits.
+- [Qualification closure](09-simulation-qualification-closure.md) defines the
+  five authorized follow-ups and evidence required for the simulation branch's
+  merge review.
 
 Remaining work is tracked in the [unified backlog](../planning/01-unified-backlog.md).

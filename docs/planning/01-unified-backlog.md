@@ -135,6 +135,16 @@ implemented boundary; this file only prioritizes changes to it.
 | --------- | -------- | ------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BKL-072` | P2       | Open   | Validate active configuration policies consistently before Admin save and launch. | `RPC-MODE-001` deferred by agreement: Admin can save incompatible limited RPC/gap rates that indexer startup rejects. Tooltips explain the constraint; see [shared validation scope](../desktop/04-settings-manifest-process.md#deferred-validation-between-settings). |
 
+## Simulation Qualification
+
+| ID | Priority | Status | Retained outcome | Current evidence and context |
+| --- | --- | --- | --- | --- |
+| `BKL-073` | P0 | Partial | Attribute native runtime exits sufficiently to qualify the simulation profile and blocked histories. | Eight-check M0 and synthetic core capture pass; domain and sync crashes remain unattributed. See [native runtime failures](../development/09-simulation-qualification-closure.md#1-native-runtime-failures). |
+| `BKL-074` | P0 | Partial | Verify current revision and actual source-time/event-height proof requirements in the permanent simulation oracle. | Generic convergence omits requirement floors and full source identity. See [proof oracle closure](../development/09-simulation-qualification-closure.md#2-permanent-proof-oracle). |
+| `BKL-075` | P0 | Open | Provide fair external healing before assessing weighted-fork recovery or refusal. | The retained mixed-ancestry run gates head publication behind rollback; see [weighted-fork fairness](../development/09-simulation-qualification-closure.md#3-weighted-fork-fairness). |
+| `BKL-076` | P1 | Partial | Qualify a final-source full guest, complete corpus, causal campaigns and actual CI artifact flow. | The complete cohort predates subsequent coordinator changes; hosted execution remains unverified. See [final-source execution and CI](../development/09-simulation-qualification-closure.md#4-final-source-execution-and-ci). |
+| `BKL-077` | P2 | Partial | Verify optional rebuild equivalence and independent-copy counterexample relocation. | Guarded reuse and hardlink relocation exist; see [storage and independent copies](../development/09-simulation-qualification-closure.md#5-storage-optimizations-and-independent-copies). |
+
 ## Maintenance Rules
 
 1. Do not add design essays here. Add current technical context to the owning
