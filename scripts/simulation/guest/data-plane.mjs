@@ -311,7 +311,7 @@ function observe(database, collectionId) {
                     .all(),
                 validationProofs: database
                     .prepare(
-                        "SELECT order_id,generation,pending,proof_revision,proof_at,proof_block,proof_chain_revision FROM order_validation_demand WHERE chain_id=1 ORDER BY order_id",
+                        "SELECT order_id,generation,pending,required_at,minimum_block,proof_revision,proof_at,proof_block,proof_chain_revision FROM order_validation_demand WHERE chain_id=1 ORDER BY order_id",
                     )
                     .all(),
                 pendingOutbox: database

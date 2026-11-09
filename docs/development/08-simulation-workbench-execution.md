@@ -63,11 +63,19 @@ contract. Available A104 sale checkpoints also passed nonempty fill checks.
 The oracle/world/proof owner files and lockfile match source `63221604` byte for
 byte. This reevaluates retained observations with shared model/oracle algorithms;
 it reruns no production actor, database, broker or wire request and does not
-recompute raw disk parity. Proof projections omit `required_at` and
+recompute raw disk parity. That cohort's proof projections omit `required_at` and
 `minimum_block`, so neutral requirements check identity without establishing
 unavailable source-time/event-floor freshness. Bootstrap pre-anchor completeness
 and refused-recovery winning-branch or terminal-proof convergence are excluded;
 this additional execution does not qualify other CPU, RPC-model or runtime paths.
+
+The permanent convergence oracle now projects actual `required_at` and
+`minimum_block` requirements and uses the validation-demand owner's coverage
+contract against the current order and chain revisions. Missing evidence fails
+explicitly; source-terminal exceptions retain their existing semantics. All 69
+affected supporting checks pass, including stale revision, time and block-floor
+mutations. This strengthens new executions; it cannot recover fields absent from
+the sealed cohort's observations. Fresh final-source runs remain required.
 
 Measured pair times range from 283.769 to 941.765 seconds, with median 340.584
 seconds. The slowest lane sums to 3,195.473 seconds of pair execution. Paired run

@@ -5,6 +5,10 @@ import { TRANSFER_ABI } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import {
+    assertOrderValidationRequest,
+    validationProofCovers,
+} from "../../../indexer/src/domain/order-validation-demand.ts";
+import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
 } from "../../../shared/market-data/orders.ts";
@@ -161,7 +165,10 @@ export function assertCanonicalAcquisition({ snapshot, ledger, branch, head }) {
     assertCanonicalFillFacts({ snapshot, ledger, branch, head });
 }
 
-/** Active orders need a current full proof; source cancellation is independent. */
+/** Assert the fixture's executable convergence endpoint, not optimistic
+ * intermediate visibility or separate protocol-terminal/refusal endpoints.
+ * Non-active source evidence remains independent of protocol fillability.
+ */
 export function assertMarketConvergence({
     snapshot,
     ledger,
@@ -213,10 +220,43 @@ export function assertMarketConvergence({
                     0,
                     `Current ${name} demand must be settled`,
                 );
+                // These are deliberately read-only SQLite boundary fields.
+                // Missing requirements are unknown evidence, not zero/null
+                // defaults. The owning contract combines source identity,
+                // chain identity and the retained observation/trigger floors.
+                const request = {
+                    chainId: ledger.chainId,
+                    orderId: order.orderHash,
+                    requiredAt: proof.required_at,
+                    minimumBlock: proof.minimum_block,
+                };
+                assertOrderValidationRequest(request);
+                for (const [field, value] of [
+                    ["canonical order revision", actual.state_revision],
+                    ["canonical chain revision", snapshot.revision],
+                    ["proof revision", proof.proof_revision],
+                    ["proof chain revision", proof.proof_chain_revision],
+                    ["proof observation time", proof.proof_at],
+                    ["proof block", proof.proof_block],
+                ])
+                    assert.ok(
+                        Number.isSafeInteger(value) && value >= 0,
+                        `Current ${name} requires an explicit valid ${field}`,
+                    );
                 assert.equal(
-                    proof.proof_chain_revision,
-                    snapshot.revision,
-                    `Current ${name} cannot reuse an orphan-fork validation proof`,
+                    validationProofCovers(
+                        {
+                            proofRevision: proof.proof_revision,
+                            proofChainRevision: proof.proof_chain_revision,
+                            proofAt: proof.proof_at,
+                            proofBlock: proof.proof_block,
+                        },
+                        actual.state_revision,
+                        request,
+                        snapshot.revision,
+                    ),
+                    true,
+                    `Current ${name} proof must cover its canonical revision, chain and retained source-time/event-height requirements`,
                 );
             },
         );

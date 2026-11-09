@@ -83,10 +83,16 @@ const snapshot = ({ branch = "B", head = 102 } = {}) => ({
         source_status: ORDER_SOURCE_STATUS.Active,
         fillability_status: ORDER_STATUS.Fillable,
         validated_at: 123,
+        state_revision: 3,
     })),
     validationProofs: Object.values(ledger.orders).map((order) => ({
         order_id: order.orderHash,
         pending: 0,
+        required_at: 120_000,
+        minimum_block: 102,
+        proof_revision: 3,
+        proof_at: 123_000,
+        proof_block: 102,
         proof_chain_revision: 2,
     })),
 });
@@ -133,6 +139,121 @@ test("the market oracle rejects old-fork proof reuse even when both order status
         property: SIMULATION_PROPERTY.BuyValidation,
     });
 });
+test("settled current-chain proof cannot reuse an older canonical source revision", () => {
+    for (const mutate of [
+        (actual) => {
+            actual.validationProofs[1].proof_revision--;
+        },
+        (actual) => {
+            actual.orders[1].state_revision++;
+        },
+    ]) {
+        const actual = snapshot();
+        mutate(actual);
+        assert.throws(
+            () => assertMarketConvergence({ snapshot: actual, ledger }),
+            {
+                property: SIMULATION_PROPERTY.BuyValidation,
+            },
+        );
+    }
+});
+test("settled proof must cover the real retained source timestamp and event block", () => {
+    for (const mutate of [
+        (proof) => {
+            proof.proof_at = proof.required_at - 1;
+        },
+        (proof) => {
+            proof.proof_block = proof.minimum_block - 1;
+        },
+        (proof) => {
+            proof.required_at = proof.proof_at + 1;
+        },
+        (proof) => {
+            proof.minimum_block = proof.proof_block + 1;
+        },
+    ]) {
+        const actual = snapshot();
+        mutate(actual.validationProofs[1]);
+        assert.throws(
+            () => assertMarketConvergence({ snapshot: actual, ledger }),
+            {
+                property: SIMULATION_PROPERTY.BuyValidation,
+            },
+        );
+    }
+});
+test("missing requirements and malformed SQLite proof evidence fail explicitly", () => {
+    for (const field of [
+        "required_at",
+        "minimum_block",
+        "proof_revision",
+        "proof_at",
+        "proof_block",
+        "proof_chain_revision",
+    ]) {
+        const actual = snapshot();
+        delete actual.validationProofs[1][field];
+        assert.throws(
+            () => assertMarketConvergence({ snapshot: actual, ledger }),
+            {
+                property: SIMULATION_PROPERTY.BuyValidation,
+            },
+            field,
+        );
+    }
+    for (const [field, value] of [
+        ["required_at", null],
+        ["required_at", "120000"],
+        ["required_at", -1],
+        ["minimum_block", "102"],
+        ["minimum_block", -1],
+        ["minimum_block", 1.5],
+        ["proof_at", null],
+        ["proof_at", "123000"],
+        ["proof_block", null],
+        ["proof_block", "102"],
+        ["proof_revision", null],
+        ["proof_chain_revision", null],
+    ]) {
+        const actual = snapshot();
+        actual.validationProofs[1][field] = value;
+        assert.throws(
+            () => assertMarketConvergence({ snapshot: actual, ledger }),
+            {
+                property: SIMULATION_PROPERTY.BuyValidation,
+            },
+            `${field}=${value}`,
+        );
+    }
+    for (const target of ["order", "chain"]) {
+        const actual = snapshot();
+        if (target === "order") delete actual.orders[1].state_revision;
+        else delete actual.revision;
+        assert.throws(() =>
+            assertMarketConvergence({ snapshot: actual, ledger }),
+        );
+    }
+});
+test("exact coverage, zero requirements and a null block floor retain owning contract semantics", () => {
+    for (const mutate of [
+        (proof) => {
+            proof.proof_at = proof.required_at;
+            proof.proof_block = proof.minimum_block;
+        },
+        (proof) => {
+            proof.required_at = 0;
+            proof.minimum_block = 0;
+        },
+        (proof) => {
+            proof.minimum_block = null;
+        },
+    ]) {
+        const actual = snapshot({ head: 107 });
+        mutate(actual.validationProofs[1]);
+        assertMarketConvergence({ snapshot: actual, ledger });
+    }
+});
 test("the independent world, source statuses and current proof agree at the supported endpoint", () => {
     const actual = snapshot();
     assertCanonicalAcquisition({
@@ -168,6 +289,30 @@ test("source cancellation is authoritative without rewriting independent protoco
             }),
         { property: SIMULATION_PROPERTY.BuyValidation },
     );
+});
+
+test("terminal source endpoints need no retained full proof and preserve independent protocol state", () => {
+    for (const source of [
+        ORDER_SOURCE_STATUS.Cancelled,
+        ORDER_SOURCE_STATUS.Filled,
+        ORDER_SOURCE_STATUS.Expired,
+    ]) {
+        const actual = snapshot();
+        const bid = actual.orders[1];
+        bid.source_status = source;
+        bid.fillability_status = ORDER_STATUS.Cancelled;
+        bid.validated_at = 0;
+        actual.validationProofs = actual.validationProofs.filter(
+            (proof) => proof.order_id !== bid.id,
+        );
+        assertMarketConvergence({
+            snapshot: actual,
+            ledger,
+            expectedSourceStatuses: { [bid.id]: source },
+        });
+        assert.equal(bid.fillability_status, ORDER_STATUS.Cancelled);
+        assert.equal(bid.validated_at, 0);
+    }
 });
 
 test("the final ownership oracle rejects an extra orphan buyer balance", () => {
