@@ -3,14 +3,17 @@ import {
     chmod,
     copyFile,
     cp,
+    lstat,
     mkdir,
     readdir,
     readFile,
     readlink,
+    realpath,
     stat,
     symlink,
     writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -46,11 +49,66 @@ import {
     admitToolCapsule,
     createToolCapsuleExecutor,
 } from "./tool-capsule.mjs";
+import {
+    NATIVE_KERNEL_HELPER_ASSET,
+    nativeKernelHelperBytes,
+} from "./guest/native-kernel-helper.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 const coordinatorSource = (filename) =>
     filename.startsWith("scripts/simulation/") && filename.endsWith(".mjs");
+
+function expectedNativeKernelHelperAsset() {
+    const bytes = nativeKernelHelperBytes();
+    return {
+        path: NATIVE_KERNEL_HELPER_ASSET.guestPath,
+        source: NATIVE_KERNEL_HELPER_ASSET.source,
+        mode: 0o755,
+        sizeBytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+}
+
+/** Stage only a new private-guest helper, never follow /sbin into the host. */
+export async function stageNativeKernelHelper(rootfs) {
+    const root = await realpath(await assertWorktreeTemporaryPath(rootfs));
+    const asset = expectedNativeKernelHelperAsset();
+    const logicalParent = path.dirname(path.join(root, asset.path.slice(1)));
+    if (
+        (await lstat(logicalParent)).isSymbolicLink() &&
+        path.isAbsolute(await readlink(logicalParent))
+    )
+        throw new Error(
+            "The guest helper parent must not be an absolute symlink",
+        );
+    const parent = await realpath(logicalParent);
+    if (
+        (parent !== root && !parent.startsWith(`${root}${path.sep}`)) ||
+        !(await stat(parent)).isDirectory()
+    )
+        throw new Error("The guest helper parent escapes its actual rootfs");
+    const filename = path.join(parent, path.basename(asset.path));
+    await writeFile(filename, nativeKernelHelperBytes(), {
+        flag: "wx",
+        mode: asset.mode,
+    });
+    await chmod(filename, asset.mode);
+    const metadata = await lstat(filename);
+    const actual = await pin(filename);
+    if (
+        !metadata.isFile() ||
+        (metadata.mode & 0o7777) !== asset.mode ||
+        (await realpath(logicalParent)) !== parent ||
+        (await realpath(filename)) !== filename ||
+        actual.sha256 !== asset.sha256 ||
+        actual.sizeBytes !== asset.sizeBytes
+    )
+        throw new Error(
+            "Staged guest kernel helper differs from its rendered asset",
+        );
+    return asset;
+}
 
 function sourceMap(files) {
     if (!Array.isArray(files) || !files.length)
@@ -370,6 +428,7 @@ export async function buildGuest(configurationPath) {
         (await exportImage(config.runtimeImage, rootfs, run))
             .artifactsDirectory,
     );
+    const generatedBootAssets = [await stageNativeKernelHelper(rootfs)];
     const utility = await withOwnedContainer(
         {
             image: config.busyboxImage,
@@ -557,6 +616,7 @@ export async function buildGuest(configurationPath) {
         payload,
         sourceInputs: runtimeSource.files,
         coordinatorInputs,
+        generatedBootAssets,
         sourceIdentity:
             "parent commit plus exact tracked and untracked compilation input bytes",
         images: {
@@ -622,6 +682,23 @@ export async function rebuildGuestCoordinator({
             "The pristine guest and paired build provenance disagree",
         );
     const assets = sourceMap(previous.payload);
+    const expectedHelper = expectedNativeKernelHelperAsset();
+    const inheritedHelpers = Array.isArray(previous.generatedBootAssets)
+        ? previous.generatedBootAssets.filter(
+              (asset) => asset?.path === expectedHelper.path,
+          )
+        : [];
+    if (!inheritedHelpers.length)
+        throw new Error(
+            "Base provenance lacks the required generated kernel helper; perform a full guest build",
+        );
+    if (
+        inheritedHelpers.length !== 1 ||
+        !isDeepStrictEqual(inheritedHelpers[0], expectedHelper)
+    )
+        throw new Error(
+            "Generated kernel helper asset changed; perform a full guest build",
+        );
     const originalBundle = assets.get("guest/guest.mjs");
     const originalInit = assets.get("init");
     if (!originalBundle?.sha256 || !originalInit?.sha256)
@@ -694,6 +771,34 @@ export async function rebuildGuestCoordinator({
                     `Coordinator rebuild input changed: ${expected.path}`,
                 );
         await preflight(baseFile, { execute });
+    };
+    const readHelper = async (label, destination) => {
+        const details = await runTool(
+            debugfs,
+            ["-R", `stat ${expectedHelper.path}`, "guest.ext4"],
+            `${label}-helper-stat`,
+        );
+        if (
+            !/Type:\s+regular\b/.test(details.stdout) ||
+            !/Mode:\s+0755\b/.test(details.stdout)
+        )
+            throw new Error(
+                "Generated kernel helper must remain a regular file with mode 0755",
+            );
+        await runTool(
+            debugfs,
+            ["-R", `dump ${expectedHelper.path} ${destination}`, "guest.ext4"],
+            `${label}-helper-readback`,
+        );
+        const actual = await pin(path.join(run, destination));
+        if (
+            actual.sha256 !== expectedHelper.sha256 ||
+            actual.sizeBytes !== expectedHelper.sizeBytes
+        )
+            throw new Error(
+                "Generated kernel helper readback differs from its rendered asset",
+            );
+        return actual;
     };
     try {
         const oldSources = sourceMap(previous.sourceInputs);
@@ -789,6 +894,10 @@ export async function rebuildGuestCoordinator({
                     "Coordinator reuse requires a pristine guest without state or output stores",
                 );
         }
+        const originalHelper = await readHelper(
+            "old",
+            "original-native-kernel-helper",
+        );
         const fixedFile = await runTool(
             debugfs,
             ["-R", "stat /workbench/guest/guest.mjs", "guest.ext4"],
@@ -871,6 +980,10 @@ export async function rebuildGuestCoordinator({
             originalInit.sha256
         )
             throw new Error("Coordinator update changed the inherited init");
+        const helperReadback = await readHelper(
+            "new",
+            "readback-native-kernel-helper",
+        );
         await runTool(e2fsck, ["-f", "-n", "guest.ext4"], "filesystem-after");
         const guest = path.join(run, "guest.qcow2");
         await runTool(
@@ -896,7 +1009,13 @@ export async function rebuildGuestCoordinator({
         await preflightManifest(manifest, path.join(run, "manifest.json"), {
             execute,
         });
-        for (const expected of [baselinePin, compiledBundle, readback])
+        for (const expected of [
+            baselinePin,
+            compiledBundle,
+            readback,
+            originalHelper,
+            helperReadback,
+        ])
             if (!isDeepStrictEqual(await pin(expected.path), expected))
                 throw new Error(
                     "Coordinator compilation/readback artifact changed before publication",
@@ -953,6 +1072,13 @@ export async function rebuildGuestCoordinator({
                     addedRepositoryInputs,
                 },
                 filesystemIntegrity: "read-only-e2fsck-passed",
+                generatedBootAssetReadbacks: [
+                    {
+                        asset: expectedHelper,
+                        original: originalHelper,
+                        readback: helperReadback,
+                    },
+                ],
             },
             payload: previous.payload.map((entry) =>
                 entry.path === "guest/guest.mjs"

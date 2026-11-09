@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { pinFile } from "../artifacts.mjs";
 import { resolveRuntimeLayout } from "./runtime-manifest.mjs";
+import { assertNativeKernelHelper } from "./native-kernel-helper.mjs";
 import { parseElfCoreNotes } from "./elf-core-notes.mjs";
 import {
     enrichElfCoreMemory,
@@ -178,6 +179,7 @@ export async function prepareRegisteredNativeDiagnostics({
             "The collector owner requires the explicit registered-context profile",
         );
     await assertPrivateNativeGuest({ root, output, io });
+    const staticHelper = await assertNativeKernelHelper(io);
     const directory = path.join(output, CORE.directory);
     await io.mkdir(directory, { mode: 0o700 });
     const original = {
@@ -238,6 +240,7 @@ export async function prepareRegisteredNativeDiagnostics({
             generation: 0,
         },
         tool: await pin(CORE.executable),
+        staticHelper,
         node: await pin(process.execPath),
         scope: "registered-generation-zero-node-actors-or-explicit-synthetic-probe",
         omitted: "NATS, one-shot maintenance and restarted generations",

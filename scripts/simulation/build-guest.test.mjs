@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    chmod,
     mkdir,
     readFile,
     readdir,
@@ -16,8 +17,13 @@ import {
     assertCoordinatorOnlySourceChanges,
     bundleCoordinator,
     rebuildGuestCoordinator,
+    stageNativeKernelHelper,
 } from "./build-guest.mjs";
 import { CPU_MODEL } from "./cpu-model.mjs";
+import {
+    NATIVE_KERNEL_HELPER_ASSET,
+    nativeKernelHelperBytes,
+} from "./guest/native-kernel-helper.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SOURCE = "scripts/simulation/guest/storage-probe.mjs";
@@ -58,6 +64,20 @@ async function fixture(options = {}) {
     const payload = path.join(directory, "payload");
     await mkdir(path.join(payload, "workbench/guest"), { recursive: true });
     await mkdir(path.join(payload, "workbench/runtime"));
+    await mkdir(path.join(payload, "sbin"));
+    let helperRoot = payload;
+    if (options.missingHelperImage) {
+        helperRoot = path.join(directory, "helper-reference");
+        await mkdir(path.join(helperRoot, "sbin"), { recursive: true });
+    }
+    const helperAsset = await stageNativeKernelHelper(helperRoot);
+    const helperFilename = path.join(
+        payload,
+        NATIVE_KERNEL_HELPER_ASSET.guestPath.slice(1),
+    );
+    if (options.changedHelperImage)
+        await writeFile(helperFilename, "different generated helper bytes");
+    if (options.badHelperMode) await chmod(helperFilename, 0o644);
     const guestSource = path.join(payload, "workbench/guest/guest.mjs");
     if (options.symlinkBundle) {
         await writeFile(
@@ -135,6 +155,15 @@ async function fixture(options = {}) {
         sourceCommit: base.sourceSha,
         sourceInputs,
         admittedInputs: {},
+        ...(options.missingHelperPin
+            ? {}
+            : {
+                  generatedBootAssets: [
+                      options.changedHelperPin
+                          ? { ...helperAsset, sha256: "d".repeat(64) }
+                          : helperAsset,
+                  ],
+              }),
         scenario: {
             qualificationId: base.qualificationId,
             expectedChecks: base.expectedChecks,
@@ -191,6 +220,16 @@ async function fixture(options = {}) {
                 await writeFile(
                     path.join(operation.cwd, "readback-guest.mjs"),
                     "incorrect readback",
+                );
+            if (
+                options.badHelperReadback &&
+                args.includes(
+                    `dump ${NATIVE_KERNEL_HELPER_ASSET.guestPath} readback-native-kernel-helper`,
+                )
+            )
+                await writeFile(
+                    path.join(operation.cwd, "readback-native-kernel-helper"),
+                    "incorrect helper readback",
                 );
         } else throw new Error(`Unexpected build/service tool ${file}`);
         if (operation.stdoutPath && result.stdout)
@@ -359,6 +398,116 @@ test("runtime reuse rejects production, configuration, dependency and init delta
     );
 });
 
+test("full-build helper staging follows only an internal guest parent and preserves exclusive asset ownership", async () => {
+    const directory = await createArtifactRunDirectory(
+        path.join(ROOT, "tmp/simulation-builder-tests"),
+        "helper-staging-",
+    );
+    const rootfs = path.join(directory, "rootfs");
+    await mkdir(path.join(rootfs, "usr/sbin"), { recursive: true });
+    await symlink("usr/sbin", path.join(rootfs, "sbin"));
+    const asset = await stageNativeKernelHelper(rootfs);
+    const actualFile = path.join(rootfs, "usr/sbin/usermode-helper");
+    assert.equal(asset.path, NATIVE_KERNEL_HELPER_ASSET.guestPath);
+    assert.equal(asset.source, NATIVE_KERNEL_HELPER_ASSET.source);
+    assert.equal(asset.mode, 0o755);
+    assert.equal((await stat(actualFile)).mode & 0o7777, 0o755);
+    assert.deepEqual(await readFile(actualFile), nativeKernelHelperBytes());
+    const before = await pinFile(actualFile);
+    assert.equal(asset.sha256, before.sha256);
+    assert.equal(asset.sizeBytes, before.sizeBytes);
+    await assert.rejects(stageNativeKernelHelper(rootfs), { code: "EEXIST" });
+    assert.deepEqual(await pinFile(actualFile), before);
+});
+
+test("full-build helper staging rejects absolute and relative parents escaping the real rootfs", async () => {
+    for (const absolute of [false, true]) {
+        const directory = await createArtifactRunDirectory(
+            path.join(ROOT, "tmp/simulation-builder-tests"),
+            "helper-parent-",
+        );
+        const rootfs = path.join(directory, "rootfs");
+        const outside = path.join(directory, "outside");
+        await mkdir(rootfs);
+        await mkdir(outside);
+        const existing = path.join(outside, "usermode-helper");
+        await writeFile(existing, "existing OS helper must remain unchanged");
+        const before = await pinFile(existing);
+        await symlink(
+            absolute ? outside : "../outside",
+            path.join(rootfs, "sbin"),
+        );
+        await assert.rejects(
+            stageNativeKernelHelper(rootfs),
+            /absolute symlink|escapes its actual rootfs/,
+        );
+        assert.deepEqual(await pinFile(existing), before);
+    }
+});
+
+test("full-build helper staging refuses an existing OS helper or final-path symlink without modifying its bytes", async () => {
+    for (const linked of [false, true]) {
+        const directory = await createArtifactRunDirectory(
+            path.join(ROOT, "tmp/simulation-builder-tests"),
+            "helper-existing-",
+        );
+        const rootfs = path.join(directory, "rootfs");
+        await mkdir(path.join(rootfs, "sbin"), { recursive: true });
+        const helper = path.join(rootfs, "sbin/usermode-helper");
+        const existing = linked
+            ? path.join(directory, "outside-helper")
+            : helper;
+        await writeFile(existing, "existing helper must remain unchanged");
+        const before = await pinFile(existing);
+        if (linked) await symlink(existing, helper);
+        await assert.rejects(stageNativeKernelHelper(rootfs), {
+            code: "EEXIST",
+        });
+        assert.deepEqual(await pinFile(existing), before);
+    }
+});
+
+test("reuse requires the current generated boot-asset pin before compiling or flattening an old guest", async () => {
+    for (const options of [
+        { missingHelperPin: true },
+        { changedHelperPin: true },
+    ]) {
+        const f = await fixture(options);
+        const original = await hashFile(f.base.guest.path);
+        f.options.compile = async () => {
+            throw new Error(
+                "An incompatible boot asset must fail before compilation",
+            );
+        };
+        await assert.rejects(
+            rebuildGuestCoordinator(f.options),
+            /kernel helper.*full guest build/,
+        );
+        assert.ok(!f.calls.some(({ args }) => args[0] === "convert"));
+        assert.equal(await hashFile(f.base.guest.path), original);
+    }
+});
+
+test("missing, changed or nonexecutable generated image assets and damaged updated readback cannot publish reuse", async () => {
+    for (const options of [
+        { missingHelperImage: true },
+        { changedHelperImage: true },
+        { badHelperMode: true },
+        { badHelperReadback: true },
+    ]) {
+        const f = await fixture(options);
+        const originals = await fixtureInputHashes(f.directory);
+        let failure;
+        await assert.rejects(rebuildGuestCoordinator(f.options), (error) => {
+            failure = error;
+            assert.match(error.message, /Generated kernel helper/);
+            return true;
+        });
+        await assertUnpublishedFailure(failure);
+        await assertInputHashesUnchanged(originals);
+    }
+});
+
 test("coordinator update patches one fixed ext4 file, preserves init/runtime and publishes explicit inherited origin", async () => {
     const f = await fixture();
     const originalHash = await hashFile(f.base.guest.path);
@@ -378,6 +527,18 @@ test("coordinator update patches one fixed ext4 file, preserves init/runtime and
         await hashFile(path.join(f.directory, "provenance.json")),
     );
     assert.equal(provenance.qualified, false);
+    assert.deepEqual(
+        provenance.generatedBootAssets,
+        f.provenance.generatedBootAssets,
+    );
+    const helper = provenance.coordinatorUpdate.generatedBootAssetReadbacks[0];
+    assert.deepEqual(helper.asset, provenance.generatedBootAssets[0]);
+    assert.equal(helper.original.sha256, helper.asset.sha256);
+    assert.equal(helper.readback.sha256, helper.asset.sha256);
+    assert.equal(
+        await hashFile(path.join(result.run, "original-native-kernel-helper")),
+        await hashFile(path.join(result.run, "readback-native-kernel-helper")),
+    );
     assert.deepEqual(
         provenance.coordinatorUpdate.before,
         provenance.coordinatorUpdate.after,

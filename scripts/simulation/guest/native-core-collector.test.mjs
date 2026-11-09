@@ -16,6 +16,7 @@ import {
     NATIVE_DIAGNOSTIC_ACTOR,
 } from "./native-failure-evidence.mjs";
 import { nativeCoreWireFixture } from "./fixtures/native-core-wire.mjs";
+import { nativeKernelHelperScript } from "./native-kernel-helper.mjs";
 import { resolveRuntimeLayout } from "./runtime-manifest.mjs";
 
 const directory = "/workbench/output/native-core";
@@ -35,6 +36,7 @@ function fixtureIo(fixture = nativeCoreWireFixture()) {
         ],
     };
     const files = new Map([
+        [POLICY.dispatcher, Buffer.from(nativeKernelHelperScript())],
         [
             `${directory}/${POLICY.registry}`,
             Buffer.from(JSON.stringify(registry)),
@@ -63,7 +65,11 @@ function fixtureIo(fixture = nativeCoreWireFixture()) {
                 : filename === `/proc/${fixture.pid}/exe`
                   ? fixture.filename
                   : process.execPath,
-        lstat: async (name) => ({ isFile: () => true, size: get(name).length }),
+        lstat: async (name) => ({
+            isFile: () => true,
+            size: get(name).length,
+            mode: 0o100700,
+        }),
         readFile: async (name, encoding) =>
             encoding ? get(name).toString(encoding) : Buffer.from(get(name)),
         writeFile: async (name, bytes, options) => {
@@ -566,5 +572,35 @@ test("a later unregistered helper timeout cannot overwrite the first claimed rec
         const value = structuredClone(receipt);
         change(value);
         assert.throws(() => validateNativeCoreTimeout(value));
+    }
+});
+
+test("missing or changed static dispatcher fails before any guest core policy or output mutation", async () => {
+    for (const missing of [false, true]) {
+        const state = fixtureIo();
+        if (missing) state.files.delete(POLICY.dispatcher);
+        else {
+            const bytes = Buffer.from(state.files.get(POLICY.dispatcher));
+            bytes[0] ^= 1;
+            state.files.set(POLICY.dispatcher, bytes);
+        }
+        const writes = [];
+        const io = {
+            ...state.io,
+            writeFile: async (...args) => writes.push(args),
+            mkdir: async (...args) => writes.push(args),
+        };
+        await assert.rejects(
+            prepareRegisteredNativeDiagnostics({
+                settings: { profile: PROFILE.RegisteredContext },
+                root: "/workbench",
+                output: "/workbench/output",
+                io,
+                pin: async () => {
+                    throw new Error("Pinning must not begin");
+                },
+            }),
+        );
+        assert.deepEqual(writes, []);
     }
 });

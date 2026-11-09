@@ -23,10 +23,15 @@ export const NATIVE_CORE_POLICY = Object.freeze({
     artifact: "native-core.json",
     directory: "native-core",
 });
+const CORE_HELPER_NODE = "/usr/local/bin/node";
+const CORE_HELPER_COORDINATOR = "/workbench/guest/guest.mjs";
+const CORE_HELPER_ARGUMENT = "--native-core-collector";
 export const NATIVE_CORE_CONTEXT_POLICY = Object.freeze({
-    pattern:
-        "|/usr/local/bin/node /workbench/guest/guest.mjs --native-core-collector %P %s",
-    collectorArgument: "--native-core-collector",
+    executable: CORE_HELPER_NODE,
+    coordinator: CORE_HELPER_COORDINATOR,
+    dispatcher: "/sbin/usermode-helper",
+    pattern: `|${CORE_HELPER_NODE} ${CORE_HELPER_COORDINATOR} ${CORE_HELPER_ARGUMENT} %P %s`,
+    collectorArgument: CORE_HELPER_ARGUMENT,
     pipeLimit: 1,
     helperCoreBytes: 1,
     timeoutMs: 10_000,

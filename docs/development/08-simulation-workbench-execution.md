@@ -242,12 +242,18 @@ yarn node scripts/simulation/build-guest.mjs --rebuild-coordinator --base-manife
 ```
 
 Supply explicit installed tool paths. This refuses production, configuration,
-dependency, build-script or guest-init source changes. It reconstructs the old
+dependency, production build-script or guest-init source changes. It reconstructs the old
 coordinator from its admitted source commit and requires the current compiler
 and dependency bytes to reproduce that bundle exactly. Existing dependency pins
 must stay exact. A newly imported repository contract must already match the
 admitted source inventory; new external/cache dependencies require a full build.
 There is no fallback.
+
+The full builder also records the generated kernel-helper asset outside the
+workbench payload. Reuse requires that pin to match the current rendered helper
+and verifies its regular-file type, mode and bytes in both image readbacks.
+An older base without that asset, or a changed dispatcher, requires a full
+build. Historical recordings remain replayable with their own pinned inputs.
 
 The update copies the pristine guest into a fresh raw image, replaces only the
 fixed coordinator file, verifies its readback and inherited init, runs read-only
@@ -598,6 +604,17 @@ Node actors from the runtime manifest, including sync and collection bootstrap.
 It retains only the first claimed fatal dump; NATS, one-shot maintenance and
 restarted generations are explicitly excluded. Normal runtime arguments and
 the version-1 profile remain intact. Fresh VM qualification is pending.
+
+The first context probe at source `d47a59b9`, `run-O7nDkX`, reproduced its failed
+capture property with exact serial and complete disk equality. The admitted
+LinuxKit kernel enables `CONFIG_STATIC_USERMODEHELPER` at
+`/sbin/usermode-helper`, absent from that image; kernel helper execution failed
+before the Node collector started. The fixture signal alone supplied no core
+qualification. The full builder now stages a fixed dispatcher that permits
+only the exact collector argument shape and private BusyBox-init guest before
+executing the fixed Node path. V2 admission checks its actual executable bytes
+before changing guest core policy. Fresh M0 and capture-probe execution are
+required after this image change; no host helper or policy is modified.
 
 Its fixed guest-only pipe collector bounds raw input to 32 MiB, maps to 256 KiB,
 stack memory to 64 KiB and instruction memory to 512 bytes. It retains the
