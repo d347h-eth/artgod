@@ -88,6 +88,19 @@ chain-equality assertion; its original failed report is retained. Fresh
 final-source runs remain required, and cannot recover fields absent from the
 sealed cohort's observations.
 
+Source `793e057b` subsequently passed all 395 supporting tests, a fresh full-build
+M0 (`run-4TxxXk`, 218.072 seconds), the corrected context probe (`run-Y3K6YL`,
+173.356 seconds), independent core inspection and full/reuse logical equivalence.
+The sealed `cohort-YlwrtF` was intentionally stopped after a contract review
+identified the committed-counter fixture's unsupported bid-reactivation
+expectation. Three cases passed their properties, one reproduced a domain
+`SIGSEGV`, four additional cases were interrupted and eighteen were unstarted.
+The four completed pairs passed strict serial/disk replay. All statuses and the
+explicit interruption reason remain unchanged; this is not a complete final
+cohort. The review also found historical weighted retry cancellation before
+healing, so the correction must distinguish witnessed retention from a merely
+permitted conservative terminal state across ordinary fork histories.
+
 Measured pair times range from 283.769 to 941.765 seconds, with median 340.584
 seconds. The slowest lane sums to 3,195.473 seconds of pair execution. Paired run
 directories allocate 2,303,414,272 bytes, excluding reusable guest/capsule/case

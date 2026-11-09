@@ -80,6 +80,13 @@ chain identity is required for reuse and for independently witnessed new work.
 Keep generic retained-coverage checks separate from those fresh obligations;
 do not add an unrelated source refresh to hide the distinction.
 
+A second contract review corrected the committed-counter endpoint. Validation
+records the terminal result without attributing the order row to that block;
+rollback deliberately preserves such cancellations. Separate observed terminal
+retention from a weaker permitted terminal outcome whose commit timing remains
+unknown. A real negative protocol view must support that alternative, and it
+cannot replace the dedicated stale-result cut or weaken unrelated order checks.
+
 ## 3. Weighted-Fork Fairness
 
 Backlog: `BKL-075`.

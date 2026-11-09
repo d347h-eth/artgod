@@ -65,6 +65,7 @@ import {
     SIMULATION_PROPERTY,
 } from "./oracle.mjs";
 import { assertSimulationProperty } from "./oracle-assertions.mjs";
+import { completedCounterValidationRead } from "./committed-cancellation.mjs";
 import { executeProcessFault } from "./process-faults.mjs";
 import { executeStartupMaintenance } from "./lifecycle.mjs";
 import { declareTradingIntent } from "./operator-inputs.mjs";
@@ -273,7 +274,7 @@ function observe(database, collectionId) {
                     .all(collectionId),
                 orders: database
                     .prepare(
-                        "SELECT id,side,fillability_status,source_status,validated_at,state_revision,seaport_data_source_kind FROM orders WHERE chain_id=1 AND collection_id=? ORDER BY id",
+                        "SELECT id,side,fillability_status,source_status,validated_at,state_revision,seaport_data_source_kind,block_number FROM orders WHERE chain_id=1 AND collection_id=? ORDER BY id",
                     )
                     .all(collectionId),
                 transfers: database
@@ -426,6 +427,9 @@ export async function runDataPlane(
     const checkpoints = [];
     const checks = {};
     const expectedSourceStatuses = {};
+    const retainedCancellationWitnesses = [];
+    let cancellationReadAfterSequence;
+    let cancellationHealingSequence;
     let providerDisagreementReached = false;
     let activeCheck = CHECK.RuntimeEntrypoints;
     try {
@@ -760,9 +764,10 @@ export async function runDataPlane(
             ),
             "HTTP current asks must expose the simulated listing",
         );
+        const initialState = snapshot();
         checkpoints.push({
             name: "initial",
-            state: snapshot(),
+            state: initialState,
             http: initialHttp,
         });
         if (
@@ -1031,6 +1036,7 @@ export async function runDataPlane(
                     },
                 });
             server.world.setPhase("fork-held");
+            cancellationReadAfterSequence = server.world.trace.at(-1)?.sequence;
             server.world.advanceHead(105);
             if (staleResultCut) {
                 activeCheck = CHECK.StaleResultSafetyCut;
@@ -1070,6 +1076,7 @@ export async function runDataPlane(
                     name: SPLIT_PROVIDER_EVENT.Healed,
                     splitProviderFork: split,
                 });
+                cancellationHealingSequence = split.healing.sequence;
             }
             for (const action of scenario.schedule ?? DEFAULT_FORK_SCHEDULE) {
                 let detail = {};
@@ -1082,7 +1089,11 @@ export async function runDataPlane(
                                 reorgDepth: Number(env.REORG_DEPTH),
                                 headProgress,
                             });
-                        else server.world.switchBranch("B", { head: 107 });
+                        else {
+                            server.world.switchBranch("B", { head: 107 });
+                            cancellationHealingSequence =
+                                server.world.trace.at(-1)?.sequence;
+                        }
                         if (staleResultCut)
                             checkpoints.push({
                                 name: STALE_RESULT_PROPERTY.Rollback,
@@ -1113,6 +1124,7 @@ export async function runDataPlane(
                             scenario.validationRelease ===
                             VALIDATION_RELEASE.BeforeRollback
                         ) {
+                            let counterRead;
                             await eventually(
                                 () => {
                                     const current = snapshot();
@@ -1121,20 +1133,39 @@ export async function runDataPlane(
                                             row.id ===
                                             ledger.orders.bid.orderHash,
                                     );
+                                    counterRead =
+                                        completedCounterValidationRead(
+                                            server.world.trace,
+                                            {
+                                                ledger,
+                                                afterSequence:
+                                                    cancellationReadAfterSequence,
+                                                blockNumber:
+                                                    ledger.counterBlock,
+                                            },
+                                        );
                                     return (
                                         current.revision === 0 &&
                                         bid?.fillability_status ===
                                             ORDER_STATUS.Cancelled &&
                                         bid?.source_status ===
-                                            ORDER_SOURCE_STATUS.Active
+                                            ORDER_SOURCE_STATUS.Active &&
+                                        bid.block_number === null &&
+                                        bid.validated_at > 0 &&
+                                        !!counterRead
                                     );
                                 },
                                 "actual A105 counter validation committed before the canonical fork switch",
                                 90_000,
                             );
                             const committed = snapshot();
+                            retainedCancellationWitnesses.push({
+                                orderId: ledger.orders.bid.orderHash,
+                                before: committed,
+                            });
                             detail = {
                                 committedBeforeRollback: true,
+                                counterRead,
                                 chainRevision: committed.revision,
                                 order: committed.orders.find(
                                     (row) =>
@@ -1149,6 +1180,7 @@ export async function runDataPlane(
                             checkpoints.push({
                                 name: "a-validation-committed-before-fork",
                                 state: committed,
+                                counterRead,
                             });
                         }
                         break;
@@ -1472,11 +1504,51 @@ export async function runDataPlane(
                     : CHECK.OrderValidation;
             checks[activeCheck] = false;
             const current = snapshot();
-            assertMarketConvergence({
+            const counterCancellationExposures = [];
+            if (
+                scenario.journey === DATA_PLANE_JOURNEY.Fork &&
+                !staleResultCut &&
+                scenario.validationRelease !==
+                    VALIDATION_RELEASE.BeforeRollback &&
+                current.orders.some(
+                    (order) =>
+                        order.id === ledger.orders.bid.orderHash &&
+                        order.fillability_status === ORDER_STATUS.Cancelled,
+                )
+            ) {
+                // Ordinary histories do not observe the SQL linearization
+                // point of every concurrent validation. A supplied negative
+                // protocol view can support a permitted conservative terminal
+                // endpoint, without earning retention or stale-fence coverage.
+                const counterRead = completedCounterValidationRead(
+                    server.world.trace,
+                    {
+                        ledger,
+                        afterSequence: cancellationReadAfterSequence,
+                        readBeforeSequence: cancellationHealingSequence,
+                        blockNumber: ledger.counterBlock,
+                    },
+                );
+                if (counterRead)
+                    counterCancellationExposures.push({
+                        orderId: ledger.orders.bid.orderHash,
+                        initial: initialState,
+                        counterRead,
+                        afterSequence: cancellationReadAfterSequence,
+                        readBeforeSequence: cancellationHealingSequence,
+                    });
+            }
+            const market = assertMarketConvergence({
                 snapshot: current,
                 ledger,
                 expectedSourceStatuses,
+                retainedCancellationWitnesses,
+                counterCancellationExposures,
             });
+            for (const retained of market.retainedCancellations)
+                checkpoints.push({ name: retained.property, ...retained });
+            for (const permitted of market.permittedCancellations)
+                checkpoints.push({ name: permitted.property, ...permitted });
             if (staleResultCut) {
                 // Reuse the fresh-source oracle against the cut's actual
                 // post-rollback admission. An unrelated retained cache need

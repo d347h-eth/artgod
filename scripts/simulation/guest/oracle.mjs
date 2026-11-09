@@ -4,6 +4,7 @@ import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
 import { TRANSFER_ABI } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
+import { completedCounterValidationRead } from "./committed-cancellation.mjs";
 import {
     assertOrderValidationRequest,
     validationProofSatisfies,
@@ -11,6 +12,7 @@ import {
 import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
+    ORDER_SIDE,
 } from "../../../shared/market-data/orders.ts";
 
 export const SIMULATION_PROPERTY = Object.freeze({
@@ -20,6 +22,8 @@ export const SIMULATION_PROPERTY = Object.freeze({
     CanonicalTransfers: "canonical-transfer-facts",
     SellValidation: "current-sell-validation",
     BuyValidation: "current-buy-validation",
+    RetainedUnattributedCancellation: "retained-unattributed-cancellation",
+    PermittedUnattributedCancellation: "permitted-unattributed-cancellation",
 });
 
 const TRANSFER_TOPIC = encodeEventTopics({
@@ -165,18 +169,215 @@ export function assertCanonicalAcquisition({ snapshot, ledger, branch, head }) {
     assertCanonicalFillFacts({ snapshot, ledger, branch, head });
 }
 
-/** Assert the fixture's executable convergence endpoint, not optimistic
- * intermediate visibility or separate protocol-terminal/refusal endpoints.
+function assertObservedRevision(snapshot, name) {
+    assert.ok(
+        Number.isSafeInteger(snapshot?.revision) && snapshot.revision >= 0,
+        `Cancellation endpoint requires a valid ${name} chain revision`,
+    );
+}
+
+function observedBid(snapshot, orderId, name, status) {
+    const order = snapshot.orders?.find((row) => row.id === orderId);
+    assert.ok(order, `Cancellation endpoint requires the ${name} order`);
+    assert.equal(order.side, ORDER_SIDE.Buy);
+    assert.equal(order.source_status, ORDER_SOURCE_STATUS.Active);
+    assert.equal(order.fillability_status, status);
+    assert.equal(
+        order.block_number,
+        null,
+        `Cancellation endpoint requires explicit unattributed ${name} evidence`,
+    );
+    return order;
+}
+
+function bidDiagnostics(snapshot, order) {
+    return {
+        revision: snapshot.revision,
+        order,
+        proof:
+            snapshot.validationProofs?.find(
+                (row) => row.order_id === order.id,
+            ) ?? null,
+    };
+}
+
+/** The caller admits this before snapshot only after witnessing the completed
+ * A105 bidder-counter read and actual status commit before branch switch.
+ * Terminal metadata/proof cleanup does not revoke that business-state witness. */
+function retainedCancellation({ before, snapshot, orderId }) {
+    assertObservedRevision(before, "before");
+    assertObservedRevision(snapshot, "current");
+    assert.ok(
+        snapshot.revision > before.revision,
+        "Retained cancellation must be observed after committed rollback",
+    );
+    const previous = observedBid(
+        before,
+        orderId,
+        "before",
+        ORDER_STATUS.Cancelled,
+    );
+    const current = observedBid(
+        snapshot,
+        orderId,
+        "current",
+        ORDER_STATUS.Cancelled,
+    );
+    assert.ok(
+        Number.isSafeInteger(previous.validated_at) &&
+            previous.validated_at > 0,
+        "The pre-rollback cancellation must have actually been validated",
+    );
+    return {
+        property: SIMULATION_PROPERTY.RetainedUnattributedCancellation,
+        orderId,
+        before: bidDiagnostics(before, previous),
+        current: bidDiagnostics(snapshot, current),
+    };
+}
+
+/** An actual counter-one read can explain the documented conservative terminal
+ * endpoint without establishing when the application received or committed it.
+ * Provider computation precedes healing; transport handoff may occur later. */
+function permittedCancellation({
+    initial,
+    snapshot,
+    ledger,
+    orderId,
+    counterRead,
+    afterSequence,
+    readBeforeSequence,
+}) {
+    assertObservedRevision(initial, "initial");
+    assertObservedRevision(snapshot, "current");
+    assert.ok(
+        snapshot.revision > initial.revision,
+        "The case must actually commit rollback after its initial state",
+    );
+    const previous = observedBid(
+        initial,
+        orderId,
+        "initial",
+        ORDER_STATUS.Fillable,
+    );
+    const current = observedBid(
+        snapshot,
+        orderId,
+        "current",
+        ORDER_STATUS.Cancelled,
+    );
+    assert.ok(
+        Number.isSafeInteger(previous.validated_at) &&
+            previous.validated_at > 0,
+        "The initial bid must have an actual full validation checkpoint",
+    );
+    assert.ok(
+        counterRead &&
+            [
+                counterRead.request,
+                counterRead.read,
+                counterRead.completion,
+            ].every((entry) => entry && typeof entry === "object"),
+        "An actual counter request/read/handoff triplet is required",
+    );
+    // Deliberately pass an explicit bound: an omitted/undefined healing cut must
+    // not fall back to the matcher's otherwise valid all-observed behavior.
+    const exposure = completedCounterValidationRead(
+        [counterRead.request, counterRead.read, counterRead.completion],
+        {
+            ledger,
+            afterSequence,
+            blockNumber: ledger.counterBlock,
+            readBeforeSequence,
+        },
+    );
+    assert.ok(
+        exposure,
+        "The authored counter-one computation must precede provider healing",
+    );
+    return {
+        property: SIMULATION_PROPERTY.PermittedUnattributedCancellation,
+        orderId,
+        initial: bidDiagnostics(initial, previous),
+        current: bidDiagnostics(snapshot, current),
+        counterRead: exposure,
+        afterSequence,
+        readBeforeSequence,
+        retentionProven: false,
+        staleRejectionProven: false,
+        currentExecutableProofProven: false,
+    };
+}
+
+/** Assert the fixture's declared market endpoints and executable proof coverage.
+ * Optimistic intermediate visibility has its own production contract.
  * Non-active source evidence remains independent of protocol fillability.
  * Stored coverage may predate a rollback without having been reused. A
  * fixture-witnessed new request is checked separately by its freshness owner.
+ * A retained cancellation requires its actual committed pre-rollback witness;
+ * it earns a separate terminal endpoint, not executable-order proof coverage.
+ * Ordinary forks may separately admit an actual counter-one exposure: that
+ * permits conservative cancellation without claiming its unobserved commit cut.
  */
 export function assertMarketConvergence({
     snapshot,
     ledger,
     expectedSourceStatuses = {},
+    retainedCancellationWitnesses = [],
+    counterCancellationExposures = [],
 }) {
+    const retainedCancellations = [];
+    const permittedCancellations = [];
+    property(SIMULATION_PROPERTY.RetainedUnattributedCancellation, () => {
+        assert.ok(
+            Array.isArray(retainedCancellationWitnesses) &&
+                retainedCancellationWitnesses.length <= 1 &&
+                Array.from(retainedCancellationWitnesses).every(
+                    (witness) =>
+                        witness &&
+                        witness.orderId === ledger.orders.bid.orderHash &&
+                        witness.before &&
+                        (expectedSourceStatuses[witness.orderId] ??
+                            ORDER_SOURCE_STATUS.Active) ===
+                            ORDER_SOURCE_STATUS.Active,
+                ),
+            "Only the fixture bid's actual committed cancellation witness is supported",
+        );
+        for (const witness of retainedCancellationWitnesses)
+            retainedCancellations.push(
+                retainedCancellation({ ...witness, snapshot }),
+            );
+    });
+    property(SIMULATION_PROPERTY.PermittedUnattributedCancellation, () => {
+        assert.ok(
+            Array.isArray(counterCancellationExposures) &&
+                counterCancellationExposures.length <= 1 &&
+                Array.from(counterCancellationExposures).every(
+                    (exposure) =>
+                        exposure &&
+                        exposure.orderId === ledger.orders.bid.orderHash &&
+                        exposure.initial &&
+                        !retainedCancellations.some(
+                            (entry) => entry.orderId === exposure.orderId,
+                        ) &&
+                        (expectedSourceStatuses[exposure.orderId] ??
+                            ORDER_SOURCE_STATUS.Active) ===
+                            ORDER_SOURCE_STATUS.Active,
+                ),
+            "Only a distinct exposure for the known active fixture bid is supported",
+        );
+        for (const exposure of counterCancellationExposures)
+            permittedCancellations.push(
+                permittedCancellation({ ...exposure, snapshot, ledger }),
+            );
+    });
     for (const [name, order] of Object.entries(ledger.orders)) {
+        if (
+            [...retainedCancellations, ...permittedCancellations].some(
+                (entry) => entry.orderId === order.orderHash,
+            )
+        )
+            continue;
         property(
             name === "bid"
                 ? SIMULATION_PROPERTY.BuyValidation
@@ -268,4 +469,5 @@ export function assertMarketConvergence({
             },
         );
     }
+    return { retainedCancellations, permittedCancellations };
 }

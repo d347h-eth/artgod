@@ -151,6 +151,20 @@ Fresh validation can start during recovery; the fixture must prove that its
 external status gate prevented every completed new status response. It must
 not assume a global application recovery gate.
 
+The version-2 committed-validation variant deliberately releases A105 validation
+and observes the actual cancelled, source-active bid before switching branches.
+It retains the completed bidder-counter-one request/read/transport handoff and
+explicit `orders.block_number = NULL`. The current product preserves that
+unattributed terminal state; this endpoint verifies retention, not automatic bid
+reactivation or a fresh canonical-B proof. Ordinary fork retries can encounter
+the same negative protocol view, including after early recovery. Where commit
+timing was not observed, a narrowly validated conservative terminal endpoint
+establishes only compatibility with that supplied view. Its diagnostics must
+not claim actual retention, restored bid executability or stale-result rejection.
+Canonical chain/listing/HTTP and durable-work assertions still apply. The
+dedicated stale-result cut forbids this alternative and requires its actual
+rejection and fresh-proof witnesses.
+
 No application-level barrier can stand in for an unobserved race. In particular,
 an old RPC response may fail snapshot verification before the database commit
 is attempted. That tests snapshot refusal, not the later checkpoint fence.

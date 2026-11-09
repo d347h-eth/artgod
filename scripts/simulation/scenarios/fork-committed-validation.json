@@ -1,7 +1,7 @@
 {
     "version": 1,
     "kind": "data-plane",
-    "qualificationId": "artgod-fork-committed-validation-v1",
+    "qualificationId": "artgod-fork-committed-validation-v2",
     "journey": "fork",
     "validationRelease": "before-rollback",
     "schedule": [

@@ -194,11 +194,20 @@ indexed orders are passive display fallback. See the owning
 [orders](../indexer/07-domain-orders.md) and
 [market authority](../trading/03-market-data-and-scaling.md#authority-model) contracts.
 
-Settled coverage must cover its current order revision and retained source-time
+Executable orders' settled coverage must cover their current revision and retained source-time
 and event-height requirements. A completed cached proof may predate a later
 chain rollback revision; storing it does not claim it is reusable. Require a
 current-chain proof where a scenario independently witnesses a new post-rollback
 validation obligation. Do not invent an eager refresh of every surviving order.
+
+Unattributed protocol cancellation is a different endpoint. The current product
+preserves that terminal evidence across rollback; it does not promise automatic
+canonical-fork reactivation. An observed pre-rollback cancellation can establish
+retention. Ordinary histories may only establish compatibility with a supplied
+negative protocol view when the SQL commit timing was not observed. Keep that
+weaker claim explicit and earn no retention or stale-fence coverage from it.
+The dedicated stale-result cut retains its stricter observed rejection and new
+proof requirements.
 
 Convergence examines pending demand, unfinished maker work, required outbox
 publication, retained canonical checks/recovery/resync, coverage and selected
