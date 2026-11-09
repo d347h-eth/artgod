@@ -14,7 +14,7 @@ import {
     RESPONSE_GATE_FUNCTION,
     RESPONSE_GATE_EVENT,
 } from "../world/contract.mjs";
-import { decodeCall, decodeDeploylessMulticall } from "../world/wire.mjs";
+import { decodeRpcContractCalls } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalAcquisition } from "./oracle.mjs";
 import { findRuntimeProcessExit } from "./runtime-process.mjs";
@@ -288,23 +288,7 @@ export function createStaleResultCut({
                 entry.type === "read" &&
                 entry.requestIndex === request.requestIndex,
         )?.aggregateCalls;
-        const transaction = request.params?.[0];
-        return (
-            aggregate ??
-            (transaction.to
-                ? [
-                      {
-                          target: transaction.to,
-                          ...decodeCall(transaction.data ?? transaction.input),
-                      },
-                  ]
-                : decodeDeploylessMulticall(
-                      transaction.data ?? transaction.input,
-                  ).map((call) => ({
-                      target: call.target,
-                      ...decodeCall(call.callData),
-                  })))
-        );
+        return aggregate ?? decodeRpcContractCalls(request);
     };
     const assertFreshRepliesBlocked = () => {
         const current = gate(STALE_RESULT_GATE.FreshStatus);

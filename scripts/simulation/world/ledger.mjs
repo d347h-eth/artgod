@@ -38,6 +38,7 @@ export function createBaselineLedger({
     if (!Number.isSafeInteger(maximumBlock) || maximumBlock < 107)
         throw new Error("World maximumBlock must be at least 107");
     const tailInterval = validateTailBlockInterval(tailBlockIntervalSeconds);
+    const counterBlock = 105;
     const a = { ...BASELINE_ADDRESSES, ...addresses };
     const listing = prepareMarketOrder({
         addresses: a,
@@ -124,7 +125,7 @@ export function createBaselineLedger({
                     ],
                 });
             }
-            if (branch === "A" && number === 105) {
+            if (branch === "A" && number === counterBlock) {
                 // This genuine protocol event invalidates the bid independently
                 // of source freshness or the periodically refreshed bidder index.
                 events.push({ kind: "counter", owner: a.bidder, value: 1n });
@@ -272,6 +273,7 @@ export function createBaselineLedger({
         anchorBlock: 100,
         initialHead: 103,
         forkBlock: 103,
+        counterBlock,
         orders: { listing, bid },
         branches,
         transactions,

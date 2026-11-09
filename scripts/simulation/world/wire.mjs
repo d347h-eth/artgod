@@ -175,6 +175,28 @@ export function decodeDeploylessMulticall(data) {
     return calls;
 }
 
+/** Decode the contract leaves of an observed scalar or supported deployless
+ * eth_call. This establishes request identity, never successful execution. */
+export function decodeRpcContractCalls(request) {
+    if (request?.method !== "eth_call")
+        throw new Error("Contract call decoding requires an eth_call request");
+    const transaction = request.params?.[0];
+    if (
+        !Array.isArray(request.params) ||
+        !transaction ||
+        typeof transaction !== "object" ||
+        Array.isArray(transaction)
+    )
+        throw new Error("Contract call decoding requires a transaction object");
+    const data = transaction.data ?? transaction.input;
+    return transaction.to
+        ? [{ target: transaction.to, ...decodeCall(data) }]
+        : decodeDeploylessMulticall(data).map((call) => ({
+              target: call.target,
+              ...decodeCall(call.callData),
+          }));
+}
+
 export function encodeDeploylessMulticallResult(results) {
     return encodeFunctionResult({
         abi: multicall3Abi,
