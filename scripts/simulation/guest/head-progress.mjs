@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 export const HEAD_PROGRESS_EVENT = Object.freeze({
+    Start: "head-progress-started",
     Advance: "head-progress",
     Cut: "head-progress-cut",
 });
@@ -44,6 +45,7 @@ export function createHeadProgress({
     let timer;
     let failure;
     let cut;
+    let published;
     const events = [];
     const view = () => {
         const first = world.providerView(providers[0]);
@@ -55,8 +57,15 @@ export function createHeadProgress({
             );
         assert.ok(
             first.head <= maximumHead,
-            "A head producer cannot shrink its published chain",
+            "A head producer cannot publish beyond its declared ceiling",
         );
+        if (published)
+            assert.ok(
+                first.branch === published.branch &&
+                    first.head >= published.head,
+                "Active head progress cannot rewind its published chain or switch branches",
+            );
+        published = { ...first };
         return first;
     };
     const record = (event) => {
@@ -103,6 +112,7 @@ export function createHeadProgress({
         }
         if (head !== current.head) {
             world.advanceHead(head);
+            published = { branch: current.branch, head };
             record({
                 type: HEAD_PROGRESS_EVENT.Advance,
                 branch: current.branch,
@@ -132,6 +142,18 @@ export function createHeadProgress({
                 "An external head producer can start only once",
             );
             started = active = true;
+            try {
+                record({
+                    type: HEAD_PROGRESS_EVENT.Start,
+                    ...view(),
+                    startedAt: Math.floor(now() / 1000),
+                });
+            } catch (error) {
+                error.property ??= HEAD_PROGRESS_PROPERTY.Contract;
+                failure = error;
+                active = false;
+                throw error;
+            }
             tick();
             if (failure) throw failure;
             timer = schedule(tick, POLL_MS);

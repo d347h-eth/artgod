@@ -267,6 +267,10 @@ export function validateScenario(value) {
             value.splitProviderFork,
             value.rpcProviders,
         );
+        if (!value.headProgress)
+            throw new Error(
+                "Split-provider fork requires bounded head progress before awaiting rollback",
+            );
         if (
             ![
                 value.splitProviderFork.canonicalProvider,

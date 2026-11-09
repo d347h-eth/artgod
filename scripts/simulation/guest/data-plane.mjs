@@ -11,6 +11,7 @@ import {
 } from "./head-progress.mjs";
 import {
     executeSplitProviderFork,
+    beginSplitProviderRecovery,
     SPLIT_PROVIDER_EVENT,
 } from "./split-provider-fork.mjs";
 import {
@@ -1056,6 +1057,7 @@ export async function runDataPlane(
                         world: server.world,
                         ledger,
                         rpcProviders: scenario.rpcProviders,
+                        reorgDepth: Number(env.REORG_DEPTH),
                         barrierName: "old-validation",
                         observe: snapshot,
                         eventually,
@@ -1071,7 +1073,14 @@ export async function runDataPlane(
                 let detail = {};
                 switch (action) {
                     case EXTERNAL_ACTION.CanonicalSwitch:
-                        server.world.switchBranch("B", { head: 107 });
+                        if (scenario.splitProviderFork)
+                            detail.recoveryInputs = beginSplitProviderRecovery({
+                                world: server.world,
+                                ledger,
+                                reorgDepth: Number(env.REORG_DEPTH),
+                                headProgress,
+                            });
+                        else server.world.switchBranch("B", { head: 107 });
                         if (staleResultCut)
                             checkpoints.push({
                                 name: STALE_RESULT_PROPERTY.Rollback,
@@ -1084,7 +1093,7 @@ export async function runDataPlane(
                                 "actual canonical check and committed rollback",
                                 180_000,
                             );
-                        detail = { committedRevision: snapshot().revision };
+                        detail.committedRevision = snapshot().revision;
                         break;
                     case EXTERNAL_ACTION.ReleaseValidation:
                         if (staleResultCut) {
@@ -1169,7 +1178,7 @@ export async function runDataPlane(
                 server.world.recordAction(action, detail);
             }
             server.world.setPhase("canonical-b");
-            headProgress?.start();
+            if (!scenario.splitProviderFork) headProgress?.start();
             await eventually(
                 () => {
                     const current = snapshot();

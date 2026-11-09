@@ -1,7 +1,7 @@
 {
     "version": 1,
     "kind": "data-plane",
-    "qualificationId": "artgod-weighted-fork-v1",
+    "qualificationId": "artgod-weighted-fork-v2",
     "journey": "fork",
     "expectedChecks": [
         "runtime-entrypoints",

@@ -149,6 +149,23 @@ test("exhausting declared history or diverging providers remains an explicit fix
     });
 });
 
+test("an active producer rejects a coherent head rewind or branch replacement instead of hiding it", () => {
+    for (const next of [
+        { branch: "B", head: 106 },
+        { branch: "A", head: 107 },
+    ]) {
+        const f = fixture();
+        f.progress.start();
+        assert.equal(f.events[0].type, HEAD_PROGRESS_EVENT.Start);
+        for (const view of Object.values(f.views)) Object.assign(view, next);
+        f.tick();
+        assert.throws(() => f.progress.assertHealthy(), {
+            property: HEAD_PROGRESS_PROPERTY.Contract,
+        });
+        assert.equal(f.cancelled(), true);
+    }
+});
+
 test("progression requires a bounded declared quiet branch and cannot alter provider-fault or refusal journeys", () => {
     const scenario = {
         ...baseline,

@@ -49,6 +49,13 @@ The failures have different meanings:
   retained mixed boundary is a finding; permanent failure under fair post-heal
   head progression and full recovery remain unproved. No deadlock is inferred.
 
+The replacement `artgod-weighted-fork-v2` descriptor keeps the split at B106/A105,
+witnesses the supported recovery dependency, explicitly heals every endpoint,
+then publishes eligibility and starts timestamp-driven head growth before the
+rollback wait. Legal earlier A104 recovery is also retained as evidence. The 54
+affected split, producer, admission, corpus and CI checks pass. Fresh execution
+is still required; the original version-1 recording remains unchanged.
+
 The passing cases include actual bootstrap pause/retry/restart, the default RPC
 budget, lagging providers, broker/offchain restart, unsupported-fork refusal,
 the transient stale-result cut and seven complete adversarial command histories.

@@ -93,6 +93,15 @@ and record explicit healing before final convergence. Weighted routing with a
 global simultaneous view change alone does not establish that boundary. The
 ordinary four-command campaign retains its own narrower declared model.
 
+The version-2 weighted history uses B106 against retained A105 so the A105
+delayed check cannot mature against the retained endpoint before healing. It
+requires the actual retained common ancestor and either that pending check or
+an already reached supported recovery. After explicit B106 healing, command E
+publishes B107 and starts the immutable tail before waiting for rollback. This
+supplies recovery dependencies without treating publication as proof of repair;
+the final canonical and HTTP oracles still have to pass. Ordinary campaign E
+acknowledgement is unchanged.
+
 Fair recovery requires a sufficiently fresh external chain. An enabled
 `headProgress` fixture publishes a finite, timestamp-driven canonical tail after
 the deliberate fault window. Existing header timestamps never change; the
