@@ -3,10 +3,12 @@ import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
 import { assertWorktreeTemporaryPath, hashFile } from "./artifacts.mjs";
 import {
     QUALIFICATION_PROTOCOL_PREFIX,
     QUALIFICATION_EVENT,
+    QUALIFICATION_STATUS,
     SIMULATION_EVIDENCE_PREFIX,
     SIMULATION_EVIDENCE_EVENT,
     CHECK_COVERAGE_STATUS,
@@ -24,28 +26,66 @@ export async function assertBoundedFile(filename, maximumBytes) {
     return metadata;
 }
 
-export async function readArtifactJson(
+async function readJsonArtifactBytes(
     filename,
     maximumBytes = 2 * 1024 * 1024,
+    readStream = createReadStream,
 ) {
     await assertBoundedFile(filename, maximumBytes);
     const chunks = [];
     let bytes = 0;
-    for await (const chunk of createReadStream(filename)) {
+    for await (const chunk of readStream(filename)) {
         bytes += chunk.length;
         if (bytes > maximumBytes)
             throw new Error("JSON artifact exceeded its byte limit");
         chunks.push(chunk);
     }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return Buffer.concat(chunks);
 }
 
-async function* serialLines(filename) {
+export async function readArtifactJson(
+    filename,
+    maximumBytes = 2 * 1024 * 1024,
+) {
+    return JSON.parse(
+        (await readJsonArtifactBytes(filename, maximumBytes)).toString("utf8"),
+    );
+}
+
+/** Bind interpretation and SHA/size to the same bounded byte capture. Callers
+ * retain this pin for later disk bookends instead of repinning parsed facts. */
+export async function captureArtifactJson(
+    filename,
+    maximumBytes = 2 * 1024 * 1024,
+    { readStream = createReadStream } = {},
+) {
+    const bytes = await readJsonArtifactBytes(
+        filename,
+        maximumBytes,
+        readStream,
+    );
+    const value = JSON.parse(bytes.toString("utf8"));
+    const pin = {
+        path: path.resolve(filename),
+        sizeBytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    const metadata = await assertBoundedFile(filename, maximumBytes);
+    if (
+        metadata.size !== pin.sizeBytes ||
+        (await hashFile(filename)) !== pin.sha256
+    )
+        throw new Error("JSON artifact changed during byte capture");
+    return { bytes, value, pin };
+}
+
+async function* serialLines(filename, onBytes = () => {}) {
     await assertBoundedFile(filename, MAX_SERIAL_BYTES);
     const decoder = new StringDecoder("utf8");
     let pending = "";
     let bytes = 0;
     for await (const chunk of createReadStream(filename)) {
+        onBytes(chunk);
         bytes += chunk.length;
         if (bytes > MAX_SERIAL_BYTES)
             throw new Error("Serial evidence exceeded its byte limit");
@@ -64,35 +104,18 @@ async function* serialLines(filename) {
     if (pending) yield pending.replace(/\r$/, "");
 }
 
-/** Common campaign/replay view; false checks alone do not prove a guard was reached. */
-export async function readRunEvidence(runDirectory) {
-    const directory = await realpath(
-        await assertWorktreeTemporaryPath(runDirectory),
-    );
-    const report = await readArtifactJson(path.join(directory, "report.json"));
-    const serial = path.join(directory, "replay-serial.log");
-    const fallback = path.join(directory, "record-serial.log");
-    let serialPath;
-    for (const candidate of [serial, fallback]) {
-        try {
-            const metadata = await assertBoundedFile(
-                candidate,
-                MAX_SERIAL_BYTES,
-            );
-            if (metadata.size > 0) {
-                serialPath = candidate;
-                break;
-            }
-        } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-        }
-    }
-    const before = serialPath ? await hashFile(serialPath) : undefined;
+/** Transport-independent bounded guest frames; completion qualification is separate. */
+export async function readGuestEvidence(serialPath) {
+    await assertBoundedFile(serialPath, MAX_SERIAL_BYTES);
+    const before = await hashFile(serialPath);
+    const readHash = createHash("sha256");
     const events = {};
     const processReady = [];
     const generations = new Map();
     let completion;
-    for await (const line of serialPath ? serialLines(serialPath) : []) {
+    for await (const line of serialLines(serialPath, (chunk) =>
+        readHash.update(chunk),
+    )) {
         if (line.startsWith(SIMULATION_EVIDENCE_PREFIX)) {
             const event = JSON.parse(
                 line.slice(SIMULATION_EVIDENCE_PREFIX.length),
@@ -128,7 +151,7 @@ export async function readRunEvidence(runDirectory) {
                     SIMULATION_EVIDENCE_EVENT.Result,
                     SIMULATION_EVIDENCE_EVENT.Failure,
                 ].includes(keys[0]) ||
-                events[keys[0]]
+                Object.hasOwn(events, keys[0])
             )
                 throw new Error(
                     "Guest evidence must contain one unambiguous probe/result/failure event",
@@ -147,8 +170,109 @@ export async function readRunEvidence(runDirectory) {
             }
         }
     }
-    if (serialPath && (await hashFile(serialPath)) !== before)
+    if (
+        readHash.digest("hex") !== before ||
+        (await hashFile(serialPath)) !== before
+    )
         throw new Error("Serial evidence changed during inspection");
+    return { events, processReady, completion, serialSha256: before };
+}
+
+/** A completed transport needs one matching terminal frame; raw false checks
+ * alone do not establish which assertion/guard was reached. */
+export function assertCompleteGuestEvidence(parsed, { status, checks }) {
+    const { events, completion } = parsed;
+    if (
+        !completion ||
+        completion.status !== status ||
+        !isDeepStrictEqual(completion.checks, checks)
+    )
+        throw new Error(
+            "Completed run serial/completion no longer matches its report",
+        );
+    if (status === QUALIFICATION_STATUS.Passed) {
+        if (
+            !events.result ||
+            events.failure ||
+            !isDeepStrictEqual(events.result.checks, checks) ||
+            !events.result.evidence ||
+            typeof events.result.evidence !== "object" ||
+            !Object.keys(events.result.evidence).length
+        )
+            throw new Error(
+                "Passing run requires exactly one matching nonempty result evidence frame",
+            );
+    } else if (status === QUALIFICATION_STATUS.Failed) {
+        if (
+            !events.failure ||
+            events.result ||
+            typeof events.failure.error !== "string" ||
+            !Array.isArray(events.failure.coverage)
+        )
+            throw new Error(
+                "Failed run requires exactly one matching failure evidence frame",
+            );
+        for (const [check, passed] of Object.entries(
+            events.failure.checks ?? {},
+        ))
+            if (!Object.hasOwn(checks, check) || checks[check] !== passed)
+                throw new Error(
+                    "Failure evidence check results differ from completion",
+                );
+        const covered = events.failure.coverage;
+        if (
+            covered.length !== Object.keys(checks).length ||
+            new Set(covered.map((entry) => entry.check)).size !==
+                covered.length ||
+            covered.some(
+                (entry) =>
+                    !Object.hasOwn(checks, entry.check) ||
+                    !Object.values(CHECK_COVERAGE_STATUS).includes(
+                        entry.status,
+                    ) ||
+                    (entry.status === CHECK_COVERAGE_STATUS.Passed) !==
+                        checks[entry.check],
+            )
+        )
+            throw new Error(
+                "Failure coverage does not match completed check results",
+            );
+    } else throw new Error("Completed run has no valid property status");
+    return parsed;
+}
+
+/** Common campaign/replay view; false checks alone do not prove a guard was reached. */
+export async function readRunEvidence(runDirectory) {
+    const directory = await realpath(
+        await assertWorktreeTemporaryPath(runDirectory),
+    );
+    const report = await readArtifactJson(path.join(directory, "report.json"));
+    const serial = path.join(directory, "replay-serial.log");
+    const fallback = path.join(directory, "record-serial.log");
+    let serialPath;
+    for (const candidate of [serial, fallback]) {
+        try {
+            const metadata = await assertBoundedFile(
+                candidate,
+                MAX_SERIAL_BYTES,
+            );
+            if (metadata.size > 0) {
+                serialPath = candidate;
+                break;
+            }
+        } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+        }
+    }
+    const parsed = serialPath
+        ? await readGuestEvidence(serialPath)
+        : {
+              events: {},
+              processReady: [],
+              completion: undefined,
+              serialSha256: undefined,
+          };
+    const { events, processReady, completion, serialSha256: before } = parsed;
     let expectedChecks = [];
     try {
         expectedChecks =
@@ -166,64 +290,15 @@ export async function readRunEvidence(runDirectory) {
         events.failure?.checks ??
         events.result?.checks ??
         Object.fromEntries(expectedChecks.map((check) => [check, false]));
-    if (report.engineReplayStatus === "passed") {
-        if (
-            before !== report.serialSha256 ||
-            !completion ||
-            completion.status !== report.propertyStatus ||
-            !isDeepStrictEqual(checks, report.guestReportedChecks)
-        )
+    if (report.engineReplayStatus === QUALIFICATION_STATUS.Passed) {
+        if (before !== report.serialSha256)
             throw new Error(
                 "Completed run serial/completion no longer matches its report",
             );
-        if (report.propertyStatus === "passed") {
-            if (
-                !events.result ||
-                events.failure ||
-                !isDeepStrictEqual(events.result.checks, checks) ||
-                !events.result.evidence ||
-                typeof events.result.evidence !== "object" ||
-                !Object.keys(events.result.evidence).length
-            )
-                throw new Error(
-                    "Passing run requires exactly one matching nonempty result evidence frame",
-                );
-        } else if (report.propertyStatus === "failed") {
-            if (
-                !events.failure ||
-                events.result ||
-                typeof events.failure.error !== "string" ||
-                !Array.isArray(events.failure.coverage)
-            )
-                throw new Error(
-                    "Failed run requires exactly one matching failure evidence frame",
-                );
-            for (const [check, passed] of Object.entries(
-                events.failure.checks ?? {},
-            ))
-                if (!Object.hasOwn(checks, check) || checks[check] !== passed)
-                    throw new Error(
-                        "Failure evidence check results differ from completion",
-                    );
-            const covered = events.failure.coverage;
-            if (
-                covered.length !== Object.keys(checks).length ||
-                new Set(covered.map((entry) => entry.check)).size !==
-                    covered.length ||
-                covered.some(
-                    (entry) =>
-                        !Object.hasOwn(checks, entry.check) ||
-                        !Object.values(CHECK_COVERAGE_STATUS).includes(
-                            entry.status,
-                        ) ||
-                        (entry.status === CHECK_COVERAGE_STATUS.Passed) !==
-                            checks[entry.check],
-                )
-            )
-                throw new Error(
-                    "Failure coverage does not match completed check results",
-                );
-        } else throw new Error("Completed run has no valid property status");
+        assertCompleteGuestEvidence(parsed, {
+            status: report.propertyStatus,
+            checks: report.guestReportedChecks,
+        });
     }
     const evidence = events.failure ?? events.result?.evidence ?? {};
     const explicitCoverage = events.failure?.coverage ?? evidence.coverage;

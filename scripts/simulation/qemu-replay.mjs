@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { finished } from "node:stream/promises";
@@ -24,6 +23,7 @@ import {
 import { compareGuestDisks } from "./image-artifacts.mjs";
 import { storageProfile, SCENARIO_DEVICE_ENV } from "./storage-profile.mjs";
 import { cpuModel, CPU_MODEL } from "./cpu-model.mjs";
+import { captureArtifactJson } from "./run-evidence.mjs";
 
 export const QUALIFICATION_PROTOCOL = QUALIFICATION_PROTOCOL_PREFIX;
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -263,10 +263,11 @@ export async function preflight(
     { execute = executeCommand } = {},
 ) {
     const absolute = path.resolve(manifestPath);
-    const bytes = await readFile(absolute);
-    const value = JSON.parse(bytes.toString("utf8"));
-    const manifestSha256 = createHash("sha256").update(bytes).digest("hex");
-    const admitted = await preflightManifest(value, absolute, { execute });
+    const captured = await captureArtifactJson(absolute);
+    const manifestSha256 = captured.pin.sha256;
+    const admitted = await preflightManifest(captured.value, absolute, {
+        execute,
+    });
     if ((await digest(absolute)) !== manifestSha256)
         throw new Error("Manifest changed during preflight");
     return { ...admitted, manifestSha256 };
