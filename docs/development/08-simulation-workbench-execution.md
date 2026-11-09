@@ -603,7 +603,7 @@ The separate opt-in `registered-core-context-v2` profile covers generation-zero
 Node actors from the runtime manifest, including sync and collection bootstrap.
 It retains only the first claimed fatal dump; NATS, one-shot maintenance and
 restarted generations are explicitly excluded. Normal runtime arguments and
-the version-1 profile remain intact. Fresh VM qualification is pending.
+the version-1 profile remain intact.
 
 The first context probe at source `d47a59b9`, `run-O7nDkX`, reproduced its failed
 capture property with exact serial and complete disk equality. The admitted
@@ -615,6 +615,16 @@ only the exact collector argument shape and private BusyBox-init guest before
 executing the fixed Node path. V2 admission checks its actual executable bytes
 before changing guest core policy. Fresh M0 and capture-probe execution are
 required after this image change; no host helper or policy is modified.
+
+The corrected full image `guest-BprF6N` at source `30f974ea` passed all eight M0
+checks and strict serial/disk equality in `run-oZfNgt` (208.173 seconds). Its
+context probe `run-Sckyng` passed capture and those same replay gates in 182.364
+seconds. Read-only extraction `extract-uTckQR` and independent inspection at
+`tmp/simulation-native-context-inspections/probe-vJvvpG/inspection.json` confirm
+the raw signal/register/file notes, authored stack return and marker, actual
+instruction bytes and derived ranges. All nine inspected artifact pins remained
+unchanged. This qualifies that capture path; it does not attribute an application
+fault.
 
 Its fixed guest-only pipe collector bounds raw input to 32 MiB, maps to 256 KiB,
 stack memory to 64 KiB and instruction memory to 512 bytes. It retains the
@@ -644,6 +654,61 @@ explicit; raw cores survive parser failure. By itself, filter `0x10` provides
 no heap/stack/JIT-byte capture or promised unwindable stack. A mapped RIP locates
 a code region and does not establish whether the cause belongs to ArtGod, a
 native dependency, V8, the kernel or emulation.
+
+The selected real header-error diagnostic `run-hWnwIL` then captured a domain
+worker `SIGSEGV`, with exact serial and complete disk replay in 342.694 seconds.
+The 118,784-byte raw core and complete bounded windows identify the observed
+site as V8 `IC::UpdateState`, reading through an object pointer outside all
+captured mappings. Independent disassembly matches the actual Node bytes;
+bounded saved frame slots continue through load-IC, JIT and asynchronous
+callbacks. The final self-sent signal is compatible with Node's trap re-raise
+path and is not treated as the original fault address. The root cause remains
+unresolved, and recovery assertions were not reached. Raw/guest ELF pins and
+analysis are retained under `tmp/simulation-native-context-inspections/` and
+`tmp/simulation-native-inspection/`.
+
+That real core exposed a derived-ELF layout incompatibility with elfutils.
+Preserving page-congruent LOAD offsets corrects module reconstruction without
+changing raw notes, captured bytes or virtual ranges. Original artifacts remain
+unchanged. Limited captured memory still prevents a complete DWARF/JavaScript
+unwind; a derived file is never substituted for raw evidence.
+
+## Native Execution Control
+
+The [native control owner](../../scripts/simulation/native-control.mjs) provides
+an explicit Linux/amd64 diagnostic comparison. It runs the retained full-build
+coordinator, production entrypoints, SQLite, NATS and fake external services
+inside an isolated container with unchanged Node arguments. It records target
+and observer sources separately and admits only simulation-tool source changes
+around the frozen target. Staged bytes, symlinks, scenario bytes and the actual
+container Node must match the admitted full build.
+
+Use temporary copies of ordinary descriptors and an explicitly allowed host
+CPU. For example, after preparing the input directory:
+
+```sh
+yarn node scripts/simulation/native-control.mjs --manifest tmp/simulation/guest-FULL/manifest.json --scenario tmp/native-inputs/qualification.json --cpu 0
+```
+
+The typed profile fixes one CPU, 2 GiB, no extra swap, finite PIDs, nonroot
+identity, read-only inputs, private namespaces and loopback-only networking.
+Pre-Node admission verifies actual cgroup/proc settings, zero capabilities and
+an inherited hard/soft core limit of one. This suppresses the Linux pipe-core
+handler without changing host policy. Existing private-namespace low-port access
+must already support the unchanged HTTPS endpoint. Guest-only core descriptors
+are rejected; no synthetic fault executes on the host.
+
+Run the native M0 workload before a selected plain system history. Use identical
+authored descriptor bytes for the matching VM/native comparison and retain
+their realized clock/order-hash differences. Native CPU, kernel, scheduling and
+storage change together, so a non-reproduction cannot clear the recorded crash
+or identify emulation as its cause. Actual native execution remains pending.
+
+Reports under `tmp/simulation-native-controls/control-*` contain native-only
+execution, property and integrity verdicts. Cleanup must be acknowledged before
+mutable evidence is read; stdout terminal evidence and written results must
+agree. Failed properties remain failed. These controls publish no replay or
+full-disk qualification and do not replace the simulation corpus.
 
 ## Workbench Commands and Campaigns
 
