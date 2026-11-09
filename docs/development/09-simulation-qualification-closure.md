@@ -74,6 +74,12 @@ legal coverage and source-cancelled endpoints remain supported. Reassess old
 passes from complete retained evidence where possible, and record fresh runs
 where the absent requirements cannot be reconstructed reliably.
 
+The native control exposed an older oracle assumption: a completed cached proof
+need not be refreshed solely because the global chain revision changes. Current
+chain identity is required for reuse and for independently witnessed new work.
+Keep generic retained-coverage checks separate from those fresh obligations;
+do not add an unrelated source refresh to hide the distinction.
+
 ## 3. Weighted-Fork Fairness
 
 Backlog: `BKL-075`.

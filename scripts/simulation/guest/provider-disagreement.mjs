@@ -88,6 +88,11 @@ export function assertFreshValidatorProof({
     sourceEventAt,
     minimumBlock,
 }) {
+    assert.ok(
+        minimumBlock === null ||
+            (Number.isSafeInteger(minimumBlock) && minimumBlock >= 0),
+        "Fresh validation requires an explicit valid block floor or null",
+    );
     const oldOrder = before.orders.find((row) => row.id === orderId);
     const oldProof = before.validationProofs.find(
         (row) => row.order_id === orderId,
@@ -124,8 +129,12 @@ export function assertFreshValidatorProof({
         "Full proof must use the current chain revision",
     );
     assert.ok(
-        proof.proof_block >= minimumBlock,
-        "Full proof must cover the acquired transfer block",
+        Number.isSafeInteger(proof.proof_block) && proof.proof_block >= 0,
+        "Full proof requires an explicit valid observed block",
+    );
+    assert.ok(
+        minimumBlock === null || proof.proof_block >= minimumBlock,
+        "Full proof must cover the retained validation block floor",
     );
     assert.ok(
         proof.proof_at >= sourceEventAt * 1000 &&

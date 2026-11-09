@@ -205,3 +205,59 @@ test("fresh source audit or status alone cannot substitute for a new full valida
         104,
     );
 });
+
+// A rollback can advance the checkpoint before this new Stream admission.
+// An older retained cache is legal in the baseline, but cannot cover the new work.
+test("new post-rollback source proof must cover the current chain rather than its retained baseline", () => {
+    const before = observed();
+    before.revision = 1;
+    const current = fresh();
+    current.revision = 1;
+    const input = { ...proofInput(current), before };
+    assert.throws(
+        () => assertFreshValidatorProof(input),
+        /current chain revision/,
+    );
+    current.validationProofs[0].proof_chain_revision = 1;
+    assert.equal(
+        assertFreshValidatorProof(input).proof.proof_chain_revision,
+        1,
+    );
+});
+
+test("a fresh proof may settle a real null block floor without inventing the published head", () => {
+    const current = fresh();
+    current.validationProofs[0].proof_block = 103;
+    assert.equal(
+        assertFreshValidatorProof({
+            ...proofInput(current),
+            minimumBlock: null,
+        }).proof.proof_block,
+        103,
+    );
+});
+
+test("fresh validation rejects missing or malformed block floors and observed blocks", () => {
+    for (const minimumBlock of [undefined, -1, 1.5, NaN, Infinity, "104"]) {
+        assert.throws(
+            () =>
+                assertFreshValidatorProof({
+                    ...proofInput(),
+                    minimumBlock,
+                }),
+            /explicit valid block floor or null/,
+        );
+    }
+    for (const proofBlock of [undefined, null, -1, 1.5, NaN, Infinity, "103"]) {
+        const current = fresh();
+        current.validationProofs[0].proof_block = proofBlock;
+        assert.throws(
+            () =>
+                assertFreshValidatorProof({
+                    ...proofInput(current),
+                    minimumBlock: null,
+                }),
+            /explicit valid observed block/,
+        );
+    }
+});

@@ -37,6 +37,13 @@ clear every surviving timestamp. Assert stale-result refusal separately from
 those visibility rules. The independent oracle knows the eventual winning fork,
 but cannot require ArtGod to know it before sufficient evidence is available.
 
+Completed validation coverage is not automatically reusable after a rollback.
+Generic convergence checks the current source revision and actual retained
+source-time/event-height requirements, permitting an older cached chain revision.
+The stale-result cut separately witnesses a new post-rollback bid generation and
+requires its completed proof to use the current chain. Fresh-provider histories
+also retain their explicit source-generation and chain-proof checks.
+
 ## M0: Qualify Execution Before Product Claims
 
 The current gate includes independent known answers for hot BigInt arithmetic,

@@ -6,7 +6,7 @@ import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import {
     assertOrderValidationRequest,
-    validationProofCovers,
+    validationProofSatisfies,
 } from "../../../indexer/src/domain/order-validation-demand.ts";
 import {
     ORDER_STATUS,
@@ -168,6 +168,8 @@ export function assertCanonicalAcquisition({ snapshot, ledger, branch, head }) {
 /** Assert the fixture's executable convergence endpoint, not optimistic
  * intermediate visibility or separate protocol-terminal/refusal endpoints.
  * Non-active source evidence remains independent of protocol fillability.
+ * Stored coverage may predate a rollback without having been reused. A
+ * fixture-witnessed new request is checked separately by its freshness owner.
  */
 export function assertMarketConvergence({
     snapshot,
@@ -244,19 +246,24 @@ export function assertMarketConvergence({
                         `Current ${name} requires an explicit valid ${field}`,
                     );
                 assert.equal(
-                    validationProofCovers(
+                    proof.proof_revision,
+                    actual.state_revision,
+                    `Current ${name} proof must cover its canonical order revision`,
+                );
+                assert.ok(
+                    proof.proof_chain_revision <= snapshot.revision,
+                    `Current ${name} cannot retain proof from a future chain revision`,
+                );
+                assert.equal(
+                    validationProofSatisfies(
                         {
-                            proofRevision: proof.proof_revision,
-                            proofChainRevision: proof.proof_chain_revision,
-                            proofAt: proof.proof_at,
-                            proofBlock: proof.proof_block,
+                            observedAt: proof.proof_at,
+                            blockNumber: proof.proof_block,
                         },
-                        actual.state_revision,
                         request,
-                        snapshot.revision,
                     ),
                     true,
-                    `Current ${name} proof must cover its canonical revision, chain and retained source-time/event-height requirements`,
+                    `Current ${name} proof must cover its retained source-time/event-height requirements`,
                 );
             },
         );

@@ -62,7 +62,9 @@ import { OFFCHAIN_OBSERVATION_CHANNEL } from "../../../indexer/src/domain/offcha
 import {
     assertCanonicalAcquisition,
     assertMarketConvergence,
+    SIMULATION_PROPERTY,
 } from "./oracle.mjs";
+import { assertSimulationProperty } from "./oracle-assertions.mjs";
 import { executeProcessFault } from "./process-faults.mjs";
 import { executeStartupMaintenance } from "./lifecycle.mjs";
 import { declareTradingIntent } from "./operator-inputs.mjs";
@@ -1469,11 +1471,30 @@ export async function runDataPlane(
                     ? CHECK.ReorgRecovery
                     : CHECK.OrderValidation;
             checks[activeCheck] = false;
+            const current = snapshot();
             assertMarketConvergence({
-                snapshot: snapshot(),
+                snapshot: current,
                 ledger,
                 expectedSourceStatuses,
             });
+            if (staleResultCut) {
+                // Reuse the fresh-source oracle against the cut's actual
+                // post-rollback admission. An unrelated retained cache need
+                // not be refreshed solely for the global revision change.
+                const cut = staleResultCut.evidence();
+                assertSimulationProperty(
+                    SIMULATION_PROPERTY.BuyValidation,
+                    () =>
+                        assertFreshValidatorProof({
+                            before: cut.rollback.state,
+                            current,
+                            orderId: ledger.orders.bid.orderHash,
+                            sourceEventAt: cut.freshInput.sourceEventAt,
+                            minimumBlock:
+                                cut.freshAdmission.proof.minimum_block,
+                        }),
+                );
+            }
             checks[activeCheck] = true;
         }
         if (providerDisagreementReached) {

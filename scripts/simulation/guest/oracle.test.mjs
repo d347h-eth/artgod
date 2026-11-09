@@ -132,13 +132,33 @@ test("the market oracle detects an orphan-derived buy outcome while the sell ask
         property: SIMULATION_PROPERTY.BuyValidation,
     });
 });
-test("the market oracle rejects old-fork proof reuse even when both order statuses look correct", () => {
+test("stored older-chain coverage remains legal without a new current-chain obligation", () => {
     const actual = snapshot();
     actual.validationProofs[1].proof_chain_revision = 1;
-    assert.throws(() => assertMarketConvergence({ snapshot: actual, ledger }), {
-        property: SIMULATION_PROPERTY.BuyValidation,
-    });
+    assertMarketConvergence({ snapshot: actual, ledger });
 });
+
+test("future-chain and absent proof evidence cannot qualify a settled current order", () => {
+    for (const mutate of [
+        (actual) => {
+            actual.validationProofs[1].proof_chain_revision =
+                actual.revision + 1;
+        },
+        (actual) => {
+            actual.validationProofs = actual.validationProofs.filter(
+                (row) => row.order_id !== ledger.orders.bid.orderHash,
+            );
+        },
+    ]) {
+        const actual = snapshot();
+        mutate(actual);
+        assert.throws(
+            () => assertMarketConvergence({ snapshot: actual, ledger }),
+            { property: SIMULATION_PROPERTY.BuyValidation },
+        );
+    }
+});
+
 test("settled current-chain proof cannot reuse an older canonical source revision", () => {
     for (const mutate of [
         (actual) => {

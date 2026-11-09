@@ -78,11 +78,15 @@ this additional execution does not qualify other CPU, RPC-model or runtime paths
 
 The permanent convergence oracle now projects actual `required_at` and
 `minimum_block` requirements and uses the validation-demand owner's coverage
-contract against the current order and chain revisions. Missing evidence fails
-explicitly; source-terminal exceptions retain their existing semantics. All 69
-affected supporting checks pass, including stale revision, time and block-floor
-mutations. This strengthens new executions; it cannot recover fields absent from
-the sealed cohort's observations. Fresh final-source runs remain required.
+contracts against the current order revision and retained requirements. Missing
+evidence fails explicitly; source-terminal exceptions retain their existing
+semantics. A completed cached proof may retain an earlier chain revision: this
+does not make it reusable after rollback. Current-chain coverage is additionally
+required for the stale cut's witnessed new post-rollback bid generation and the
+fresh-provider histories. The native comparison exposed the old unconditional
+chain-equality assertion; its original failed report is retained. Fresh
+final-source runs remain required, and cannot recover fields absent from the
+sealed cohort's observations.
 
 Measured pair times range from 283.769 to 941.765 seconds, with median 340.584
 seconds. The slowest lane sums to 3,195.473 seconds of pair execution. Paired run
@@ -702,7 +706,21 @@ Run the native M0 workload before a selected plain system history. Use identical
 authored descriptor bytes for the matching VM/native comparison and retain
 their realized clock/order-hash differences. Native CPU, kernel, scheduling and
 storage change together, so a non-reproduction cannot clear the recorded crash
-or identify emulation as its cause. Actual native execution remains pending.
+or identify emulation as its cause.
+
+The first native M0, `control-RWy0yc`, passed all eight checks in 6.427 seconds,
+including effective-container admission and unchanged input pins. The same plain
+header-error ERVS descriptor then ran natively as `control-ma5yx3` and in the VM
+as `run-cGh8Y1`, using full target source `30f974ea` and observer `7b5d1b65`.
+Neither crashed. The VM passed its properties and strict serial/full-disk replay
+in 481.876 seconds. Native execution and integrity passed in 55.508 seconds,
+but its original property report failed the older unconditional chain-proof
+assertion. The bid retained chain-revision-0 coverage after revision 1, without
+a fixture-witnessed new post-rollback requirement. The contract permits that cache;
+its presence does not prove reuse or a stale commit. The oracle correction keeps
+this report intact and scopes current-chain checks to witnessed fresh work.
+Different realized clocks, order hashes and schedules limit this comparison;
+it neither reproduces nor explains the independently captured V8 fault.
 
 Reports under `tmp/simulation-native-controls/control-*` contain native-only
 execution, property and integrity verdicts. Cleanup must be acknowledged before

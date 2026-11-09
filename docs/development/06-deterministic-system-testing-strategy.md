@@ -194,6 +194,12 @@ indexed orders are passive display fallback. See the owning
 [orders](../indexer/07-domain-orders.md) and
 [market authority](../trading/03-market-data-and-scaling.md#authority-model) contracts.
 
+Settled coverage must cover its current order revision and retained source-time
+and event-height requirements. A completed cached proof may predate a later
+chain rollback revision; storing it does not claim it is reusable. Require a
+current-chain proof where a scenario independently witnesses a new post-rollback
+validation obligation. Do not invent an eager refresh of every surviving order.
+
 Convergence examines pending demand, unfinished maker work, required outbox
 publication, retained canonical checks/recovery/resync, coverage and selected
 projections. Mature recent checks explicitly or list them as an expected
