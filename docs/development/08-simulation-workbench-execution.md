@@ -717,6 +717,17 @@ counterexample's same-host path relocation, not independent backup storage or
 another host kernel. Original inputs and the pinned record overlay remain
 unchanged.
 
+The same genuine failed case was subsequently exported using ordinary copies as
+`bundle-62llIX`, with 519,403,443 logical bytes. All 15 checked original/copy
+members have identical bytes and distinct regular-file inodes. After explicit
+restore of the copied saved image, relocated original-log `replay-2suBxB` passed
+engine, exact serial and complete disk equality while reproducing the failed
+HTTP/provider property. Before/after receipts in
+`tmp/simulation-qualification-closure/storage-review/` confirm unchanged original
+and copied bytes and inode identities. This qualifies independent file copies
+and same-host relocation; it does not establish a separate backup device or
+another-host replay.
+
 The [QEMU image utility documentation](https://www.qemu.org/docs/master/tools/qemu-img.html)
 describes comparison and backing-file rebase semantics. The workbench uses the
 path-only rebase solely on a copied overlay whose old and new base hashes agree;
