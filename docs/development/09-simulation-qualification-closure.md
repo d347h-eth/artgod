@@ -361,3 +361,20 @@ diagnostic SIGSEGV observation. A regression serializes the actual pending
 HTTP/provider shape and requires both to remain `unreached`. All 504 supporting
 tests pass with zero skips after this correction. Original reports and their
 verdicts are not rewritten, and runtime failure does not become a passing case.
+
+### Final Provider-Disagreement Sentinel
+
+The provider-disagreement journeys now run the independent final market oracle
+on both orders before HTTP derives visibility from stored status. Only the
+listing may explicitly expect recoverable `NoBalance` with active source
+evidence; the unaffected bid still requires active source, `Fillable` state and
+valid retained proof with the existing revision/time/height checks. A matching
+empty HTTP bid book cannot bless a corrupted terminal/source-inactive bid or
+missing/stale proof. Fresh listing proof and exact final HTTP checks remain.
+
+This closes an assertion gap rather than demonstrating another production
+fault. All 509 supporting tests pass with zero skips after the added positive
+and collateral-damage guards. The wholly coherent validation-B/persisted-A
+scenario in SC-03 still needs its own authored history; a hash-pinned snapshot
+does not establish consensus between components. No new recovery or terminal
+reactivation policy is implied.

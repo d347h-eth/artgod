@@ -15,7 +15,14 @@ import { createBaselineLedger } from "../world/ledger.mjs";
 import { ZERO_ADDRESS, CONTRACT_ABI, wireQuantity } from "../world/wire.mjs";
 import { RESPONSE_GATE_FUNCTION } from "../world/contract.mjs";
 import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
+import { buildTokenDetailPath } from "../../../shared/http/collection-routes.ts";
+import { buildTokenBiddingBidBookPath } from "../../../shared/http/trading-routes.ts";
+import {
+    TRADING_BIDDING_BID_BOOK_SOURCE,
+    TRADING_BOT_LIFECYCLE_STATUS,
+} from "../../../shared/types/trading.ts";
 import { baselineFillFacts } from "./fixtures/fill-facts.mjs";
+import { assertHttpProjection } from "./http-projection.mjs";
 
 const ledger = createBaselineLedger({ epochSeconds: 1_000_000 });
 // Reviewed fixture truth table: two mints and one A-only transfer. This does not
@@ -137,6 +144,224 @@ test("the market oracle detects an orphan-derived buy outcome while the sell ask
         property: SIMULATION_PROPERTY.BuyValidation,
     });
 });
+
+function disagreementMarketFixture() {
+    const { revision, orders, validationProofs } = snapshot();
+    orders[0].fillability_status = ORDER_STATUS.NoBalance;
+    for (const proof of validationProofs) {
+        proof.minimum_block = 104;
+        proof.proof_block = 104;
+    }
+    return {
+        snapshot: { revision, orders, validationProofs },
+        ledger: createBaselineLedger({
+            epochSeconds: 1_000_000,
+            transferOnly: true,
+        }),
+        expectedListingFillability: ORDER_STATUS.NoBalance,
+    };
+}
+
+test("an explicitly declared ownership-loss listing retains full proof checks alongside its healthy bid", () => {
+    const fixture = disagreementMarketFixture();
+    const state = fixture.ledger.stateAt("A", 104);
+    assert.equal(state.owners.get("1"), fixture.ledger.addresses.buyer);
+    assert.equal(state.owners.get("2"), fixture.ledger.addresses.seller);
+    assert.equal(state.counters.get(fixture.ledger.orders.bid.maker) ?? 0n, 0n);
+    assert.deepEqual(assertMarketConvergence(fixture), {
+        retainedCancellations: [],
+        permittedCancellations: [],
+    });
+    const { expectedListingFillability, ...withoutDeclaration } = fixture;
+    assert.throws(() => assertMarketConvergence(withoutDeclaration), {
+        property: SIMULATION_PROPERTY.SellValidation,
+    });
+});
+
+test("the recoverable listing expectation cannot declare arbitrary terminal states or bypass source evidence", () => {
+    for (const expectedListingFillability of [
+        ORDER_STATUS.Filled,
+        ORDER_STATUS.Cancelled,
+        ORDER_STATUS.Invalid,
+        ORDER_STATUS.NoApproval,
+        null,
+    ])
+        assert.throws(
+            () =>
+                assertMarketConvergence({
+                    ...disagreementMarketFixture(),
+                    expectedListingFillability,
+                }),
+            { property: SIMULATION_PROPERTY.SellValidation },
+        );
+    const fixture = disagreementMarketFixture();
+    fixture.snapshot.orders[0].source_status = ORDER_SOURCE_STATUS.Cancelled;
+    assert.throws(
+        () =>
+            assertMarketConvergence({
+                ...fixture,
+                expectedSourceStatuses: {
+                    [fixture.ledger.orders.listing.orderHash]:
+                        ORDER_SOURCE_STATUS.Cancelled,
+                },
+            }),
+        { property: SIMULATION_PROPERTY.SellValidation },
+    );
+});
+
+test("a correct NoBalance listing cannot hide collateral bid state or validation-proof corruption", () => {
+    for (const mutate of [
+        (actual) => {
+            actual.orders[1].fillability_status = ORDER_STATUS.Cancelled;
+        },
+        (actual) => {
+            actual.orders[1].fillability_status = ORDER_STATUS.Invalid;
+        },
+        (actual) => {
+            actual.orders[1].source_status = ORDER_SOURCE_STATUS.Inactive;
+        },
+        (actual) => {
+            actual.orders[1].source_status = ORDER_SOURCE_STATUS.Cancelled;
+        },
+        (actual) => {
+            actual.validationProofs.pop();
+        },
+        (actual) => {
+            actual.validationProofs[1].proof_revision--;
+        },
+        (actual) => {
+            actual.validationProofs[1].proof_at =
+                actual.validationProofs[1].required_at - 1;
+        },
+        (actual) => {
+            actual.validationProofs[1].proof_block =
+                actual.validationProofs[1].minimum_block - 1;
+        },
+    ]) {
+        const fixture = disagreementMarketFixture();
+        mutate(fixture.snapshot);
+        assert.throws(() => assertMarketConvergence(fixture), {
+            property: SIMULATION_PROPERTY.BuyValidation,
+        });
+    }
+});
+
+test("recoverable listing status still requires current source revision and retained proof floors", () => {
+    for (const mutate of [
+        (actual) => {
+            actual.orders[0].source_status = ORDER_SOURCE_STATUS.Inactive;
+        },
+        (actual) => {
+            actual.validationProofs.shift();
+        },
+        (actual) => {
+            actual.validationProofs[0].proof_revision--;
+        },
+        (actual) => {
+            actual.validationProofs[0].proof_at =
+                actual.validationProofs[0].required_at - 1;
+        },
+        (actual) => {
+            actual.validationProofs[0].proof_block =
+                actual.validationProofs[0].minimum_block - 1;
+        },
+    ]) {
+        const fixture = disagreementMarketFixture();
+        mutate(fixture.snapshot);
+        assert.throws(() => assertMarketConvergence(fixture), {
+            property: SIMULATION_PROPERTY.SellValidation,
+        });
+    }
+});
+
+test("matching empty HTTP cannot bypass the final canonical bid sentinel", async () => {
+    for (const mutation of [
+        { fillability_status: ORDER_STATUS.Cancelled },
+        { fillability_status: ORDER_STATUS.Invalid },
+        { source_status: ORDER_SOURCE_STATUS.Inactive },
+    ]) {
+        const fixture = disagreementMarketFixture();
+        Object.assign(fixture.snapshot.orders[1], mutation);
+        const { ledger } = fixture;
+        const state = ledger.stateAt("A", 104);
+        const chain = { publicChainId: ledger.chainId };
+        const collection = {
+            slug: ledger.collectionSlug,
+            address: ledger.addresses.nft,
+        };
+        const tokens = [...state.owners].map(([tokenId, currentHolder]) => ({
+            tokenId,
+            currentHolder,
+            listingPrice: null,
+            listingCurrency: null,
+        }));
+        const responses = new Map();
+        for (const token of tokens) {
+            responses.set(
+                buildTokenDetailPath({
+                    chainRef: "ethereum",
+                    collectionRef: ledger.collectionSlug,
+                    tokenRef: token.tokenId,
+                }),
+                { chain, collection, token },
+            );
+            responses.set(
+                buildTokenBiddingBidBookPath(
+                    "ethereum",
+                    ledger.collectionSlug,
+                    token.tokenId,
+                ),
+                {
+                    tokenId: token.tokenId,
+                    bidBook: {
+                        state: {
+                            source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                        },
+                        biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+                        bids: [],
+                    },
+                },
+            );
+        }
+        let requests = 0;
+        const projection = {
+            origin: "http://127.0.0.1:42722",
+            chainRef: "ethereum",
+            collectionRef: ledger.collectionSlug,
+            ledger,
+            branch: "A",
+            head: 104,
+            snapshot: fixture.snapshot,
+            collectionHttp: { chain, collection, tokens: { items: tokens } },
+            fetchFn: async (url) => {
+                requests++;
+                const response = responses.get(new URL(url).pathname);
+                assert.ok(
+                    response,
+                    "Only the fixture's actual HTTP routes are allowed",
+                );
+                return Response.json(response);
+            },
+        };
+        // The mapper correctly reflects terminal stored state. It cannot decide
+        // whether that state was independently justified by this chain history.
+        assert.equal((await assertHttpProjection(projection)).passed, true);
+        requests = 0;
+        await assert.rejects(
+            async () => {
+                assertMarketConvergence(fixture);
+                await assertHttpProjection(projection);
+            },
+            { property: SIMULATION_PROPERTY.BuyValidation },
+        );
+        assert.equal(
+            requests,
+            0,
+            "Canonical corruption must fail before HTTP earns projection credit",
+        );
+    }
+});
+
 test("stored older-chain coverage remains legal without a new current-chain obligation", () => {
     const actual = snapshot();
     actual.validationProofs[1].proof_chain_revision = 1;

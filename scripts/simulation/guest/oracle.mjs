@@ -319,9 +319,25 @@ export function assertMarketConvergence({
     snapshot,
     ledger,
     expectedSourceStatuses = {},
+    expectedListingFillability = ORDER_STATUS.Fillable,
     retainedCancellationWitnesses = [],
     counterCancellationExposures = [],
 }) {
+    property(SIMULATION_PROPERTY.SellValidation, () => {
+        assert.ok(
+            [ORDER_STATUS.Fillable, ORDER_STATUS.NoBalance].includes(
+                expectedListingFillability,
+            ),
+            "The listing expectation supports only executable or recoverable ownership-loss fixtures",
+        );
+        if (expectedListingFillability === ORDER_STATUS.NoBalance)
+            assert.equal(
+                expectedSourceStatuses[ledger.orders.listing.orderHash] ??
+                    ORDER_SOURCE_STATUS.Active,
+                ORDER_SOURCE_STATUS.Active,
+                "A recoverable listing expectation requires current active source evidence",
+            );
+    });
     const retainedCancellations = [];
     const permittedCancellations = [];
     property(SIMULATION_PROPERTY.RetainedUnattributedCancellation, () => {
@@ -400,8 +416,10 @@ export function assertMarketConvergence({
                 if (expectedSource !== ORDER_SOURCE_STATUS.Active) return;
                 assert.equal(
                     actual.fillability_status,
-                    ORDER_STATUS.Fillable,
-                    `Current ${name} must be executable on the independent world branch`,
+                    name === "listing"
+                        ? expectedListingFillability
+                        : ORDER_STATUS.Fillable,
+                    `Current ${name} must match the independently declared protocol state`,
                 );
                 assert.ok(
                     actual.validated_at > 0,

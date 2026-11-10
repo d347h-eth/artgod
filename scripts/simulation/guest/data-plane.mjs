@@ -1579,11 +1579,14 @@ export async function runDataPlane(
                 `The actual weighted RPC adapter must exercise configured provider ${provider}`,
             );
         checks[activeCheck] = true;
-        if (!providerDisagreementReached) {
-            activeCheck =
-                scenario.journey === DATA_PLANE_JOURNEY.Fork
-                    ? CHECK.ReorgRecovery
-                    : CHECK.OrderValidation;
+        // Both orders need a final canonical status/proof oracle before HTTP
+        // derives visibility from their stored state, including the PVD sentinel.
+        {
+            activeCheck = providerDisagreementReached
+                ? CHECK.ProviderDisagreement
+                : scenario.journey === DATA_PLANE_JOURNEY.Fork
+                  ? CHECK.ReorgRecovery
+                  : CHECK.OrderValidation;
             checks[activeCheck] = false;
             const current = settledState;
             const counterCancellationExposures = [];
@@ -1624,6 +1627,9 @@ export async function runDataPlane(
                 snapshot: current,
                 ledger,
                 expectedSourceStatuses,
+                expectedListingFillability: providerDisagreementReached
+                    ? ORDER_STATUS.NoBalance
+                    : ORDER_STATUS.Fillable,
                 retainedCancellationWitnesses,
                 counterCancellationExposures,
             });
