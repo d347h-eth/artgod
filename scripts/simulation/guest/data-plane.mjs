@@ -24,7 +24,10 @@ import {
     prepareNativeDiagnostics,
     NATIVE_FAILURE_ARTIFACT,
 } from "./native-failure-evidence.mjs";
-import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
+import {
+    assertCanonicalFillFacts,
+    assertCanonicalSaleActivity,
+} from "./fill-oracle.mjs";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import {
     PROVIDER_DISAGREEMENT_PHASE as DISAGREEMENT_PHASE,
@@ -983,11 +986,14 @@ export async function runDataPlane(
                 saleActivity.token.currentHolder,
                 ledger.addresses.buyer,
             );
-            assert.ok(
-                saleActivity.activities.items.some(
-                    (activity) => activity.kind === ACTIVITY_KIND.Sale,
-                ),
-            );
+            const saleProjection = assertCanonicalSaleActivity({
+                response: saleActivity,
+                ledger,
+                branch: "A",
+                head: 104,
+                collectionId: snapshot().collectionId,
+                tokenId: ledger.orders.listing.tokenId,
+            });
             assertCanonicalFillFacts({
                 snapshot: snapshot(),
                 ledger,
@@ -999,6 +1005,7 @@ export async function runDataPlane(
                 state: snapshot(),
                 http: saleHttp,
                 activity: saleActivity,
+                saleProjection,
             });
             if (scenario.staleResultCut)
                 staleResultCut = createStaleResultCut({

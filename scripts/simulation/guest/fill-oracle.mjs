@@ -6,6 +6,11 @@ import {
     FILL_ITEM_TYPE,
 } from "../../../shared/market-data/fills.ts";
 import { ORDER_SIDE } from "../../../shared/market-data/orders.ts";
+import {
+    ACTIVITY_KIND,
+    ACTIVITY_SCOPE_KIND,
+    ACTIVITY_SOURCE_KIND,
+} from "../../../shared/types/activity-feed.ts";
 import { FULFILLED_ABI } from "../world/wire.mjs";
 import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 
@@ -15,6 +20,7 @@ export const FILL_STORAGE_PROPERTY = Object.freeze({
     Items: "canonical-fill-item-facts",
     Attributions: "canonical-fill-collection-attributions",
 });
+export const FILL_HTTP_PROPERTY = "canonical-fulfillment-http-sale";
 
 const FULFILLED_TOPIC = encodeEventTopics({
     abi: FULFILLED_ABI,
@@ -209,4 +215,83 @@ export function assertCanonicalFillFacts({ snapshot, ledger, branch, head }) {
                 "Every stored fill header, protocol item and collection attribution must match the canonical external fulfillment, without missing, duplicate or orphan facts",
             );
         });
+}
+
+/** Exact sale representation for this fixture's single fulfilled token.
+ * Non-sale feed entries and pagination are outside this assertion's scope.
+ */
+export function assertCanonicalSaleActivity({
+    response,
+    ledger,
+    branch,
+    head,
+    collectionId,
+    tokenId,
+}) {
+    const facts = expectedFillFacts(ledger, branch, head, collectionId);
+    let evidence;
+    property(FILL_HTTP_PROPERTY, () => {
+        const fills = facts.attributions.filter(
+            (fill) => fill.token_id === tokenId,
+        );
+        assert.equal(
+            fills.length,
+            1,
+            "The HTTP sale assertion requires one actual canonical fulfillment for the requested token",
+        );
+        const fill = fills[0];
+        const execution = facts.executions.find(
+            (row) => row.id === fill.execution_id,
+        );
+        const nft = facts.items.find(
+            (row) =>
+                row.execution_id === fill.execution_id &&
+                row.item_index === fill.item_index,
+        );
+        const expected = {
+            kind: ACTIVITY_KIND.Sale,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+            sourceName: fill.kind,
+            contract: fill.contract_address,
+            tokenId: fill.token_id,
+            orderId: fill.order_id,
+            blockNumber: fill.block_number,
+            occurredAt: fill.block_timestamp,
+            txHash: fill.tx_hash,
+            logIndex: fill.log_index,
+            maker: fill.maker,
+            taker: fill.taker,
+            from: fill.maker,
+            to: nft.recipient,
+            side: fill.order_side,
+            amount: fill.amount,
+            price: execution.total_price,
+            currency: execution.currency,
+        };
+        assert.equal(response.token.tokenId, tokenId);
+        assert.ok(
+            Array.isArray(response.activities.items),
+            "HTTP sale observation must include explicit activity rows",
+        );
+        const sales = response.activities.items.filter(
+            (row) => row.kind === ACTIVITY_KIND.Sale,
+        );
+        assert.equal(
+            sales.length,
+            1,
+            "The token feed must contain exactly the canonical fixture sale, without duplicates or unrelated sales",
+        );
+        const actual = Object.fromEntries(
+            Object.keys(expected).map((key) => [key, sales[0][key]]),
+        );
+        assert.deepEqual(
+            actual,
+            expected,
+            "HTTP sale identity and NFT-leg economics must match the independent external fulfillment",
+        );
+        assert.equal(sales[0].payload?.executionId, execution.id);
+        evidence = { tokenId, sale: expected, executionId: execution.id };
+    });
+    return evidence;
 }
