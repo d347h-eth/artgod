@@ -131,6 +131,7 @@ jobs:
                   NODE
 
             - name: Test workbench contracts and external world
+              id: contracts
               run: TMPDIR="$PWD/tmp" yarn simulation:test
 
             - name: Build one reusable production runtime guest
@@ -153,7 +154,7 @@ jobs:
               run: yarn node scripts/simulation/qemu-replay.mjs --manifest "$BASE_MANIFEST" --run
 
             - name: Run the declared bounded lane
-              if: ${{ always() && steps.substrate.outcome == 'success' }}
+              if: ${{ always() && !cancelled() && steps.substrate.outcome == 'success' }}
               env:
                   SIMULATION_BASE_MANIFEST: ${{ steps.build.outputs.base_manifest }}
                   SIMULATION_CI_LANE: ${{ toJSON(matrix) }}
@@ -165,7 +166,7 @@ jobs:
               env:
                   SIMULATION_CI_LANE: ${{ toJSON(matrix) }}
                   SIMULATION_CI_MATRIX: ${{ needs.plan.outputs.matrix }}
-                  SIMULATION_CI_BLOCKER: Guest build or machine qualification did not pass; build=${{ steps.build.outcome }}, substrate=${{ steps.substrate.outcome }}
+                  SIMULATION_CI_BLOCKER: Simulation prerequisites did not pass; inputs=${{ steps.inputs.outcome }}, contracts=${{ steps.contracts.outcome }}, build=${{ steps.build.outcome }}, substrate=${{ steps.substrate.outcome }}
               run: node scripts/simulation/ci.mjs blocked
 
             - name: Package bounded complete counterexamples
@@ -198,6 +199,10 @@ jobs:
                       tmp/simulation-inputs/inputs-*/containers/container-*/container.json
                       tmp/simulation-inputs/inputs-*/containers/container-*/*.stdout
                       tmp/simulation-inputs/inputs-*/containers/container-*/*.stderr
+                      tmp/simulation-tools/tools-*/docker-*.stdout
+                      tmp/simulation-tools/tools-*/docker-*.stderr
+                      tmp/simulation-tools/tools-*/context/Dockerfile
+                      tmp/simulation-tools/tools-*/tool-capsule.json
                       tmp/simulation-docker/container-*/container.json
                       tmp/simulation-docker/container-*/*.stdout
                       tmp/simulation-docker/container-*/*.stderr

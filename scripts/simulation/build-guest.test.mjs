@@ -61,6 +61,7 @@ async function fixture(options = {}) {
     );
     const debugfs = await installed("debugfs");
     const e2fsck = await installed("e2fsck");
+    const mke2fs = await installed("mke2fs");
     const payload = path.join(directory, "payload");
     await mkdir(path.join(payload, "workbench/guest"), { recursive: true });
     await mkdir(path.join(payload, "workbench/runtime"));
@@ -115,7 +116,7 @@ async function fixture(options = {}) {
     await writeFile(raw, "");
     const truncate = await executeCommand("truncate", ["-s", "8M", raw]);
     assert.equal(truncate.code, 0);
-    const filesystem = await executeCommand("mke2fs", [
+    const filesystem = await executeCommand(mke2fs, [
         "-q",
         "-t",
         "ext4",
