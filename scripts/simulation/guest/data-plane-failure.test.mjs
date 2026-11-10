@@ -88,26 +88,105 @@ test("ordinary fork and provider native exits attribute runtime liveness while u
     }
 });
 
+test("a Sync exit leaves both earlier unfinished HTTP and active provider oracles unreached", () => {
+    const selected = [
+        CHECK.RuntimeEntrypoints,
+        CHECK.ChainAcquisition,
+        CHECK.SourceIngestion,
+        CHECK.OrderValidation,
+        CHECK.HttpProjection,
+        CHECK.ProviderDisagreement,
+    ];
+    const checks = {
+        [CHECK.RuntimeEntrypoints]: true,
+        [CHECK.ChainAcquisition]: true,
+        [CHECK.SourceIngestion]: true,
+        [CHECK.OrderValidation]: true,
+        // The initial HTTP observation is complete; its final oracle is not.
+        [CHECK.HttpProjection]: false,
+        [CHECK.ProviderDisagreement]: false,
+    };
+    const exit = new RuntimeProcessExit({
+        actorId: RUNTIME_PROCESS.Sync,
+        pid: 130,
+        signal: "SIGSEGV",
+    });
+    const error = new Error("Observed production Sync exit", { cause: exit });
+    const failedCheck = recordDataPlaneFailureChecks(
+        error,
+        checks,
+        CHECK.ProviderDisagreement,
+        selected,
+    );
+    error.simulation = { checks, failedCheck, failedProperty: error.property };
+    const frame = formatFailureEvidence(error, selected);
+    assert.equal(error.cause, exit);
+    assert.equal(exit.actorId, RUNTIME_PROCESS.Sync);
+    assert.equal(exit.signal, "SIGSEGV");
+    assert.equal(frame.failedCheck, CHECK.RuntimeEntrypoints);
+    assert.equal(frame.failedProperty, RUNTIME_PROCESS_PROPERTY.Liveness);
+    assert.deepEqual(frame.coverage, [
+        { check: CHECK.RuntimeEntrypoints, status: "failed" },
+        { check: CHECK.ChainAcquisition, status: "passed" },
+        { check: CHECK.SourceIngestion, status: "passed" },
+        { check: CHECK.OrderValidation, status: "passed" },
+        { check: CHECK.HttpProjection, status: "unreached" },
+        { check: CHECK.ProviderDisagreement, status: "unreached" },
+    ]);
+});
+
 test("a genuine ordinary oracle assertion is not reclassified from a diagnostic SIGSEGV snapshot", () => {
     const checks = {
         [CHECK.RuntimeEntrypoints]: true,
-        [CHECK.ReorgRecovery]: false,
+        [CHECK.ChainAcquisition]: true,
+        [CHECK.HttpProjection]: false,
+        [CHECK.ProviderDisagreement]: false,
     };
-    const error = Object.assign(new Error("Retained fork fact"), {
-        property: "canonical-facts",
-        simulation: { processStates: [{ signalCode: "SIGSEGV" }] },
-    });
-    assert.equal(
-        recordDataPlaneFailureChecks(
-            error,
-            checks,
-            CHECK.ReorgRecovery,
-            Object.keys(checks),
-        ),
-        CHECK.ReorgRecovery,
+    const before = { ...checks };
+    let error;
+    assert.throws(
+        () =>
+            assertSimulationProperty(
+                SIMULATION_PROPERTY.CanonicalOwnership,
+                () => assert.equal("seller", "buyer"),
+            ),
+        (caught) => {
+            error = caught;
+            return true;
+        },
     );
-    assert.equal(checks[CHECK.RuntimeEntrypoints], true);
-    assert.equal(checks[CHECK.ReorgRecovery], false);
+    assert.ok(error instanceof assert.AssertionError);
+    error.simulation = {
+        processStates: [{ id: RUNTIME_PROCESS.Sync, signalCode: "SIGSEGV" }],
+    };
+    const failedCheck = recordDataPlaneFailureChecks(
+        error,
+        checks,
+        CHECK.ProviderDisagreement,
+        Object.keys(checks),
+    );
+    assert.equal(failedCheck, CHECK.ProviderDisagreement);
+    assert.deepEqual(checks, before);
+    error.simulation = {
+        ...error.simulation,
+        checks,
+        failedCheck,
+        failedProperty: error.property,
+    };
+    const frame = formatFailureEvidence(error, Object.keys(checks));
+    assert.equal(frame.failedProperty, SIMULATION_PROPERTY.CanonicalOwnership);
+    assert.deepEqual(
+        frame.coverage.find(
+            (entry) => entry.check === CHECK.ProviderDisagreement,
+        ),
+        { check: CHECK.ProviderDisagreement, status: "failed" },
+    );
+    assert.deepEqual(
+        frame.coverage.find(
+            (entry) => entry.check === CHECK.RuntimeEntrypoints,
+        ),
+        { check: CHECK.RuntimeEntrypoints, status: "passed" },
+    );
 });
 
 test("ordinary stale mutation assertions stay failed even alongside native diagnostic observations", () => {

@@ -345,3 +345,19 @@ The remaining review items need separate investigation or authored coverage:
 No failed case is promoted to an expected pass. Native controls remain selected
 diagnostics outside CI. Optimistic HTTP semantics, trading decision authority,
 future chains/orderbooks and release qualification retain their existing scopes.
+
+### Native Exit Attribution Follow-up
+
+The final-source weighted provider run `run-QoSOWj` at `4b439b81` records a
+Sync SIGSEGV after its initial checkpoint, before the provider and final HTTP
+oracles. Its original record/replay pair remains a failed runtime case with
+strict serial/disk parity. The old reporting map incorrectly called an earlier
+unfinished HTTP placeholder a failed HTTP assertion.
+
+Typed runtime exits now remove all unfinished non-runtime placeholders, preserve
+every previously passed check and fail runtime execution. Ordinary oracle
+assertions retain their original failure and are not reclassified from a
+diagnostic SIGSEGV observation. A regression serializes the actual pending
+HTTP/provider shape and requires both to remain `unreached`. All 504 supporting
+tests pass with zero skips after this correction. Original reports and their
+verdicts are not rewritten, and runtime failure does not become a passing case.

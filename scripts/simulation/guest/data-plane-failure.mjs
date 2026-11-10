@@ -21,15 +21,16 @@ export function recordDataPlaneFailureChecks(
         // cause label. Normalize from the lifecycle owner's constant.
         if (exit) error.property = RUNTIME_PROCESS_PROPERTY.Liveness;
         checks[DATA_PLANE_CHECK.RuntimeEntrypoints] = false;
-        // False marks an active, unfinished stage. Preserve prior passed work;
-        // actor death does not establish a failure of the stage's safety oracle.
-        if (
-            activeCheck !== DATA_PLANE_CHECK.RuntimeEntrypoints &&
-            checks[activeCheck] === false
-        )
-            delete checks[activeCheck];
-        if (checks[DATA_PLANE_CHECK.StaleResultSafetyCut] === false)
-            delete checks[DATA_PLANE_CHECK.StaleResultSafetyCut];
+        // A check can remain unfinished across several stages, such as initial
+        // HTTP observation through final projection. Assertions fail fast, so
+        // an actor exit cannot establish failure of any unfinished safety check.
+        // Preserve every check whose complete oracle already passed.
+        for (const [check, passed] of Object.entries(checks))
+            if (
+                check !== DATA_PLANE_CHECK.RuntimeEntrypoints &&
+                passed === false
+            )
+                delete checks[check];
         return DATA_PLANE_CHECK.RuntimeEntrypoints;
     }
     if (expectedChecks.includes(activeCheck)) checks[activeCheck] = false;
