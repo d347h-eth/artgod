@@ -185,6 +185,9 @@ export async function replayRun({
             : {}),
         replayLogSha256: original.replayLogSha256,
         manifestSha256: admitted.manifestSha256,
+        ...(admitted.toolImageAdmission
+            ? { toolImageAdmission: admitted.toolImageAdmission }
+            : {}),
         limitations: [
             ...(original.limitations ?? []),
             ...(original.inputManifestSha256

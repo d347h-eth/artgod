@@ -282,15 +282,16 @@ export async function preflightManifest(
     const absolute = path.resolve(manifestPath);
     const manifest = validateManifest(value, absolute);
     await assertPins(manifest);
-    const engineExecute = manifest.toolCapsule
+    const capsuleExecution = manifest.toolCapsule
         ? await (
               await import("./tool-capsule.mjs")
-          ).createToolCapsuleExecutor({
+          ).createToolCapsuleExecution({
               filename: manifest.toolCapsule.path,
               manifest,
               execute,
           })
-        : execute;
+        : undefined;
+    const engineExecute = capsuleExecution?.execute ?? execute;
     for (const name of ["qemu", "qemuImg"]) {
         const result = await successful(engineExecute, manifest[name].path, [
             "--version",
@@ -319,6 +320,9 @@ export async function preflightManifest(
         manifest,
         manifestPath: absolute,
         execute: engineExecute,
+        ...(capsuleExecution
+            ? { toolImageAdmission: capsuleExecution.identity }
+            : {}),
     };
 }
 
@@ -490,6 +494,9 @@ export async function qualify(
         substrateQualificationStatus: "not-run",
         evidence: "whole-machine-record-replay",
         manifestSha256: admitted.manifestSha256,
+        ...(admitted.toolImageAdmission
+            ? { toolImageAdmission: admitted.toolImageAdmission }
+            : {}),
         directory,
         metrics: {
             phases: [],

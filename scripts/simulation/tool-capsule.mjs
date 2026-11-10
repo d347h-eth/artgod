@@ -12,12 +12,17 @@ import {
 import { runOwnedContainer, withOwnedContainer } from "./docker.mjs";
 import { readInputPins } from "./input-pins.mjs";
 import { executeCommand, preflight, QEMU_ENVIRONMENT } from "./qemu-replay.mjs";
+import { inspectToolImageArchive } from "./tool-image-archive.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 export const CAPSULE_TOOL_PATHS = Object.freeze({
     qemu: "/usr/bin/qemu-system-x86_64",
     qemuImg: "/usr/bin/qemu-img",
     firmware: "/usr/share/qemu/qboot.rom",
+});
+export const TOOL_IMAGE_ADDRESSING = Object.freeze({
+    Recorded: "recorded-image-id",
+    SavedManifest: "saved-oci-manifest",
 });
 const TOOL_NAMES = Object.keys(CAPSULE_TOOL_PATHS);
 
@@ -122,8 +127,11 @@ async function assertCapsuleBytes(capsule) {
     }
 }
 
-/** Read-only admission never pulls, loads or rebuilds an absent tool image. */
-export async function admitToolCapsule(
+/** Resolve a daemon address without changing the recorded capsule or image.
+ * A saved config digest can identify the same image by its proven OCI manifest
+ * on a different Docker image store. Only that exact archive graph is eligible.
+ */
+export async function admitToolCapsuleExecution(
     filename,
     { execute = executeCommand, manifest } = {},
 ) {
@@ -145,33 +153,93 @@ export async function admitToolCapsule(
                     `Manifest ${name} does not match the tool capsule`,
                 );
         }
-    const inspected = assertSuccess(
-        await execute(
+    const inspect = (image) =>
+        execute(
             "docker",
-            ["image", "inspect", "--format", "{{json .}}", capsule.imageId],
+            ["image", "inspect", "--format", "{{json .}}", image],
             { cwd: ROOT, env: process.env, timeoutMs: 15_000 },
-        ),
-        "Capsule image inspection",
-    );
-    const image = JSON.parse(inspected.stdout);
+        );
+    let inspected = await inspect(capsule.imageId);
+    let graph;
+    // Permission, timeout and malformed inspection failures are not evidence
+    // that another address is needed. Admission never searches other images.
     if (
-        image.Id !== capsule.imageId ||
+        inspected?.code === 1 &&
+        !inspected?.signal &&
+        !inspected?.timedOut &&
+        !inspected?.outputLimit &&
+        /No such image/i.test(inspected?.stderr ?? "")
+    ) {
+        try {
+            graph = await inspectToolImageArchive({
+                archive: capsule.archive,
+                recordedImageId: capsule.imageId,
+            });
+        } catch (cause) {
+            throw new Error(
+                `Capsule image inspection failed: ${inspected.stderr.slice(-2000)}; saved OCI addressing is unqualified: ${cause.message}`,
+                { cause },
+            );
+        }
+        inspected = await inspect(graph.runtimeImageId);
+    }
+    assertSuccess(inspected, "Capsule image inspection");
+    const image = JSON.parse(inspected.stdout);
+    const runtimeImageId = graph?.runtimeImageId ?? capsule.imageId;
+    if (
+        image.Id !== runtimeImageId ||
         image.Architecture !== "amd64" ||
         image.Os !== "linux"
     )
         throw new Error(
             "Loaded tool image identity/platform differs from its capsule",
         );
-    return capsule;
+    if (
+        graph &&
+        (image.Descriptor?.digest !== graph.manifest.digest ||
+            image.Descriptor?.size !== graph.manifest.size ||
+            image.Descriptor?.mediaType !== graph.manifest.mediaType ||
+            image.RootFS?.Type !== "layers" ||
+            !isDeepStrictEqual(image.RootFS.Layers, graph.rootfsDiffIds))
+    )
+        throw new Error("Loaded tool image differs from its saved OCI graph");
+    await assertCapsuleBytes(capsule);
+    return {
+        capsule,
+        identity: {
+            version: 1,
+            recordedImageId: capsule.imageId,
+            runtimeImageId,
+            addressing: graph
+                ? TOOL_IMAGE_ADDRESSING.SavedManifest
+                : TOOL_IMAGE_ADDRESSING.Recorded,
+            archive: capsule.archive,
+            tools: capsule.tools,
+            ...(graph ? { graph } : {}),
+        },
+    };
 }
 
-/** Only the two admitted engine binaries can cross this external process boundary. */
-export async function createToolCapsuleExecutor({
+/** Read-only admission never pulls, loads or rebuilds an absent tool image. */
+export async function admitToolCapsule(filename, options = {}) {
+    return (await admitToolCapsuleExecution(filename, options)).capsule;
+}
+
+/** Keep the original function-only adapter contract for existing consumers. */
+export async function createToolCapsuleExecutor(options) {
+    return (await createToolCapsuleExecution(options)).execute;
+}
+
+/** Admit the executor and its separate, reportable image-address evidence. */
+export async function createToolCapsuleExecution({
     filename,
     manifest,
     execute = executeCommand,
 }) {
-    const capsule = await admitToolCapsule(filename, { execute, manifest });
+    const { capsule, identity } = await admitToolCapsuleExecution(filename, {
+        execute,
+        manifest,
+    });
     for (const name of ["firmware", "kernel", "guest", "scenario"])
         if (
             manifest[name] &&
@@ -186,7 +254,7 @@ export async function createToolCapsuleExecutor({
             CAPSULE_TOOL_PATHS[name],
         ]),
     );
-    return async (file, args, options = {}) => {
+    const engineExecute = async (file, args, options = {}) => {
         if (
             !files.has(file) ||
             !Array.isArray(args) ||
@@ -215,35 +283,53 @@ export async function createToolCapsuleExecutor({
             files.get(file),
             ...args,
         ];
-        const result = await runOwnedContainer({
-            image: capsule.imageId,
-            command: workload,
-            mounts: [
-                { source: ROOT, target: ROOT },
-                ...(cwd === ROOT
-                    ? []
-                    : [{ source: cwd, target: cwd, readOnly: false }]),
-            ],
-            workdir: cwd,
-            timeoutMs: options.timeoutMs ?? 15_000,
-            execute: async (binary, dockerArgs, dockerOptions) =>
-                execute(binary, dockerArgs, {
-                    ...dockerOptions,
-                    ...(dockerArgs[0] === "start"
-                        ? {
-                              ...(options.stdoutPath
-                                  ? { stdoutPath: options.stdoutPath }
-                                  : {}),
-                              ...(options.stderrPath
-                                  ? { stderrPath: options.stderrPath }
-                                  : {}),
-                          }
-                        : {}),
-                }),
-        });
+        const { value, artifactsDirectory } = await withOwnedContainer(
+            {
+                image: identity.runtimeImageId,
+                command: workload,
+                mounts: [
+                    { source: ROOT, target: ROOT },
+                    ...(cwd === ROOT
+                        ? []
+                        : [{ source: cwd, target: cwd, readOnly: false }]),
+                ],
+                workdir: cwd,
+                timeoutMs: options.timeoutMs ?? 15_000,
+                execute: async (binary, dockerArgs, dockerOptions) =>
+                    execute(binary, dockerArgs, {
+                        ...dockerOptions,
+                        ...(dockerArgs[0] === "start"
+                            ? {
+                                  ...(options.stdoutPath
+                                      ? { stdoutPath: options.stdoutPath }
+                                      : {}),
+                                  ...(options.stderrPath
+                                      ? { stderrPath: options.stderrPath }
+                                      : {}),
+                              }
+                            : {}),
+                    }),
+            },
+            async (container) => {
+                // Derived runtime addressing is separate evidence. Keep the
+                // original capsule/imageId bytes and recorded QEMU argv intact.
+                await writeFile(
+                    path.join(
+                        container.artifactsDirectory,
+                        "tool-image-admission.json",
+                    ),
+                    `${JSON.stringify(identity, null, 2)}\n`,
+                    { flag: "wx" },
+                );
+                return container.start();
+            },
+        );
         await assertCapsuleBytes(capsule);
-        return result;
+        return { ...value, dockerArtifacts: artifactsDirectory };
     };
+    // Do not expose the object captured by the executor: callers may retain or
+    // project their receipt without being able to change its admitted address.
+    return { execute: engineExecute, identity: structuredClone(identity) };
 }
 
 /** Explicit provisioning builds packages inside a disposable image, never on the host. */

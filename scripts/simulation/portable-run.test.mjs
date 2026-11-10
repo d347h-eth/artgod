@@ -27,7 +27,8 @@ import {
     exportReplayBundle,
 } from "./portable-run.mjs";
 import { replayRun } from "./replay-run.mjs";
-import { restoreToolCapsule } from "./tool-capsule.mjs";
+import { restoreToolCapsule, TOOL_IMAGE_ADDRESSING } from "./tool-capsule.mjs";
+import { createToolImageArchiveFixture } from "./tool-image-archive-fixture.mjs";
 import { CPU_MODEL } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -40,7 +41,7 @@ const okay = (stdout = "") => ({
     timedOut: false,
 });
 
-async function completedFixture({ storage } = {}) {
+async function completedFixture({ storage, manifestAddress = false } = {}) {
     const parent = path.join(ROOT, "tmp/simulation-portable-tests");
     await mkdir(parent, { recursive: true });
     const directory = await mkdtemp(path.join(parent, "run-"));
@@ -62,12 +63,22 @@ async function completedFixture({ storage } = {}) {
                 : {}),
         };
     }
+    const imageArchive = manifestAddress
+        ? createToolImageArchiveFixture()
+        : undefined;
+    const recordedImageId = imageArchive?.recordedImageId ?? IMAGE;
+    let useManifestAddress = manifestAddress;
+    const currentImageId = () =>
+        useManifestAddress ? imageArchive.runtimeImageId : recordedImageId;
     const archive = path.join(directory, "tool-image.tar");
-    await writeFile(archive, "synthetic OCI image archive");
+    await writeFile(
+        archive,
+        imageArchive?.bytes ?? "synthetic OCI image archive",
+    );
     const capsule = {
         version: 1,
         architecture: "amd64",
-        imageId: IMAGE,
+        imageId: recordedImageId,
         archive: await pinFile(archive),
         tools: Object.fromEntries(
             ["qemu", "qemuImg", "firmware"].map((name) => [name, pins[name]]),
@@ -100,27 +111,42 @@ async function completedFixture({ storage } = {}) {
             `${QUALIFICATION_PROTOCOL_PREFIX}${JSON.stringify({ version: 1, qualificationId: manifest.qualificationId, event: "complete", status: "passed", checks: { "synthetic-check": true } })}`,
         ].join("\n") + "\n";
     const containers = new Map();
+    const createdImages = [];
     const modes = [];
     const backings = new Map();
     const execute = async (binary, args, options) => {
         assert.equal(binary, "docker");
-        if (args[0] === "image")
+        if (args[0] === "image") {
+            if (args[1] === "load") return okay("loaded synthetic image");
+            if (args.at(-1) !== currentImageId())
+                return { ...okay(), code: 1, stderr: "No such image" };
             return okay(
-                args[1] === "load"
-                    ? "loaded synthetic image"
-                    : JSON.stringify({
-                          Id: IMAGE,
-                          Architecture: "amd64",
-                          Os: "linux",
-                      }),
+                JSON.stringify({
+                    Id: currentImageId(),
+                    Architecture: "amd64",
+                    Os: "linux",
+                    ...(useManifestAddress
+                        ? {
+                              Descriptor: imageArchive.manifestDescriptor,
+                              RootFS: {
+                                  Type: "layers",
+                                  Layers: imageArchive.layerDigests,
+                              },
+                          }
+                        : {}),
+                }),
             );
+        }
         if (args[0] === "create") {
+            const image = currentImageId();
+            assert.ok(args.includes(image));
+            createdImages.push(image);
             const name = args[args.indexOf("--name") + 1];
             containers.set(name, {
                 token: args[args.indexOf("--label") + 1].slice(
                     DOCKER_OWNER_LABEL.length + 1,
                 ),
-                command: args.slice(args.indexOf(IMAGE) + 1),
+                command: args.slice(args.indexOf(image) + 1),
             });
             await writeFile(
                 args[args.indexOf("--cidfile") + 1],
@@ -210,7 +236,24 @@ async function completedFixture({ storage } = {}) {
         execute,
         storage,
     });
-    return { directory, manifest, capsule, report, bundle, modes, execute };
+    return {
+        directory,
+        manifest,
+        capsule,
+        report,
+        bundle,
+        modes,
+        execute,
+        imageArchive,
+        createdImages,
+        setManifestAddress(value) {
+            assert.ok(
+                imageArchive,
+                "Address changes need an admitted OCI graph",
+            );
+            useManifestAddress = value;
+        },
+    };
 }
 
 test("portable export preserves original evidence and replays only relocated pinned files after original inputs change", async () => {
@@ -356,6 +399,110 @@ test("hardlink export shares only admitted regular members and replay rebases an
             "Replay must own each file it may mutate",
         );
     }
+});
+
+test("export preserves derived image admission while relocated replay records its current immutable address", async () => {
+    const f = await completedFixture({ manifestAddress: true });
+    const originalReport = path.join(f.report.directory, "report.json");
+    const exportedReport = path.join(f.bundle.runDirectory, "report.json");
+    const admission = f.report.toolImageAdmission;
+    assert.equal(admission.recordedImageId, f.imageArchive.recordedImageId);
+    assert.equal(admission.runtimeImageId, f.imageArchive.runtimeImageId);
+    assert.equal(admission.addressing, TOOL_IMAGE_ADDRESSING.SavedManifest);
+    assert.equal(admission.graph.config.digest, f.capsule.imageId);
+    assert.deepEqual(
+        admission.graph.rootfsDiffIds,
+        f.imageArchive.layerDigests,
+    );
+    assert.deepEqual(
+        await readFile(exportedReport),
+        await readFile(originalReport),
+    );
+    assert.deepEqual(
+        JSON.parse(await readFile(exportedReport, "utf8")).toolImageAdmission,
+        admission,
+    );
+    assert.ok(f.createdImages.length > 0);
+    assert.ok(
+        f.createdImages.every(
+            (image) => image === f.imageArchive.runtimeImageId,
+        ),
+    );
+
+    const unchanged = new Map();
+    for (const name of await readdir(f.report.directory)) {
+        const filename = path.join(f.report.directory, name);
+        if ((await lstat(filename)).isFile())
+            unchanged.set(filename, await hashFile(filename));
+    }
+    for (const pin of [
+        ...Object.values(f.manifest).filter(
+            (value) => value && typeof value === "object" && value.path,
+        ),
+        f.capsule.archive,
+    ])
+        unchanged.set(pin.path, await hashFile(pin.path));
+    const exportedReportSha256 = await hashFile(exportedReport);
+    const beforeReplay = f.createdImages.length;
+
+    // Simulate another daemon's address convention for the same saved graph.
+    // The replay must admit its current address, never copy the original mapping.
+    f.setManifestAddress(false);
+    await restoreToolCapsule(f.bundle.toolCapsuleFile, { execute: f.execute });
+    const repeated = await replayRun({
+        runDirectory: f.bundle.runDirectory,
+        relocationFile: f.bundle.relocationFile,
+        outputRoot: path.join(f.directory, "repeated"),
+        execute: f.execute,
+    });
+    assert.equal(repeated.engineReplayStatus, "passed");
+    assert.equal(repeated.guestDiskParityStatus, "passed");
+    assert.equal(
+        repeated.toolImageAdmission.recordedImageId,
+        f.capsule.imageId,
+    );
+    assert.equal(repeated.toolImageAdmission.runtimeImageId, f.capsule.imageId);
+    assert.equal(
+        repeated.toolImageAdmission.addressing,
+        TOOL_IMAGE_ADDRESSING.Recorded,
+    );
+    assert.deepEqual(
+        JSON.parse(
+            await readFile(
+                path.join(repeated.directory, "report.json"),
+                "utf8",
+            ),
+        ).toolImageAdmission,
+        repeated.toolImageAdmission,
+    );
+    assert.notEqual(
+        repeated.toolImageAdmission.runtimeImageId,
+        admission.runtimeImageId,
+    );
+    assert.equal(
+        repeated.toolImageAdmission.archive.sha256,
+        admission.archive.sha256,
+    );
+    for (const name of ["qemu", "qemuImg", "firmware"])
+        assert.equal(
+            repeated.toolImageAdmission.tools[name].sha256,
+            admission.tools[name].sha256,
+        );
+    assert.ok(f.createdImages.length > beforeReplay);
+    assert.ok(
+        f.createdImages
+            .slice(beforeReplay)
+            .every((image) => image === f.capsule.imageId),
+    );
+    assert.deepEqual(f.modes, ["record", "replay", "replay"]);
+    for (const [filename, sha256] of unchanged)
+        assert.equal(await hashFile(filename), sha256);
+    assert.equal(await hashFile(exportedReport), exportedReportSha256);
+    assert.equal(
+        JSON.parse(await readFile(exportedReport, "utf8")).toolImageAdmission
+            .addressing,
+        TOOL_IMAGE_ADDRESSING.SavedManifest,
+    );
 });
 
 test("portable export rejects an unknown storage mode before reading inputs or running tools", async () => {

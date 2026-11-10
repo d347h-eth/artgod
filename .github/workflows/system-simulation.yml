@@ -204,6 +204,7 @@ jobs:
                       tmp/simulation-tools/tools-*/context/Dockerfile
                       tmp/simulation-tools/tools-*/tool-capsule.json
                       tmp/simulation-docker/container-*/container.json
+                      tmp/simulation-docker/container-*/tool-image-admission.json
                       tmp/simulation-docker/container-*/*.stdout
                       tmp/simulation-docker/container-*/*.stderr
                       tmp/simulation/guest-*/manifest.json
