@@ -2554,6 +2554,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/ws@npm:8.18.2":
+  version: 8.18.2
+  resolution: "@types/ws@npm:8.18.2"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/7d87483731222387ba7d49a752b7eca6c29baeb3439d9c0a2ebe57b06bad0ce868cd850f4794c81aa93a90b2a35d7673c9b0362e7b940aace446144c17a894c2
+  languageName: node
+  linkType: hard
+
 "@typescript-eslint/eslint-plugin@npm:8.61.0":
   version: 8.61.0
   resolution: "@typescript-eslint/eslint-plugin@npm:8.61.0"
@@ -3021,16 +3030,19 @@ __metadata:
     "@tauri-apps/cli": "npm:2.11.3"
     "@types/better-sqlite3": "npm:7.6.13"
     "@types/node": "npm:25.9.2"
+    "@types/ws": "npm:8.18.2"
     "@vitest/coverage-v8": "npm:4.1.12"
     better-sqlite3: "npm:12.11.1"
     concurrently: "npm:10.0.4"
     dotenv: "npm:17.4.2"
     esbuild: "npm:0.28.1"
+    nats: "npm:2.29.3"
     prettier: "npm:3.8.3"
     tsx: "npm:4.22.4"
     typescript: "npm:6.0.3"
     viem: "npm:2.54.6"
     vitest: "npm:4.1.12"
+    ws: "npm:8.21.0"
   dependenciesMeta:
     better-sqlite3:
       built: true

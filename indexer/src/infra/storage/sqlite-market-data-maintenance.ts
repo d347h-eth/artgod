@@ -183,7 +183,7 @@ export class SqliteMarketDataMaintenance
                     : ""),
         );
         // The transaction snapshots collection admission together with copy progress.
-        this.conn
+        const copied = this.conn
             .transaction(() => {
                 const rows = this.conn
                     .prepare(
@@ -193,7 +193,92 @@ export class SqliteMarketDataMaintenance
                         progress.cursor,
                         POLICY.maintenanceBatchRows,
                     ) as SqlRow[];
-                if (!rows.length) {
+                if (!rows.length) return false;
+                let removed = 0;
+                const collectionExists = this.conn.prepare(
+                    "SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?",
+                );
+                for (const row of rows) {
+                    if (
+                        !collectionExists.get(row.chain_id, row.collection_id)
+                    ) {
+                        removed++;
+                        continue;
+                    }
+                    if (table === "activities") {
+                        // Legacy listing history may be reset. New daily rows are
+                        // permanent and must survive later repair/restart passes.
+                        if (
+                            (row.kind === ACTIVITY_KIND.ListingCreated &&
+                                (row.listing_day === null ||
+                                    row.listing_price_at === null)) ||
+                            (row.source_kind ===
+                                ACTIVITY_SOURCE_KIND.Offchain &&
+                                row.kind !== ACTIVITY_KIND.ListingCreated)
+                        ) {
+                            removed++;
+                            continue;
+                        }
+                    } else {
+                        if (this.retire(row, now)) {
+                            removed++;
+                            continue;
+                        }
+                        row.observed_at =
+                            Number(row.observed_at) || epoch(row.updated_at);
+                        row.protocol_address = protocolAddress(
+                            row.seaport_data_json,
+                        );
+                    }
+                    const result = insert.run(
+                        ...columns.map(({ name }) => row[name]),
+                    );
+                    if (!result.changes) removed++;
+                }
+                this.conn
+                    .prepare(
+                        "UPDATE market_data_recovery SET cursor=?,removed_rows=removed_rows+?,updated_at=? WHERE singleton=1",
+                    )
+                    .run(rows[rows.length - 1]!.recovery_rowid, removed, now);
+                return true;
+            })
+            .immediate();
+        if (!copied) this.replaceRebuiltTable(table, progress.cursor);
+    }
+
+    private replaceRebuiltTable(
+        table: keyof typeof REBUILD_TABLE,
+        cursor: number,
+    ): void {
+        const replacement = REBUILD_TABLE[table];
+        const preserveOrderDemand = table === "orders";
+        if (preserveOrderDemand && this.conn.inTransaction)
+            throw new Error(
+                "Order recovery cutover requires its own transaction",
+            );
+        // This connection belongs to offline startup maintenance. SQLite's table
+        // replacement procedure disables FKs before BEGIN so dropping the old
+        // orders table cannot cascade through surviving orders' validation state.
+        try {
+            if (preserveOrderDemand) {
+                this.conn.pragma("foreign_keys = OFF");
+                if (this.conn.pragma("foreign_keys", { simple: true }) !== 0)
+                    throw new Error(
+                        "Could not suspend order recovery foreign keys",
+                    );
+            }
+            this.conn
+                .transaction(() => {
+                    // Recheck under the cutover writer lock; a remaining source
+                    // row must still pass through the bounded copy first.
+                    if (
+                        this.conn
+                            .prepare(
+                                `SELECT 1 FROM ${table} WHERE rowid>? LIMIT 1`,
+                            )
+                            .get(cursor)
+                    )
+                        return;
                     if (table === "activities") {
                         // Migrations can retire sales after an interrupted copy.
                         // Keep the source authoritative until the atomic swap.
@@ -212,6 +297,16 @@ export class SqliteMarketDataMaintenance
                                 "UPDATE market_data_recovery SET removed_rows=removed_rows+? WHERE singleton=1",
                             )
                             .run(removed);
+                    } else {
+                        // Retire only dependencies whose orders were actually
+                        // omitted. All fields of surviving demand rows stay intact.
+                        this.conn
+                            .prepare(
+                                `DELETE FROM order_validation_demand WHERE NOT EXISTS (
+                                    SELECT 1 FROM ${replacement} retained
+                                    WHERE retained.id=order_validation_demand.order_id)`,
+                            )
+                            .run();
                     }
                     const definitions = this.conn
                         .prepare(
@@ -263,56 +358,24 @@ export class SqliteMarketDataMaintenance
                     this.advance(
                         table === "activities" ? STAGE.Orders : STAGE.Receipts,
                     );
-                    return;
-                }
-                let removed = 0;
-                const collectionExists = this.conn.prepare(
-                    "SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?",
-                );
-                for (const row of rows) {
                     if (
-                        !collectionExists.get(row.chain_id, row.collection_id)
-                    ) {
-                        removed++;
-                        continue;
-                    }
-                    if (table === "activities") {
-                        // Legacy listing history may be reset. New daily rows are
-                        // permanent and must survive later repair/restart passes.
-                        if (
-                            (row.kind === ACTIVITY_KIND.ListingCreated &&
-                                (row.listing_day === null ||
-                                    row.listing_price_at === null)) ||
-                            (row.source_kind ===
-                                ACTIVITY_SOURCE_KIND.Offchain &&
-                                row.kind !== ACTIVITY_KIND.ListingCreated)
-                        ) {
-                            removed++;
-                            continue;
-                        }
-                    } else {
-                        if (this.retire(row, now)) {
-                            removed++;
-                            continue;
-                        }
-                        row.observed_at =
-                            Number(row.observed_at) || epoch(row.updated_at);
-                        row.protocol_address = protocolAddress(
-                            row.seaport_data_json,
-                        );
-                    }
-                    const result = insert.run(
-                        ...columns.map(({ name }) => row[name]),
-                    );
-                    if (!result.changes) removed++;
-                }
-                this.conn
-                    .prepare(
-                        "UPDATE market_data_recovery SET cursor=?,removed_rows=removed_rows+?,updated_at=? WHERE singleton=1",
+                        preserveOrderDemand &&
+                        this.conn.prepare("PRAGMA foreign_key_check").get()
                     )
-                    .run(rows[rows.length - 1]!.recovery_rowid, removed, now);
-            })
-            .immediate();
+                        throw new Error(
+                            "Order recovery foreign key check failed",
+                        );
+                })
+                .immediate();
+        } finally {
+            if (preserveOrderDemand) {
+                this.conn.pragma("foreign_keys = ON");
+                if (this.conn.pragma("foreign_keys", { simple: true }) !== 1)
+                    throw new Error(
+                        "Could not restore order recovery foreign keys",
+                    );
+            }
+        }
     }
 
     /** Select due work without a writer lock. The runtime bounds the whole pass;

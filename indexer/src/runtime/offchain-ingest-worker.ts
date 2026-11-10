@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -117,7 +118,7 @@ async function main() {
             },
         );
 
-        logger.info("Offchain ingest worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.OffchainIngestWorker, {
             component: OFFCHAIN_INGEST_WORKER_COMPONENT,
             action: OFFCHAIN_INGEST_WORKER_ACTION.Main,
             persistRawObservations: config.offchain.persistRawObservations,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -228,6 +228,38 @@ test("checks JSON-backed route contracts and detects stale JSON values", async (
     );
 });
 
+test("resolves private literal prefixes and exported route aliases without executing TS", async (t) => {
+    const owner =
+        'const WIDGET_PREFIX = "/api";\nexport const WIDGET_ROUTE = `${WIDGET_PREFIX}/widgets`;\nexport const TEST_ROUTES = { Widgets: WIDGET_ROUTE } as const;\n';
+    const result = await verifyFixture(t, {
+        "shared/http/collection-routes.ts": owner,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assertFailure(
+        await verifyFixture(t, {
+            "shared/http/collection-routes.ts": owner.replace(
+                '"/api"',
+                '"/changed"',
+            ),
+        }),
+        /missing registered route POST \/changed\/widgets/,
+    );
+});
+
+test("unresolved and executable route expressions fail instead of importing application code", async (t) => {
+    for (const expression of [
+        "`${MISSING_PREFIX}/widgets`",
+        "`${process.exit(0)}/widgets`",
+    ]) {
+        assertFailure(
+            await verifyFixture(t, {
+                "shared/http/collection-routes.ts": `export const TEST_ROUTES = { Widgets: ${expression} } as const;\n`,
+            }),
+            /unresolved route constant TEST_ROUTES.Widgets/,
+        );
+    }
+});
+
 test("checks local component references with either YAML quote style", async (t) => {
     for (const quote of ['"', "'"]) {
         assertFailure(
@@ -318,7 +350,7 @@ async function verifyFixture(t, overrides = {}) {
     const fixtureRoot = await mkdtemp(
         path.join(scratchRoot, "documentation-test-"),
     );
-    t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
+    // Preserve worktree tmp evidence, including negative-fixture diagnostics.
     const files = {
         ...fixtureFiles,
         [verifierPath]: await readFile(

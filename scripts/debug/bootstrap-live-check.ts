@@ -2,9 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
-    API_CSRF_COOKIE_NAME,
-    API_CSRF_HEADER_NAME,
     API_CSRF_ROUTE_PATH,
+    buildApiCsrfHeaders,
 } from "../../shared/http/api-security.js";
 import {
     buildProbeBootstrapCollectionPath,
@@ -113,13 +112,10 @@ async function request<T>(
         response = await fetch(origin + route, {
             method: body === undefined ? "GET" : "POST",
             headers: {
-                origin,
-                "content-type": "application/json",
+                ...buildApiCsrfHeaders(origin, token),
                 ...(values.stream
                     ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE }
                     : {}),
-                cookie: `${API_CSRF_COOKIE_NAME}=${token}`,
-                [API_CSRF_HEADER_NAME]: token,
             },
             body: body === undefined ? undefined : JSON.stringify(body),
             signal: AbortSignal.timeout(180_000),

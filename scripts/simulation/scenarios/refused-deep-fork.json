@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-refused-deep-fork-v1",
+    "journey": "refused-proof",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "safe-refusal"
+    ]
+}

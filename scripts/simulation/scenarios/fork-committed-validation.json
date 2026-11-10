@@ -1,0 +1,64 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-fork-committed-validation-v2",
+    "journey": "fork",
+    "validationRelease": "before-rollback",
+    "schedule": [
+        "release-validation",
+        "canonical-switch",
+        "restore-inventory",
+        "stream-listing"
+    ],
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "reorg-recovery"
+    ],
+    "world": {
+        "scripts": [
+            {
+                "when": {
+                    "phase": "fork-held",
+                    "method": "eth_call",
+                    "functionName": "getOrderStatus"
+                },
+                "after": {
+                    "barrier": "old-validation"
+                }
+            },
+            {
+                "when": {
+                    "phase": "fork-held",
+                    "method": "eth_call",
+                    "functionName": "aggregate3"
+                },
+                "after": {
+                    "barrier": "old-validation"
+                }
+            }
+        ],
+        "maximumBlock": 140,
+        "tailBlockIntervalSeconds": 12,
+        "providers": {
+            "default": {
+                "branch": "A",
+                "head": 103
+            },
+            "a": {
+                "branch": "A",
+                "head": 103
+            },
+            "b": {
+                "branch": "A",
+                "head": 103
+            }
+        }
+    },
+    "headProgress": {
+        "maximumHead": 140
+    }
+}

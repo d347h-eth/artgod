@@ -59,7 +59,8 @@ describe("Seaport status aggregates", () => {
             rpc.batches.every(
                 (b) =>
                     b.contracts.length <= RPC_CONTRACT_BATCH_MAX_CALLS &&
-                    b.blockNumber === HEAVY_MAKER.blockNumber,
+                    b.block.blockNumber === HEAVY_MAKER.blockNumber &&
+                    b.block.blockHash === rpc.blockHash,
             ),
         ).toBe(true);
         expect(snapshot.readCounts()).toEqual({
@@ -76,7 +77,7 @@ describe("Seaport status aggregates", () => {
             ORDER_STATUS.NoBalance,
         );
         await next.finish();
-        expect(rpc.batches.at(-1)?.blockNumber).toBe(rpc.blockNumber);
+        expect(rpc.batches.at(-1)?.block.blockNumber).toBe(rpc.blockNumber);
         expect(rpc.reads.getOrderStatus).toBe(57);
     });
 
@@ -193,6 +194,12 @@ describe("Seaport status aggregates", () => {
             OrderValidationSnapshotUnavailable,
         );
         expect(rpc.reads.getOrderStatus).toBe(1);
+        expect(rpc.exactReads).toHaveLength(1);
+        expect(rpc.exactReads[0]?.block).toEqual({
+            chainId: HEAVY_MAKER.chainId,
+            blockNumber: HEAVY_MAKER.blockNumber,
+            blockHash: rpc.blockHash,
+        });
     });
 
     it("rejects a reorg after successful batching and respects the context admission budget", async () => {

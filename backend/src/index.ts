@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { pathToFileURL } from "node:url";
@@ -1020,7 +1021,7 @@ async function main() {
     const config = loadBackendConfig(process.env);
     const app = await startBackendServer(config);
 
-    logger.info("Backend API ready", {
+    logger.info(RUNTIME_READY_MESSAGE.BackendApi, {
         component: "BackendApi",
         action: "startup",
         port: config.port,

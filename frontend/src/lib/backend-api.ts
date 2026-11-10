@@ -1,5 +1,10 @@
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import {
+	buildBiddingPriceTiersPath,
+	buildBiddingPriceTierReapplyPreviewPath,
+	buildBiddingPriceTierReapplyPath,
+	buildTokenBiddingJobPath,
+	buildTokenBiddingBidBookPath,
 	buildCompetitionPresetsPath,
 	buildCompetitionPresetReapplyPreviewPath,
 	buildCompetitionPresetReapplyPath
@@ -30,7 +35,12 @@ import type {
 	BootstrapSampleInspectionRequest,
 	BootstrapSampleInspectionResponse
 } from '@artgod/shared/bootstrap/probe';
-import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
+import {
+	buildInspectBootstrapSamplePath,
+	buildBootstrapRunDetailPath,
+	buildRetryBootstrapFailedTasksPath,
+	buildBootstrapStepActionPath
+} from '@artgod/shared/http/bootstrap-routes';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -109,6 +119,7 @@ import {
 	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
 	buildTokenCardPath,
+	buildTokenDetailPath,
 	buildPriceHistoryPath,
 	buildPriceChartContextPath,
 	buildStartCollectionOpenSeaSyncPath,
@@ -461,7 +472,7 @@ export async function getCollectionBiddingPriceTiers(
 ): Promise<CollectionBiddingPriceTiersApiResponse> {
 	return requestJson<CollectionBiddingPriceTiersApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`
+		buildBiddingPriceTiersPath(chainRef, collectionRef)
 	);
 }
 
@@ -473,7 +484,7 @@ export async function getTokenBiddingJob(
 ): Promise<TokenBiddingJobApiResponse> {
 	return requestJson<TokenBiddingJobApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef)
 	);
 }
 
@@ -485,7 +496,7 @@ export async function getTokenBiddingBidBook(
 ): Promise<TokenBiddingBidBookApiResponse> {
 	return requestJson<TokenBiddingBidBookApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/bids`
+		buildTokenBiddingBidBookPath(chainRef, collectionRef, tokenRef)
 	);
 }
 
@@ -505,7 +516,7 @@ export async function upsertTokenBiddingJob(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef),
 		'PUT',
 		body
 	);
@@ -520,7 +531,7 @@ export async function archiveTokenBiddingJob(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		buildTokenBiddingJobPath(chainRef, collectionRef, tokenRef),
 		'DELETE',
 		{}
 	);
@@ -711,7 +722,7 @@ export async function upsertCollectionBiddingPriceTier(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`,
+		buildBiddingPriceTiersPath(chainRef, collectionRef),
 		'PUT',
 		body
 	);
@@ -744,7 +755,7 @@ export async function archiveCollectionBiddingPriceTier(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}`,
+		buildBiddingPriceTiersPath(chainRef, collectionRef, tierId),
 		'DELETE',
 		{}
 	);
@@ -758,7 +769,7 @@ export async function previewBiddingPriceTierReapply(
 ): Promise<BiddingPriceTierReapplyPreviewApiResponse> {
 	return requestJson<BiddingPriceTierReapplyPreviewApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`
+		buildBiddingPriceTierReapplyPreviewPath(chainRef, collectionRef, tierId)
 	);
 }
 
@@ -774,7 +785,7 @@ export async function applyBiddingPriceTierReapply(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BiddingPriceTierReapplyApplyApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply`,
+		buildBiddingPriceTierReapplyPath(chainRef, collectionRef, tierId),
 		'POST',
 		body
 	);
@@ -840,7 +851,7 @@ export async function getTokenDetail(
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`,
+		buildTokenDetailPath({ chainRef, collectionRef, tokenRef }) + suffix,
 		tokenMediaRequestInit(params)
 	);
 }
@@ -926,7 +937,7 @@ export async function getBootstrapRunDetail(
 ): Promise<BootstrapRunDetailApiResponse> {
 	return requestJson<BootstrapRunDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}`
+		buildBootstrapRunDetailPath(chainRef, runId)
 	);
 }
 
@@ -1013,7 +1024,7 @@ export async function retryBootstrapFailedTasks(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapRetryFailedResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}/retry-failed`,
+		buildRetryBootstrapFailedTasksPath(chainRef, runId),
 		'POST',
 		{}
 	);
@@ -1029,9 +1040,7 @@ export async function applyBootstrapStepAction(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapStepActionApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(
-			String(runId)
-		)}/steps/${encodeURIComponent(stepKey)}/${encodeURIComponent(action)}`,
+		buildBootstrapStepActionPath(chainRef, runId, stepKey, action),
 		'POST',
 		{}
 	);

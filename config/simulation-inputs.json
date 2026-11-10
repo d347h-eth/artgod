@@ -1,0 +1,20 @@
+{
+    "version": 1,
+    "architecture": "amd64",
+    "runtimeImage": "node@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c",
+    "builderImage": "node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea",
+    "busyboxImage": "busybox@sha256:7aa3d3c53cc1ed823c6a5967ebaac87700a5b0766af45ff599dbca3506c8b072",
+    "kernel": {
+        "image": "linuxkit/kernel@sha256:3eae204fb152652742f4679da795a3f2848ad70c83bf1db31af0a0039e40ae67",
+        "path": "/kernel"
+    },
+    "nats": {
+        "image": "nats@sha256:f0e72e96696382cc1e5bc637befd3177bb2d5b07c37fb507f8edd09827a342a3",
+        "path": "/nats-server"
+    },
+    "machine": "pc-i440fx-8.2",
+    "epoch": "2026-11-08T00:00:00Z",
+    "toolBaseImage": "ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
+    "storageProfile": "virtio-bounce-v1",
+    "cpu": "max"
+}

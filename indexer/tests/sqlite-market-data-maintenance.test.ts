@@ -81,6 +81,165 @@ describe("in-place SQLite market-data recovery", () => {
     const recover = () =>
         new MaintainMarketData(storage, { nowSeconds: () => NOW }).recover();
 
+    function validationDemand(id: string, pending: boolean) {
+        db.prepare(
+            "UPDATE orders SET state_revision=7,validated_at=? WHERE id=?",
+        ).run(NOW - 1, id);
+        db.raw
+            .prepare(
+                `INSERT INTO order_validation_demand(
+                    order_id,chain_id,generation,revision,required_at,minimum_block,
+                    anchor_independent,pending,proof_revision,proof_at,proof_block,
+                    proof_chain_revision,lease_owner,lease_version,lease_until,
+                    failures,next_attempt_at,last_error,updated_at
+                ) VALUES (
+                    @id,1,9,7,@requiredAt,123456,1,@pending,@proofRevision,@proofAt,
+                    @proofBlock,2,@leaseOwner,4,@leaseUntil,@failures,@nextAttemptAt,
+                    @lastError,@updatedAt
+                )`,
+            )
+            .run({
+                id,
+                pending: pending ? 1 : 0,
+                requiredAt: NOW * 1_000 - 5_000,
+                proofRevision: pending ? 6 : 7,
+                proofAt: NOW * 1_000 - (pending ? 10_000 : 1_000),
+                proofBlock: pending ? 123455 : 123456,
+                leaseOwner: pending ? "fixture-executor" : null,
+                leaseUntil: pending ? NOW * 1_000 + 60_000 : 0,
+                failures: pending ? 3 : 0,
+                nextAttemptAt: pending ? NOW * 1_000 + 5_000 : 0,
+                lastError: pending ? "fixture provider unavailable" : null,
+                updatedAt: NOW * 1_000,
+            });
+    }
+
+    function copyOrdersBeforeCutover() {
+        while (storage.inspect().stage !== STAGE.Orders) {
+            storage.recoverBatch(NOW);
+            expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+        }
+        storage.recoverBatch(NOW);
+        expect(storage.inspect().stage).toBe(STAGE.Orders);
+        expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+    }
+
+    const validationDemands = () =>
+        db
+            .prepare("SELECT * FROM order_validation_demand ORDER BY order_id")
+            .all();
+
+    it("preserves complete demand and coverage rows across offline cutover and reopen, retiring only removed orders", async () => {
+        order("completed", NOW + 3600);
+        order("pending", NOW + 3600);
+        order("retired", NOW - 1);
+        validationDemand("completed", false);
+        validationDemand("pending", true);
+        validationDemand("retired", true);
+        const before = validationDemands();
+        const retained = before.filter(
+            (row) => (row as { order_id: string }).order_id !== "retired",
+        );
+        copyOrdersBeforeCutover();
+        setDbPath(path);
+        storage = new SqliteMarketDataMaintenance(db);
+        await recover();
+        expect(validationDemands()).toEqual(retained);
+        expect(db.prepare("SELECT id FROM orders ORDER BY id").all()).toEqual([
+            { id: "completed" },
+            { id: "pending" },
+        ]);
+        expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+        expect(db.raw.pragma("foreign_key_check")).toEqual([]);
+        setDbPath(path);
+        storage = new SqliteMarketDataMaintenance(db);
+        await recover();
+        expect(validationDemands()).toEqual(retained);
+        // Ordinary order deletion must still own the dependency lifetime.
+        db.prepare("DELETE FROM orders WHERE id='pending'").run();
+        expect(validationDemands()).toEqual(
+            retained.filter(
+                (row) => (row as { order_id: string }).order_id === "completed",
+            ),
+        );
+    });
+
+    it("rolls back order cutover and dependent cleanup on failure, restores foreign keys and resumes after reopen", async () => {
+        order("pending", NOW + 3600);
+        order("retired", NOW - 1);
+        validationDemand("pending", true);
+        validationDemand("retired", false);
+        copyOrdersBeforeCutover();
+        const before = {
+            orders: db.prepare("SELECT * FROM orders ORDER BY id").all(),
+            demands: validationDemands(),
+            progress: storage.inspect(),
+        };
+        db.raw.exec(
+            `CREATE TRIGGER fail_order_cutover BEFORE UPDATE ON market_data_recovery
+             WHEN NEW.stage='${STAGE.Receipts}' BEGIN
+                 SELECT RAISE(ABORT,'injected order cutover failure');
+             END`,
+        );
+        expect(() => storage.recoverBatch(NOW)).toThrow(
+            "injected order cutover failure",
+        );
+        expect(db.prepare("SELECT * FROM orders ORDER BY id").all()).toEqual(
+            before.orders,
+        );
+        expect(validationDemands()).toEqual(before.demands);
+        expect(storage.inspect()).toEqual(before.progress);
+        expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+        expect(db.raw.pragma("foreign_key_check")).toEqual([]);
+        db.raw.exec("DROP TRIGGER fail_order_cutover");
+        setDbPath(path);
+        storage = new SqliteMarketDataMaintenance(db);
+        await recover();
+        expect(validationDemands()).toEqual(
+            before.demands.filter(
+                (row) => (row as { order_id: string }).order_id === "pending",
+            ),
+        );
+    });
+
+    it("rejects a foreign key violation before committing the order cutover", async () => {
+        order("pending", NOW + 3600);
+        validationDemand("pending", true);
+        copyOrdersBeforeCutover();
+        const before = validationDemands();
+        const progress = storage.inspect();
+        db.raw.exec(
+            `CREATE TRIGGER corrupt_order_cutover AFTER UPDATE ON market_data_recovery
+             WHEN NEW.stage='${STAGE.Receipts}' BEGIN
+                 UPDATE order_validation_demand SET order_id='missing-order';
+             END`,
+        );
+        expect(() => storage.recoverBatch(NOW)).toThrow(
+            "Order recovery foreign key check failed",
+        );
+        expect(validationDemands()).toEqual(before);
+        expect(storage.inspect()).toEqual(progress);
+        expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+        expect(db.raw.pragma("foreign_key_check")).toEqual([]);
+        db.raw.exec("DROP TRIGGER corrupt_order_cutover");
+        await recover();
+        expect(validationDemands()).toEqual(before);
+    });
+
+    it("refuses a nested order cutover without disabling foreign key enforcement", () => {
+        order("completed", NOW + 3600);
+        validationDemand("completed", false);
+        copyOrdersBeforeCutover();
+        const before = validationDemands();
+        const progress = storage.inspect();
+        expect(() =>
+            db.raw.transaction(() => storage.recoverBatch(NOW))(),
+        ).toThrow("Order recovery cutover requires its own transaction");
+        expect(validationDemands()).toEqual(before);
+        expect(storage.inspect()).toEqual(progress);
+        expect(db.raw.pragma("foreign_keys", { simple: true })).toBe(1);
+    });
+
     it("observes the real WAL when the DB configuration is workspace-relative", async () => {
         setDbPath(relative(getProjectRoot(), path));
         const observer = new SqliteMarketDataMaintenance(db);

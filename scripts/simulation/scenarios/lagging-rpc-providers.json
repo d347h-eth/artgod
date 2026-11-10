@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-lagging-rpc-providers-v1",
+    "journey": "baseline",
+    "runtimeProfile": "default",
+    "rpcProviders": ["a", "b"],
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection"
+    ],
+    "world": {
+        "providers": {
+            "default": { "branch": "A", "head": 103 },
+            "a": { "branch": "A", "head": 103 },
+            "b": { "branch": "A", "head": 102 }
+        }
+    }
+}

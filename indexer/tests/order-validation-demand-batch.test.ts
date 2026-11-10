@@ -380,9 +380,14 @@ describe("bounded demand validation batches", () => {
         const telemetry = await processingTelemetry();
         const work = workflow(3, { observability: telemetry.hooks });
         work.rpc.balance = 0n;
-        work.rpc.onRead = () => {
-            work.rpc.blockHash = `0x${"cd".repeat(32)}`;
-        };
+        const getBlock = work.rpc.getBlock.bind(work.rpc);
+        let blockReads = 0;
+        vi.spyOn(work.rpc, "getBlock").mockImplementation(async (number) => {
+            // Move the fork after all exact-hash state reads, at the final
+            // verification header. Earlier movement is rejected during reads.
+            if (++blockReads === 2) work.rpc.blockHash = `0x${"cd".repeat(32)}`;
+            return getBlock(number);
+        });
         expect(await work.processor.executeBatch()).toMatchObject({
             validated: 3,
             covered: 0,

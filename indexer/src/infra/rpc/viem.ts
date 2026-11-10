@@ -57,6 +57,7 @@ import type {
     RpcTransactionReceipt,
 } from "../../ports/rpc.js";
 import { RPC_CONTRACT_BATCH_MAX_CALLS } from "../../ports/rpc.js";
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
     INDEXER_RPC_LOG_ACTION,
@@ -414,14 +415,7 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
     ): Promise<T> {
         const { block, ...contract } = params;
-        if (
-            !Number.isSafeInteger(block.chainId) ||
-            block.chainId < 1 ||
-            !Number.isSafeInteger(block.blockNumber) ||
-            block.blockNumber < 0 ||
-            !/^0x[0-9a-fA-F]{64}$/.test(block.blockHash)
-        )
-            throw new Error("Invalid exact-block contract read");
+        assertExactBlock(block);
         const abi = contract.abi as Abi;
         const data = encodeFunctionData({
             abi,
@@ -430,8 +424,8 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         });
         return this.executeRpc("readContractAtBlock", async (client) => {
             try {
-                // viem's readContract action accepts heights, not EIP-1898
-                // selectors. Keep the raw call and decoded contract errors here.
+                // Keep the existing EIP-1898 wire/error boundary shared with
+                // ownership snapshots. Every endpoint retry retains this hash.
                 const result = await client.request(
                     {
                         method: "eth_call",
@@ -463,12 +457,25 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
 
     async getBalance(
         address: Hex,
-        options?: { blockNumber: number },
+        options?: Parameters<RpcProviderPort["getBalance"]>[1],
     ): Promise<bigint> {
+        const exact = options !== undefined && Object.hasOwn(options, "block");
+        const block = options?.block;
+        if (exact) assertExactBlock(block!);
         return this.executeRpc("getBalance", (client) =>
             client.getBalance({
                 address: address as `0x${string}`,
-                blockNumber: options ? BigInt(options.blockNumber) : undefined,
+                ...(exact
+                    ? {
+                          blockHash: block!.blockHash as Hex,
+                          requireCanonical: true,
+                      }
+                    : {
+                          blockNumber:
+                              options?.blockNumber === undefined
+                                  ? undefined
+                                  : BigInt(options.blockNumber),
+                      }),
             }),
         );
     }
@@ -479,17 +486,18 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         if (
             input.contracts.length < 1 ||
             input.contracts.length > RPC_CONTRACT_BATCH_MAX_CALLS ||
-            !Number.isSafeInteger(input.blockNumber) ||
-            input.blockNumber < 0
+            !input.block
         )
             throw new Error("Invalid bounded contract batch");
+        assertExactBlock(input.block);
         return this.executeRpc("readContracts", async (client) => {
             const results = await client.multicall({
                 contracts: input.contracts.map((contract) => ({
                     ...contract,
                     abi: contract.abi as Abi,
                 })),
-                blockNumber: BigInt(input.blockNumber),
+                blockHash: input.block.blockHash as Hex,
+                requireCanonical: true,
                 allowFailure: true,
                 // A read-only eth_call works without assuming a deployed multicall address.
                 deployless: true,
@@ -560,6 +568,18 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
             },
         });
     }
+}
+
+function assertExactBlock(block: ChainBlockReference): void {
+    if (
+        !block ||
+        !Number.isSafeInteger(block.chainId) ||
+        block.chainId < 1 ||
+        !Number.isSafeInteger(block.blockNumber) ||
+        block.blockNumber < 0 ||
+        !/^0x[0-9a-fA-F]{64}$/.test(block.blockHash)
+    )
+        throw new Error("Invalid exact-block contract read");
 }
 
 function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {

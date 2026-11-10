@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-offchain-restart-v1",
+    "journey": "process-recovery",
+    "processFault": "offchain-restart",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "process-recovery"
+    ],
+    "headProgress": {
+        "maximumHead": 140
+    },
+    "world": {
+        "maximumBlock": 140,
+        "tailBlockIntervalSeconds": 12,
+        "providers": {
+            "default": {
+                "branch": "B",
+                "head": 103
+            },
+            "a": {
+                "branch": "B",
+                "head": 103
+            },
+            "b": {
+                "branch": "B",
+                "head": 103
+            }
+        }
+    }
+}

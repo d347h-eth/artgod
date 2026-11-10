@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -669,7 +670,7 @@ async function main() {
             },
         );
 
-        logger.info("Collection bootstrap worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.BootstrapWorker, {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.Main,
             rpcEndpoint: summarizeRpcUrl(config.rpc.endpoints[0]?.url ?? ""),

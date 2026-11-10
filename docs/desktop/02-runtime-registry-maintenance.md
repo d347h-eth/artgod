@@ -154,6 +154,17 @@ Files:
 
 These are not runtime code, but should be updated in the same PR to prevent operator confusion.
 
+### 8) Runtime Readiness and Simulation Composition
+
+`shared/runtime/readiness.ts` owns the readiness log labels shared by production
+entrypoints and the deterministic simulation. Keep a runtime's existing label
+there when adding it to the simulation; the simulation acknowledges its actual
+structured `info` readiness log after normal startup.
+
+`scripts/simulation/guest/runtime-manifest.mjs` selects the production artifacts
+used by each simulation journey. Its actor aliases belong to the harness and do
+not replace the explicit desktop, build, or observability registries above.
+
 ## Add Runtime Checklist
 
 When adding a new indexer runtime (example `foo-worker`):

@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -91,7 +92,7 @@ async function main() {
             },
         );
 
-        logger.info("OpenSea reconcile worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.OpenSeaReconcileWorker, {
             component: "OpenSeaReconcileWorker",
             action: "main",
         });

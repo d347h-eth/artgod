@@ -82,6 +82,10 @@
         "config:check": "node ./scripts/config/generate-env-example.mjs --check",
         "check:docs": "node ./scripts/docs/verify-documentation.mjs",
         "test:docs": "node --test ./scripts/docs/verify-documentation.test.mjs",
+        "simulation": "node ./scripts/simulation/workbench.mjs",
+        "simulation:inputs": "node ./scripts/simulation/provision-inputs.mjs",
+        "simulation:build": "node ./scripts/simulation/build-guest.mjs",
+        "simulation:test": "node --import tsx --test --test-concurrency=1 scripts/simulation/*.test.mjs scripts/simulation/guest/*.test.mjs scripts/simulation/world/*.test.mjs",
         "security:yarn:verify-lockfile": "yarn install --immutable --refresh-lockfile --check-resolutions --mode=skip-build",
         "security:yarn:audit": "yarn npm audit --all --recursive --no-deprecations --severity low",
         "security:yarn:verify": "yarn security:yarn:verify-lockfile && yarn security:yarn:test-patches && yarn security:yarn:audit",
@@ -167,13 +171,16 @@
         "@tauri-apps/cli": "2.11.3",
         "@types/better-sqlite3": "7.6.13",
         "@types/node": "25.9.2",
+        "@types/ws": "8.18.2",
         "@vitest/coverage-v8": "4.1.12",
         "concurrently": "10.0.4",
         "esbuild": "0.28.1",
+        "nats": "2.29.3",
         "prettier": "3.8.3",
         "tsx": "4.22.4",
         "typescript": "6.0.3",
-        "vitest": "4.1.12"
+        "vitest": "4.1.12",
+        "ws": "8.21.0"
     },
     "prettier": {
         "tabWidth": 4,

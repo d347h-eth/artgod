@@ -1,3 +1,4 @@
+import { RUNTIME_READY_MESSAGE } from "@artgod/shared/runtime/readiness";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -80,7 +81,7 @@ async function main() {
         );
         const stopRecoveryLoop = startReorgRecoveryLoop(recovery);
 
-        logger.info("Reorg worker ready", {
+        logger.info(RUNTIME_READY_MESSAGE.ReorgWorker, {
             component: "IndexerReorgWorker",
             action: "main",
         });

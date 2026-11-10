@@ -106,16 +106,20 @@ export interface RpcProviderPort {
         params: RpcContractRead & { block: ChainBlockReference },
     ): Promise<T>;
     /**
-     * Optional bounded aggregate at one explicit block, with positional results.
+     * Optional bounded aggregate at one exact canonical hash, with positional results.
      * Only use for views independent of msg.sender; aggregation changes the caller.
      * Infrastructure failures may reject the whole call. Callers own safe fallback.
      */
     readContracts?(input: {
         contracts: readonly RpcContractRead[];
-        blockNumber: number;
+        block: ChainBlockReference;
     }): Promise<readonly RpcContractReadResult[]>;
+    // Exact-block callers require the same hash on every retry; legacy latest
+    // and numeric-height callers retain their existing independent behavior.
     getBalance(
         address: Hex,
-        options?: { blockNumber: number },
+        options?:
+            | { blockNumber: number; block?: never }
+            | { block: ChainBlockReference; blockNumber?: never },
     ): Promise<bigint>;
 }

@@ -490,22 +490,69 @@ async function readRegisteredHttpRoutes(errors) {
 }
 
 function collectRouteConstants(source, routeConstants) {
-    const scalarPattern = /export const ([A-Z][A-Z0-9_]*)\s*=\s*"([^"]+)"/g;
+    // Resolve literal composition without importing or evaluating application
+    // modules. Shared route owners can name a private prefix exactly once.
+    const valuePattern =
+        '(?:"[^"\\n]*"|`[^`]*`|[A-Z][A-Z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)*)';
+    const scalarPattern = new RegExp(
+        `(?:^|\\n)\\s*(export\\s+)?const ([A-Z][A-Z0-9_]*)\\s*=\\s*(${valuePattern})\\s*;`,
+        "g",
+    );
+    const definitions = [];
     for (const match of source.matchAll(scalarPattern)) {
-        routeConstants.set(match[1], match[2]);
+        definitions.push({
+            name: match[2],
+            value: match[3],
+            exported: Boolean(match[1]),
+        });
     }
 
     const objectPattern =
         /export const ([A-Z][A-Z0-9_]*)\s*=\s*\{([\s\S]*?)\}\s*as const/g;
     for (const objectMatch of source.matchAll(objectPattern)) {
-        const entryPattern = /([A-Za-z][A-Za-z0-9_]*)\s*:\s*"([^"]+)"/g;
+        const entryPattern = new RegExp(
+            `([A-Za-z][A-Za-z0-9_]*)\\s*:\\s*(${valuePattern})(?=\\s*,|\\s*$)`,
+            "g",
+        );
         for (const entryMatch of objectMatch[2].matchAll(entryPattern)) {
-            routeConstants.set(
-                `${objectMatch[1]}.${entryMatch[1]}`,
-                entryMatch[2],
-            );
+            definitions.push({
+                name: `${objectMatch[1]}.${entryMatch[1]}`,
+                value: entryMatch[2],
+                exported: true,
+            });
         }
     }
+    const local = new Map(routeConstants);
+    for (let pass = 0; pass < definitions.length; pass++) {
+        let resolved = false;
+        for (const definition of definitions) {
+            if (local.has(definition.name)) continue;
+            const value = resolveRouteString(definition.value, local);
+            if (value === undefined) continue;
+            local.set(definition.name, value);
+            if (definition.exported) routeConstants.set(definition.name, value);
+            resolved = true;
+        }
+        if (!resolved) break;
+    }
+}
+
+function resolveRouteString(expression, constants) {
+    if (expression.startsWith('"')) return JSON.parse(expression);
+    if (!expression.startsWith("`")) return constants.get(expression);
+    let unresolved = false;
+    const value = expression
+        .slice(1, -1)
+        .replace(/\$\{([^}]+)\}/g, (_match, name) => {
+            const part = /^[A-Z][A-Z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(
+                name,
+            )
+                ? constants.get(name)
+                : undefined;
+            if (part === undefined) unresolved = true;
+            return part ?? "";
+        });
+    return unresolved || value.includes("${") ? undefined : value;
 }
 
 // JSON-backed route objects can also be consumed by Rust; inspect data without executing TS.

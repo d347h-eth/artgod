@@ -214,6 +214,27 @@ export class HeavyMakerRpc implements RpcProviderPort {
     onRead?: (
         params: Parameters<RpcProviderPort["readContract"]>[0],
     ) => void | Promise<void>;
+    readonly exactReads: Array<
+        Parameters<RpcProviderPort["readContractAtBlock"]>[0]
+    > = [];
+
+    async readContractAtBlock<T>(
+        params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+    ): Promise<T> {
+        this.recordExactRead(params);
+        return this.readContract<T>({
+            ...params,
+            blockNumber: params.block.blockNumber,
+        });
+    }
+
+    protected recordExactRead(
+        params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+    ): void {
+        this.exactReads.push(params);
+        if (params.block.blockHash !== this.blockHash)
+            throw new Error("Requested block hash is not canonical");
+    }
 
     async readContract<T>(
         params: Parameters<RpcProviderPort["readContract"]>[0],
@@ -275,10 +296,13 @@ export class BatchedHeavyMakerRpc extends HeavyMakerRpc {
         const results: RpcContractReadResult[] = [];
         for (const contract of input.contracts) {
             try {
+                this.recordExactRead({ ...contract, block: input.block });
                 results.push({
+                    // One aggregate pays one wire delay in DelayedBatchRpc;
+                    // decoded leaves do not dispatch another port request.
                     value: await super.readContract({
                         ...contract,
-                        blockNumber: input.blockNumber,
+                        blockNumber: input.block.blockNumber,
                     }),
                 });
             } catch (error) {

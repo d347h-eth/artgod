@@ -1,0 +1,35 @@
+{
+    "version": 1,
+    "kind": "data-plane",
+    "qualificationId": "artgod-startup-maintenance-v1",
+    "journey": "startup-maintenance",
+    "expectedChecks": [
+        "runtime-entrypoints",
+        "chain-acquisition",
+        "source-ingestion",
+        "order-validation",
+        "http-projection",
+        "startup-maintenance"
+    ],
+    "headProgress": {
+        "maximumHead": 140
+    },
+    "world": {
+        "maximumBlock": 140,
+        "tailBlockIntervalSeconds": 12,
+        "providers": {
+            "default": {
+                "branch": "B",
+                "head": 103
+            },
+            "a": {
+                "branch": "B",
+                "head": 103
+            },
+            "b": {
+                "branch": "B",
+                "head": 103
+            }
+        }
+    }
+}
