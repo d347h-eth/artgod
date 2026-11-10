@@ -257,9 +257,11 @@ corrections preserve strict replay and failed-property reporting:
 The initial hosted setup correction, `0171408e`, resolves the installed
 `mke2fs` path without changing the fixed engine environment. The workflow also
 retains real tool-image build stdout/stderr, Dockerfile and capsule diagnostics.
-The old 600-second build timeout has not recurred; its original cause remains
-unknown. No timeout was increased and no host tooling or security configuration
-was changed.
+At `0171408e` and the completed run below, the original 600-second timeout had
+not recurred and that correction increased no timeout. Its original cause
+remains unknown. A later measured timeout and its startup-only budget correction
+are recorded under [Measured Slow Tool-image Acquisition](#measured-slow-tool-image-acquisition).
+No host tooling or security configuration was changed.
 
 [Hosted run 42745082425](https://github.com/d347h-eth/artgod/actions/runs/42745082425)
 completed both seven-case shards before these review fixes. Each passes all 429
