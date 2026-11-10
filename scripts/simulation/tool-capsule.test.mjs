@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -503,11 +503,14 @@ test("tool provisioning keeps package installation inside the pinned Docker buil
     let context;
     const execute = async (binary, args, options) => {
         if (args[0] === "build") {
+            // Deliberately assert the command boundary's approved budgets.
+            assert.equal(options.timeoutMs, 1_800_000);
             context = args.at(-1);
             await writeFile(args[args.indexOf("--iidfile") + 1], IMAGE);
             return okay();
         }
         if (args[0] === "image" && args[1] === "save") {
+            assert.equal(options.timeoutMs, 600_000);
             assert.equal(args.at(-1), IMAGE);
             await writeFile(
                 args[args.indexOf("--output") + 1],
@@ -534,4 +537,58 @@ test("tool provisioning keeps package installation inside the pinned Docker buil
     assert.match(dockerfile, /RUN apt-get update && apt-get install/);
     assert.equal(result.capsule.imageId, IMAGE);
     assert.equal(result.capsule.archive.sha256.length, 64);
+});
+
+test("a timed-out tool build retains diagnostics and cannot publish or consume a partial image identity", async () => {
+    const f = await fixture();
+    const calls = [];
+    const stdout = "synthetic partial Docker build progress\n";
+    const stderr = "synthetic slow package diagnostic\n";
+    const partialId = "incomplete image identity must not be interpreted";
+    let directory;
+    await assert.rejects(
+        prepareToolCapsule({
+            outputRoot: f.directory,
+            execute: async (binary, args, options) => {
+                assert.equal(binary, "docker");
+                calls.push(args);
+                assert.equal(args[0], "build");
+                assert.equal(options.timeoutMs, 1_800_000);
+                directory = path.dirname(args.at(-1));
+                await Promise.all([
+                    writeFile(args[args.indexOf("--iidfile") + 1], partialId),
+                    writeFile(options.stdoutPath, stdout),
+                    writeFile(options.stderrPath, stderr),
+                ]);
+                return { ...okay(stdout), timedOut: true, stderr };
+            },
+        }),
+        (error) => {
+            assert.match(error.message, /Docker build failed: timeout/);
+            assert.match(error.message, /synthetic slow package diagnostic/);
+            return true;
+        },
+    );
+    assert.deepEqual(
+        calls.map((args) => args[0]),
+        ["build"],
+    );
+    assert.deepEqual((await readdir(directory)).sort(), [
+        "context",
+        "docker-1.stderr",
+        "docker-1.stdout",
+        "image.id",
+    ]);
+    assert.equal(
+        await readFile(path.join(directory, "image.id"), "utf8"),
+        partialId,
+    );
+    assert.equal(
+        await readFile(path.join(directory, "docker-1.stdout"), "utf8"),
+        stdout,
+    );
+    assert.equal(
+        await readFile(path.join(directory, "docker-1.stderr"), "utf8"),
+        stderr,
+    );
 });

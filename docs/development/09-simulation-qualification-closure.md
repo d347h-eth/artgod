@@ -378,3 +378,24 @@ and collateral-damage guards. The wholly coherent validation-B/persisted-A
 scenario in SC-03 still needs its own authored history; a hash-pinned snapshot
 does not establish consensus between components. No new recovery or terminal
 reactivation policy is implied.
+
+### Measured Slow Tool-image Acquisition
+
+The first shard of run `42759998152` stops during tool-image construction at
+the existing 600-second limit. Retained Docker stderr establishes slow Ubuntu
+acquisition in this run: package indexes take 261 seconds for 33.8 MB, followed
+by a normal 41-package/24.5 MB installation still downloading package eight at
+587.6 seconds. The build is then cancelled by the owner. No application,
+compiler or package-resolution failure is shown. This evidence does not explain
+the original earlier timeout retrospectively. The blocked ledger correctly
+leaves all seven assigned cases missing/unreached; neither supporting checks
+nor M0 ran on that shard.
+
+Only Docker tool-image construction now receives a bounded thirty-minute
+budget. Save/load/inspection limits, VM and application deadlines, and the
+180-minute CI job budget remain unchanged. No mirror, retry, image-selection,
+registry or caching policy is changed. Timeout guards retain exact diagnostics
+and refuse to consume a partial image identity or publish a capsule. All 510
+supporting tests pass with zero skips. This is measured startup headroom, not
+a guarantee of mirror availability or application correctness. A stable
+published complete engine closure remains the separate deferred policy.

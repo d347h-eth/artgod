@@ -15,6 +15,8 @@ import { executeCommand, preflight, QEMU_ENVIRONMENT } from "./qemu-replay.mjs";
 import { inspectToolImageArchive } from "./tool-image-archive.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
+// Package acquisition has its own bounded startup budget, separate from execution.
+const TOOL_IMAGE_BUILD_TIMEOUT_MS = 30 * 60_000;
 export const CAPSULE_TOOL_PATHS = Object.freeze({
     qemu: "/usr/bin/qemu-system-x86_64",
     qemuImg: "/usr/bin/qemu-img",
@@ -357,18 +359,21 @@ export async function prepareToolCapsule({
         return assertSuccess(result, `Docker ${args[0]}`);
     };
     const iid = path.join(directory, "image.id");
-    await command([
-        "build",
-        "--platform",
-        "linux/amd64",
-        "--network",
-        "default",
-        "--iidfile",
-        iid,
-        "--file",
-        dockerfilePath,
-        context,
-    ]);
+    await command(
+        [
+            "build",
+            "--platform",
+            "linux/amd64",
+            "--network",
+            "default",
+            "--iidfile",
+            iid,
+            "--file",
+            dockerfilePath,
+            context,
+        ],
+        TOOL_IMAGE_BUILD_TIMEOUT_MS,
+    );
     const imageId = (await readFile(iid, "utf8")).trim();
     if (!/^sha256:[a-f0-9]{64}$/.test(imageId))
         throw new Error("Docker returned an invalid tool image ID");
