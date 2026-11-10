@@ -401,3 +401,45 @@ and refuse to consume a partial image identity or publish a capsule. All 510
 supporting tests pass with zero skips. This is measured startup headroom, not
 a guarantee of mirror availability or application correctness. A stable
 published complete engine closure remains the separate deferred policy.
+
+### Acceptance Update, 10 November 2026
+
+The later retained results complete several outcomes that were pending in the
+dated account above:
+
+- At `ab3dc6fe`, full guest `guest-PZku5u` passes all eight M0 checks and strict
+  serial/full-disk replay in `run-ABkyyx`. Both plain and weighted/default-budget
+  provider-disagreement cases, `run-XxHcP1` and `run-F0yj7l`, pass all six
+  application checks and strict replay. These include correct fresh listing
+  proof, both final order sentinels and exact HTTP projection.
+- Production maintenance at `4b439b81`, `run-pJjbQf`, passes all six application
+  checks and strict replay: retained coverage, restart, later source/authority
+  checks and final HTTP. Production maintenance is unchanged by the later
+  workbench and documentation corrections. Latest-source hosted acceptance
+  remains separate.
+- Original-log relocation of the earlier hosted bootstrap recording completes
+  on this local host. It reproduces the same Domain SIGSEGV and failed runtime
+  property while passing exact serial/full-disk parity. All 17 original member
+  pins/inodes and frozen controller pins remain unchanged; one VM ran and all
+  20 owned containers were removed. The retained receipt is
+  `tmp/ci-fix-monitor-ehcqm0qw/hosted-before-review/portable/replay-adapter-yJrYzI/receipt.json`.
+  This qualifies that recording's relocation, not arbitrary-host portability
+  or a crash remedy.
+- [Hosted run 42753529207](https://github.com/d347h-eth/artgod/actions/runs/42753529207)
+  at PR head `4b439b81` accounts for all fourteen cases, with none missing. Both
+  shards pass 503 supporting tests and eight-check M0. Nine application cases
+  pass; three worker SIGSEGV failures reproduce with strict replay. Two
+  cryptography initialization failures stop before Ready and remain
+  engine-unqualified. Twelve pairs pass strict replay; the two startup failures
+  earn no application or replay credit.
+
+Latest local supporting checks pass all 510 tests with zero skips. At this
+update, the startup-only budget correction `9190a909` and subsequent
+documentation updates await publication and hosted qualification. Final CI
+acceptance remains pending; these local results do not qualify every current
+case or erase historical failures.
+
+Runtime SIGSEGV and pre-Ready cryptography causes, a published complete engine
+closure, SC-03's coherent validation-B/persisted-A history without rollback, and
+the new F8/F10 histories remain deferred. The older complete corpus retains its
+original source and verdicts.
