@@ -77,12 +77,16 @@ function createValidationSnapshotFactory(
             }
         };
         checkLifetime();
+        const reference = {
+            chainId,
+            blockNumber: number,
+            blockHash: block.hash,
+        };
         const cache = new Map<string, Promise<unknown>>();
         const counts = { perOrder: 0, shared: 0, other: 0, statusBatches: 0 };
         const readStatus = createSeaportStatusReader({
             rpc,
-            chainId,
-            blockNumber: number,
+            block: reference,
             candidates: candidates.filter(admits),
             canBatch: () => now() >= statusBatchUnavailableUntil,
             batchFailed: () => {
@@ -142,7 +146,7 @@ function createValidationSnapshotFactory(
                     checkLifetime();
                     counts.other++;
                     const balance = await rpc.getBalance(address, {
-                        blockNumber: number,
+                        block: reference,
                     });
                     if (typeof balance !== "bigint")
                         throw new Error("Invalid native balance response");
@@ -182,9 +186,9 @@ function createValidationSnapshotFactory(
                     if (!pending) {
                         if (shared) counts.shared++;
                         else counts.other++;
-                        pending = rpc.readContract({
+                        pending = rpc.readContractAtBlock({
                             ...params,
-                            blockNumber: number,
+                            block: reference,
                         });
                         if (shared) cache.set(key, pending);
                     }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND as SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
+import { RPC_RESPONSE_EVENT } from "../world/contract.mjs";
 import {
     completedDisagreementRead,
     healDisagreementProviders,
@@ -89,6 +90,7 @@ test("a completed prior ownerOf request cannot stand in for the armed fresh vali
         requestIndex: 2,
         method: "eth_call",
         functionName: "ownerOf",
+        params: [{}, "0x68"],
     });
     assert.equal(
         completedDisagreementRead(trace, {
@@ -106,6 +108,13 @@ test("a completed prior ownerOf request cannot stand in for the armed fresh vali
             blockNumber: 104,
         },
         { sequence: 6, type: "response", requestIndex: 2 },
+        {
+            sequence: 7,
+            type: RPC_RESPONSE_EVENT.Finished,
+            requestIndex: 2,
+            method: "eth_call",
+            outcome: "response",
+        },
     );
     assert.equal(
         completedDisagreementRead(trace, {
@@ -116,20 +125,39 @@ test("a completed prior ownerOf request cannot stand in for the armed fresh vali
     );
 });
 test("a genuine noncanonical hash refusal can be healed without demanding an incorrect numeric success", () => {
+    const blockHash = `0x${"ab".repeat(32)}`;
     const trace = [
         {
             sequence: 10,
+            type: "read",
+            requestIndex: 2,
+            method: "eth_getBlockByNumber",
+            blockNumber: 104,
+            blockHash,
+        },
+        { sequence: 11, type: "response", requestIndex: 2 },
+        {
+            sequence: 12,
             type: "request",
             phase: PHASE.Armed,
             requestIndex: 3,
             method: "eth_call",
             functionName: "ownerOf",
-            params: [{}, { blockHash: "canonical-A104" }],
+            params: [{}, { blockHash, requireCanonical: true }],
         },
         {
-            sequence: 11,
+            sequence: 13,
             type: "error",
             requestIndex: 3,
+            code: -32001,
+            message: "Requested block hash is not canonical at provider",
+        },
+        {
+            sequence: 14,
+            type: RPC_RESPONSE_EVENT.Finished,
+            requestIndex: 3,
+            method: "eth_call",
+            outcome: "error",
             code: -32001,
             message: "Requested block hash is not canonical at provider",
         },
@@ -165,7 +193,7 @@ test("a genuine noncanonical hash refusal can be healed without demanding an inc
         ),
     );
     assert.equal(phase, PHASE.Healed);
-    trace[1].message = "Unknown fixture selector";
+    trace[3].message = "Unknown fixture selector";
     assert.equal(
         completedDisagreementRead(trace, {
             afterSequence: 9,
@@ -173,6 +201,74 @@ test("a genuine noncanonical hash refusal can be healed without demanding an inc
         }),
         undefined,
     );
+});
+test("hash refusal needs the requested canonical snapshot and a matching finished transport response", () => {
+    const hash = `0x${"ab".repeat(32)}`;
+    const original = [
+        {
+            sequence: 1,
+            type: "read",
+            requestIndex: 1,
+            method: "eth_getBlockByNumber",
+            blockNumber: 104,
+            blockHash: hash,
+        },
+        { sequence: 2, type: "response", requestIndex: 1 },
+        {
+            sequence: 3,
+            type: "request",
+            requestIndex: 2,
+            provider: "a",
+            phase: PHASE.Armed,
+            method: "eth_call",
+            functionName: "ownerOf",
+            params: [{}, { blockHash: hash, requireCanonical: true }],
+        },
+        {
+            sequence: 4,
+            type: "error",
+            requestIndex: 2,
+            code: -32001,
+            message: "Requested block hash is not canonical at provider",
+        },
+        {
+            sequence: 5,
+            type: RPC_RESPONSE_EVENT.Finished,
+            requestIndex: 2,
+            provider: "a",
+            method: "eth_call",
+            outcome: "error",
+            code: -32001,
+            message: "Requested block hash is not canonical at provider",
+        },
+    ];
+    assert.equal(
+        completedDisagreementRead(original, {
+            afterSequence: 0,
+            minimumBlock: 104,
+        }).outcome,
+        OUTCOME.HashRefused,
+    );
+    for (const mutate of [
+        (t) => t.pop(),
+        (t) => t.splice(0, 2),
+        (t) => (t[0].blockHash = `0x${"cd".repeat(32)}`),
+        (t) => (t[2].params[1].requireCanonical = false),
+        (t) => (t[4].requestIndex = 9),
+        (t) => (t[4].outcome = "response"),
+        (t) => (t[4].provider = "b"),
+        (t) => (t[4].sequence = 3),
+    ]) {
+        const trace = structuredClone(original);
+        mutate(trace);
+        assert.equal(
+            completedDisagreementRead(trace, {
+                afterSequence: 0,
+                minimumBlock: 104,
+            }),
+            undefined,
+        );
+    }
 });
 test("fresh source audit or status alone cannot substitute for a new full validation proof", () => {
     assert.throws(

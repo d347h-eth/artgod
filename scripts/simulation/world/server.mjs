@@ -3,7 +3,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { WebSocketServer } from "ws";
 import { createSimulationWorld } from "./world.mjs";
 import { jsonSafe } from "./wire.mjs";
-import { METADATA_TRANSPORT } from "./contract.mjs";
+import { METADATA_TRANSPORT, RPC_RESPONSE_EVENT } from "./contract.mjs";
 
 const MAX_REQUEST_BYTES = 1_048_576;
 
@@ -30,11 +30,19 @@ export async function startWorldServer({
         response.end(JSON.stringify(jsonSafe(body)));
     };
     async function rpc(provider, body) {
+        const before = world.trace.at(-1)?.sequence ?? 0;
+        const pending = world.handleRpc(provider, body);
+        // handleRpc appends its identity synchronously before the first await.
+        // Capture it before another batch member/request can enter the world.
+        const request = world.trace.findLast(
+            (entry) => entry.type === "request" && entry.sequence > before,
+        );
+        let answer;
         try {
-            const result = await world.handleRpc(provider, body);
-            return { jsonrpc: "2.0", id: body.id ?? null, result };
+            const result = await pending;
+            answer = { jsonrpc: "2.0", id: body.id ?? null, result };
         } catch (error) {
-            return {
+            answer = {
                 jsonrpc: "2.0",
                 id: body?.id ?? null,
                 error: {
@@ -44,6 +52,23 @@ export async function startWorldServer({
                 },
             };
         }
+        return {
+            answer,
+            receipt: request
+                ? {
+                      requestIndex: request.requestIndex,
+                      provider,
+                      method: request.method,
+                      outcome: answer.error ? "error" : "response",
+                      ...(answer.error
+                          ? {
+                                code: answer.error.code,
+                                message: answer.error.message,
+                            }
+                          : {}),
+                  }
+                : undefined,
+        };
     }
     const handler = async (request, response) => {
         try {
@@ -89,12 +114,29 @@ export async function startWorldServer({
                 }
                 // Batch elements are started in wire order; per-request scripts
                 // still govern actual read and completion boundaries.
-                const answer = Array.isArray(body)
+                const replies = Array.isArray(body)
                     ? await Promise.all(
                           body.map((item) => rpc(rpcMatch[1], item)),
                       )
                     : await rpc(rpcMatch[1], body);
-                send(response, 200, answer);
+                const members = Array.isArray(body) ? replies : [replies];
+                // One listener per HTTP response, even for a large JSON-RPC batch.
+                // Aborted responses without finish cannot earn delivery evidence.
+                response.once("finish", () => {
+                    for (const { receipt } of members)
+                        if (receipt)
+                            world.recordExternal({
+                                type: RPC_RESPONSE_EVENT.Finished,
+                                ...receipt,
+                            });
+                });
+                send(
+                    response,
+                    200,
+                    Array.isArray(body)
+                        ? replies.map((entry) => entry.answer)
+                        : replies.answer,
+                );
                 return;
             }
             const marketMatch =

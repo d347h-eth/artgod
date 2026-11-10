@@ -50,6 +50,46 @@ describe("bounded Seaport validation snapshots", () => {
     );
     afterEach(() => vi.restoreAllMocks());
 
+    it("uses the captured hash for ownership even when numeric reads would return another fork", async () => {
+        const rpc = new HeavyMakerRpc();
+        const readExact = rpc.readContractAtBlock.bind(rpc);
+        const exact = vi
+            .spyOn(rpc, "readContractAtBlock")
+            .mockImplementation(async (params) => {
+                expect(params.block).toEqual({
+                    chainId: HEAVY_MAKER.chainId,
+                    blockNumber: HEAVY_MAKER.blockNumber,
+                    blockHash: rpc.blockHash,
+                });
+                // Numeric fixture ownerOf says the seller still owns the NFT. The
+                // captured canonical hash has the buyer instead, without a header change.
+                if (params.functionName === "ownerOf")
+                    return HEAVY_MAKER.maker as any;
+                return readExact(params);
+            });
+        const snapshot = await createSeaportOrderValidationFactory({
+            chainId: HEAVY_MAKER.chainId,
+            rpc,
+            conduits: warmConduits,
+            conduitController: HEAVY_MAKER.controller,
+            now: () => HEAVY_MAKER.now * 1000,
+        })(scope);
+        const order = heavyMakerOrder(0, {
+            side: "sell",
+            maker: HEAVY_MAKER.smallMaker,
+        });
+        expect((await snapshot.validate(order)).status).toBe(
+            ORDER_STATUS.NoBalance,
+        );
+        await snapshot.finish();
+        expect(
+            exact.mock.calls.some(
+                ([params]) => params.functionName === "ownerOf",
+            ),
+        ).toBe(true);
+        expect(rpc.reads.ownerOf).toBeUndefined();
+    });
+
     it.each([
         "getOrderStatus",
         "ownerOf",
@@ -121,7 +161,11 @@ describe("bounded Seaport validation snapshots", () => {
             ORDER_STATUS.Fillable,
         );
         expect(getBalance).toHaveBeenCalledWith(native.maker, {
-            blockNumber: HEAVY_MAKER.blockNumber,
+            block: {
+                chainId: HEAVY_MAKER.chainId,
+                blockNumber: HEAVY_MAKER.blockNumber,
+                blockHash: rpc.blockHash,
+            },
         });
         const sell = heavyMakerOrder(6, {
             side: "sell",
@@ -166,6 +210,14 @@ describe("bounded Seaport validation snapshots", () => {
             balanceOf: 1,
         });
         expect(blocks).toEqual(new Set([HEAVY_MAKER.blockNumber]));
+        expect(rpc.exactReads.length).toBeGreaterThan(0);
+        expect(
+            rpc.exactReads.every(
+                (p) =>
+                    p.block.blockNumber === HEAVY_MAKER.blockNumber &&
+                    p.block.blockHash === rpc.blockHash,
+            ),
+        ).toBe(true);
         await expect(batch.validate(heavyMakerOrder(3))).rejects.toThrow(
             OrderValidationSnapshotUnavailable,
         );

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
+import { RPC_RESPONSE_EVENT } from "../world/contract.mjs";
 
 export const PROVIDER_DISAGREEMENT_PHASE = Object.freeze({
     Acquisition: "provider-disagreement-acquisition",
@@ -27,7 +28,7 @@ export function healDisagreementProviders(world, providers, head) {
     world.setPhase(PROVIDER_DISAGREEMENT_PHASE.Healed);
 }
 
-/** A prior metadata read or an uncompleted request cannot earn fault coverage. */
+/** A prior metadata read or transport handoff cannot earn finished fault coverage. */
 export function completedDisagreementRead(
     trace,
     { afterSequence, minimumBlock },
@@ -44,9 +45,23 @@ export function completedDisagreementRead(
         const completion = trace.find(
             (entry) =>
                 entry.requestIndex === request.requestIndex &&
+                entry.sequence > request.sequence &&
                 ["response", "error"].includes(entry.type),
         );
         if (!completion) continue;
+        const delivery = trace.find(
+            (entry) =>
+                entry.type === RPC_RESPONSE_EVENT.Finished &&
+                entry.requestIndex === request.requestIndex &&
+                entry.provider === request.provider &&
+                entry.method === request.method &&
+                entry.sequence > completion.sequence &&
+                entry.outcome === completion.type &&
+                (completion.type !== "error" ||
+                    (entry.code === completion.code &&
+                        entry.message === completion.message)),
+        );
+        if (!delivery) continue;
         const read = trace.find(
             (entry) =>
                 entry.requestIndex === request.requestIndex &&
@@ -54,7 +69,11 @@ export function completedDisagreementRead(
         );
         if (
             completion.type === "response" &&
+            typeof request.params?.[1] === "string" &&
+            /^0x[0-9a-f]+$/i.test(request.params[1]) &&
             read?.view.branch === "B" &&
+            read.sequence > request.sequence &&
+            read.sequence < completion.sequence &&
             read.blockNumber >= minimumBlock
         )
             return {
@@ -62,12 +81,32 @@ export function completedDisagreementRead(
                 request,
                 read,
                 completion,
+                delivery,
             };
         // The external provider must refuse a noncanonical EIP-1898 selector.
         // This is a deliberate assertion of its modeled JSON-RPC wire boundary.
+        const selector = request.params?.[1];
+        const header = trace.findLast(
+            (entry) =>
+                entry.type === "read" &&
+                entry.method === "eth_getBlockByNumber" &&
+                entry.sequence > afterSequence &&
+                entry.sequence < request.sequence &&
+                entry.blockHash === selector?.blockHash &&
+                entry.blockNumber >= minimumBlock &&
+                trace.some(
+                    (finished) =>
+                        finished.type === "response" &&
+                        finished.requestIndex === entry.requestIndex &&
+                        finished.sequence > entry.sequence &&
+                        finished.sequence < request.sequence,
+                ),
+        );
         if (
             completion.type === "error" &&
-            request.params?.[1]?.blockHash &&
+            /^0x[0-9a-f]{64}$/i.test(selector?.blockHash ?? "") &&
+            selector.requireCanonical === true &&
+            header &&
             completion.code === -32001 &&
             /block hash is not canonical/.test(completion.message)
         )
@@ -75,6 +114,8 @@ export function completedDisagreementRead(
                 outcome: PROVIDER_READ_OUTCOME.HashRefused,
                 request,
                 completion,
+                delivery,
+                header,
             };
     }
     return undefined;

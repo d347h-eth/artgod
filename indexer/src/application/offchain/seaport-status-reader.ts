@@ -2,6 +2,7 @@ import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { SEAPORT_VALIDATION_ABI } from "../../abi/seaport-validation.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../domain/order-validation-policy.js";
 import type { OrderRecord } from "../../domain/orders.js";
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import {
     RPC_CONTRACT_BATCH_MAX_CALLS,
     type Hex,
@@ -14,8 +15,7 @@ type OrderStatus = readonly [boolean, boolean, bigint, bigint];
 /** Context-local lookahead: bounded status aggregates never replace full validation. */
 export function createSeaportStatusReader(input: {
     rpc: RpcProviderPort;
-    chainId: number;
-    blockNumber: number;
+    block: ChainBlockReference;
     candidates: readonly OrderRecord[];
     canBatch: () => boolean;
     batchFailed: () => void;
@@ -30,7 +30,7 @@ export function createSeaportStatusReader(input: {
     )) {
         const protocol = order.seaportData?.protocolAddress;
         if (
-            order.chainId !== input.chainId ||
+            order.chainId !== input.block.chainId ||
             order.kind !== "seaport" ||
             !protocol ||
             !/^0x[0-9a-f]{40}$/i.test(protocol) ||
@@ -52,7 +52,7 @@ export function createSeaportStatusReader(input: {
         try {
             const results = await input.rpc.readContracts!({
                 contracts,
-                blockNumber: input.blockNumber,
+                block: input.block,
             });
             if (results.length !== contracts.length)
                 throw new Error("Contract batch result count mismatch");
@@ -101,7 +101,7 @@ export function createSeaportStatusReader(input: {
         if (!single) {
             input.counts.perOrder++;
             single = input.rpc
-                .readContract({ ...contract, blockNumber: input.blockNumber })
+                .readContractAtBlock({ ...contract, block: input.block })
                 .then((result) => {
                     if (!isOrderStatus(result))
                         throw new Error(
