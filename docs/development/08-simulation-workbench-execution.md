@@ -1,6 +1,9 @@
 # Simulation Workbench Execution
 
-Updated 2026-11-09. The workbench and five qualification follow-ups have a fresh
+Historical full-cohort evidence below is dated 2026-11-09. The
+[PR 15 review follow-up](09-simulation-qualification-closure.md#pr-15-review-follow-up)
+records subsequent production/assertion corrections and dated hosted evidence.
+The workbench and five qualification follow-ups have a fresh
 full-build local execution at source `0fc446b4`. All 26 cases pass strict machine
 replay; ten retain failed properties. This guide describes the tooling contract;
 source commands and retained reports own execution evidence. Read the

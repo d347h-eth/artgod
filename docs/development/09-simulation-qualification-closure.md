@@ -172,6 +172,10 @@ failures without an explicit, justified decision.
 
 ## Final Disposition
 
+This section records the 2026-11-09 closure. The dated
+[PR 15 follow-up](#pr-15-review-follow-up) below records subsequent corrections
+and hosted evidence without changing those historical results.
+
 Local execution closed on 2026-11-09 at executable source `0fc446b4`, with the
 fresh full guest and frozen controller. All 26 declared cases actually recorded
 and replayed, with exact serial and full-disk parity, no missing cases and no
@@ -207,3 +211,117 @@ merge/release qualification. Remaining current-system scenario families and
 unreached guards are listed with the milestone evidence in the execution guide.
 Future P2P and multichain work, desktop packaging/rendering and host portability
 retain their separate scopes. No push, PR, hosted success or merge is claimed.
+
+## PR 15 Review Follow-up
+
+Updated 2026-11-10, before publishing the review corrections. The independent
+baseline review found concrete production, fixture and assertion defects. These
+corrections preserve strict replay and failed-property reporting:
+
+- Full order validation now uses one exact canonical block hash for scalar
+  contract reads, status aggregates, individual fallback and native balances.
+  Endpoint retries retain that selector. An endpoint that cannot serve the hash
+  leaves validation unavailable for retry; it cannot turn uncertainty into an
+  invalid order or silently substitute a numeric-height read. Existing
+  allocation, retry and snapshot-lifetime rules remain in force.
+- Offline order-table replacement retains every field of validation demand and
+  completed proof belonging to surviving orders. Omitted orders retire their
+  dependencies. The owning cutover transaction includes replacement, dependency
+  cleanup and foreign-key verification, with enforcement restored on failure.
+  This uses the private offline maintenance connection. Its whole-database
+  foreign-key check is not bounded by the row-copy batch size. Historical lost
+  proof is not reconstructed.
+- Split-provider recovery consumes the actual `range_from`/`range_to` storage
+  fields, with a real migrated row in the guard test. Untouched Seaport status
+  is modeled as zero filled and zero size, separately from a fulfilled order.
+  Signed full-validation compatibility checks exercise those wire values.
+- Final HTTP convergence checks both canonical token holders, collection/detail
+  asks and exact passive market-bid membership after the canonical order oracle.
+  Collection requests explicitly use the public `token_status=all` contract;
+  the API's legitimate default is listed tokens. The existing A104 activity
+  check now requires the exact fixture fulfillment identity and economics,
+  while the winning B history still rejects its orphan sale. Token-detail paths
+  use the same shared route owner as the backend and frontend.
+- Read-only observations now include SQLite collection repair intent separately
+  from NATS messages. At the fixed endpoint, due eligible intent must settle.
+  Future retries, immature ranges and inactive/changed-anchor intent remain
+  explicit deferred evidence. This checks this single collection's scheduling
+  boundary; it does not prove global scheduler fairness, retirement of every
+  future retry or another RPC acquisition merely from a retained intent.
+- The general proof oracle directly compares observed time/block requirements
+  without invoking the production proof predicate. It still distinguishes
+  retained cache, witnessed terminal state and fresh work. RPC HTTP finish
+  receipts establish transport completion, with no claim of client consumption
+  or a particular SQL fence.
+
+The initial hosted setup correction, `0171408e`, resolves the installed
+`mke2fs` path without changing the fixed engine environment. The workflow also
+retains real tool-image build stdout/stderr, Dockerfile and capsule diagnostics.
+The old 600-second build timeout has not recurred; its original cause remains
+unknown. No timeout was increased and no host tooling or security configuration
+was changed.
+
+At this update, [hosted run 42745082425](https://github.com/d347h-eth/artgod/actions/runs/42745082425)
+has completed its first seven-case shard. All 429 supporting tests, the guest
+build and eight-check M0 pass. All seven cases execute and their reported
+serial/full-disk replay gates pass. Four properties pass; bootstrap and weighted
+fork fail on real worker SIGSEGV exits, and provider disagreement retains the
+known coherence counterexample. The second shard is still running. These are
+executed application failures, distinct from the earlier setup failures that
+left all fourteen cases missing.
+
+The first shard also supplies a genuine VM stale-v2 witness, `run-K3MM13`, at
+synthetic merge source `b4269c05` over PR head `0171408e`. All six cut flags are
+reached, the Domain process is unchanged, the Reorg process actually restarts,
+and the original ten-second deadline remains. Snapshot-change refusal precedes
+canonical acquisition and final settlement. This qualifies that exact history;
+it does not clear other crashes, qualify uninterrupted Reorg timing, or prove
+source-only generation fencing. GitHub's default PR checkout uses a synthetic
+merge commit; compare checkout/build provenance and byte pins rather than
+requiring its source SHA to equal the PR-head SHA.
+
+Before the final collection-scope correction, full guest `guest-nS6vbO` at
+`bd16df6c` passes all eight M0 checks and strict replay in `run-9NvboK`. Both
+provider reproducers reach a new proof and correct `NoBalance` state; maintenance
+retains saved coverage and reaches its later source/authority checks. All three
+then fail the new HTTP membership assertion because the request used the default
+listed scope. Those failed pairs remain immutable. The owning request correction
+is `f25408af`; it keeps exact membership strict and adds a guard through the
+actual collection HTTP mapper. Full-runtime acceptance of that corrected source
+and its next hosted run remain pending at this dated update.
+
+Supporting evidence is under `tmp/ci-fix-monitor-ehcqm0qw/`: all 456 actual
+workbench tests pass with zero skips; the full indexer strict TypeScript graph
+passes; 96 focused RPC/validation/durable/transport checks, 35 maintenance tests
+and seven existing frontend API tests pass. Scoped formatting and documentation
+verification pass. Sandboxed file-wrapper-only results are not counted as inner
+test execution. The hosted shard audit admits report/serial/protocol byte pins;
+it has not rerun the disk comparison locally. Original-log hosted-artifact
+relocation/replay is a separate check currently in progress.
+
+The remaining review items need separate investigation or authored coverage:
+
+- Attribute runtime crashes from a concrete first-fault observation before
+  selecting an engine/runtime correction. A native non-crash or exact replay
+  does not assign cause. Existing failures remain failed.
+- Choose a published, digest-pinned complete engine closure and an explicit
+  update policy. Saved per-run capsules are pinned, while fresh apt builds
+  can drift. Registry/publication ownership is a separate decision; drift is
+  not an established cause of the crashes.
+- Add a production-created event-height obligation under lag/healing, then a
+  source-only newer observation while a result is held. An inline maker proof
+  may complete without a numeric floor being retained in the demand table.
+  The required witness must follow the actual owning continuation.
+- Add incomplete REST traversal versus newer stream input and late duplicates,
+  source cancellation of the same orphan-filled order through rollback, and
+  precisely observed accepted-input/SQL/ACK/outbox handoffs. Existing separate
+  witnesses cannot be combined into those claims. A second collection sentinel
+  and representative ERC1155 batch/reorg need external-model/oracle extensions;
+  a nonzero conduit comes after those baseline cases.
+- Complete HTTP activity-feed projection, pagination and daily offchain-history
+  assertions separately. Exact storage fill execution/item/attribution and the
+  fixture sale assertion do not establish a complete HTTP feed oracle.
+
+No failed case is promoted to an expected pass. Native controls remain selected
+diagnostics outside CI. Optimistic HTTP semantics, trading decision authority,
+future chains/orderbooks and release qualification retain their existing scopes.
