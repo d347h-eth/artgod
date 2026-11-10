@@ -261,14 +261,16 @@ The old 600-second build timeout has not recurred; its original cause remains
 unknown. No timeout was increased and no host tooling or security configuration
 was changed.
 
-At this update, [hosted run 42745082425](https://github.com/d347h-eth/artgod/actions/runs/42745082425)
-has completed its first seven-case shard. All 429 supporting tests, the guest
-build and eight-check M0 pass. All seven cases execute and their reported
-serial/full-disk replay gates pass. Four properties pass; bootstrap and weighted
-fork fail on real worker SIGSEGV exits, and provider disagreement retains the
-known coherence counterexample. The second shard is still running. These are
-executed application failures, distinct from the earlier setup failures that
-left all fourteen cases missing.
+[Hosted run 42745082425](https://github.com/d347h-eth/artgod/actions/runs/42745082425)
+completed both seven-case shards before these review fixes. Each passes all 429
+supporting tests, the guest build and eight-check M0. All fourteen cases execute
+with no missing entries; all fourteen reported serial/full-disk replay gates
+pass. Nine application properties pass and five fail: bootstrap and weighted
+fork have real worker SIGSEGV exits, both provider-disagreement cases retain
+the coherence defect, and maintenance loses saved proof. These are executed
+application failures, distinct from the earlier setup failures that left all
+fourteen cases missing. The successful image-build diagnostics are retained,
+including the actual Docker stderr, Dockerfile and capsule.
 
 The first shard also supplies a genuine VM stale-v2 witness, `run-K3MM13`, at
 synthetic merge source `b4269c05` over PR head `0171408e`. All six cut flags are
@@ -290,14 +292,32 @@ is `f25408af`; it keeps exact membership strict and adds a guard through the
 actual collection HTTP mapper. Full-runtime acceptance of that corrected source
 and its next hosted run remain pending at this dated update.
 
-Supporting evidence is under `tmp/ci-fix-monitor-ehcqm0qw/`: all 456 actual
+Supporting evidence is under `tmp/ci-fix-monitor-ehcqm0qw/`: all 503 actual
 workbench tests pass with zero skips; the full indexer strict TypeScript graph
 passes; 96 focused RPC/validation/durable/transport checks, 35 maintenance tests
 and seven existing frontend API tests pass. Scoped formatting and documentation
 verification pass. Sandboxed file-wrapper-only results are not counted as inner
 test execution. The hosted shard audit admits report/serial/protocol byte pins;
-it has not rerun the disk comparison locally. Original-log hosted-artifact
-relocation/replay is a separate check currently in progress.
+it has not rerun the disk comparison locally. The corrected collection-scope
+guest at `0308aa38`, `guest-94Hjnl`, also passes all eight substrate checks and
+strict replay in `run-PrvSYR` (186.254 seconds). Final corrected-source application
+and hosted acceptance remain pending at this update.
+
+One downloaded genuine failed bootstrap bundle passes its 17-member byte/profile
+audit, but initially stops at image admission on this Docker store: the recorded
+config digest is not addressable after load, while the same archive's manifest
+is addressable. The owning adapter now supports that concrete convention
+difference by verifying the pinned archive, its single OCI manifest, recorded
+config, uncompressed layer graph, platform and daemon descriptor/ordered RootFS.
+It uses only the resulting immutable address, with no image search, implicit
+load/pull, retagging, replacement build or recorded-file edit. Original v1 API
+returns are preserved. Separate admission evidence is retained in container
+artifacts and new run/replay reports, so existing exact report export also
+preserves it. Unsupported graphs/address directions fail closed when the
+original address is unavailable. This fixes a bounded adapter incompatibility;
+it does not choose the deferred engine publication policy or promise arbitrary
+Docker/host portability. The real original-log relocated replay and unchanged
+member/inode bookend are in progress at this dated update.
 
 The remaining review items need separate investigation or authored coverage:
 
