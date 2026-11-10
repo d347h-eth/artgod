@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { buildTokenDetailPath } from "../../../shared/http/collection-routes.ts";
 import {
+    COLLECTION_DETAIL_QUERY_PARAMS,
+    TOKEN_BROWSER_STATUS,
+} from "../../../shared/types/browse.ts";
+import {
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
 } from "../../../shared/market-data/orders.ts";
@@ -14,6 +18,23 @@ export const HTTP_PROJECTION_PROPERTY = Object.freeze({
     Ask: "http-projection-current-ask",
     BidBook: "http-projection-passive-market-membership",
 });
+
+/** The collection API defaults to listed-only. A complete projection still
+ * needs both canonical tokens when every ask has disappeared. */
+export function buildFullCollectionProjectionUrl(collectionUrl) {
+    const url = new URL(collectionUrl);
+    assert.equal(
+        url.search,
+        "",
+        "Full collection projection needs an unfiltered base URL",
+    );
+    assert.equal(url.hash, "");
+    url.searchParams.set(
+        COLLECTION_DETAIL_QUERY_PARAMS.TokenStatus,
+        TOKEN_BROWSER_STATUS.All,
+    );
+    return url.href;
+}
 
 export class HttpProjectionFailure extends Error {
     constructor(property, evidence, cause) {

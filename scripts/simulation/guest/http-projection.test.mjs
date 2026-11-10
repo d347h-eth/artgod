@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSimulationWorld } from "../world/world.mjs";
+import { GetCollectionDetailHttpAdapter } from "../../../backend/src/http/handlers/collections/get-collection-detail.ts";
+import { PAGINATION_QUERY_PARAMS } from "../../../shared/config/pagination.ts";
+import {
+    COLLECTION_DETAIL_QUERY_PARAMS,
+    TOKEN_BROWSER_STATUS,
+} from "../../../shared/types/browse.ts";
 import { buildTokenDetailPath } from "../../../shared/http/collection-routes.ts";
 import { buildTokenBiddingBidBookPath } from "../../../shared/http/trading-routes.ts";
 import {
@@ -16,14 +22,16 @@ import {
 } from "../../../shared/types/trading.ts";
 import {
     assertHttpProjection,
+    buildFullCollectionProjectionUrl,
     HttpProjectionFailure,
     HTTP_PROJECTION_PROPERTY as PROPERTY,
 } from "./http-projection.mjs";
 
-function fixture() {
-    const { ledger } = createSimulationWorld({ epochSeconds: 1_800_000_000 });
-    const branch = "B",
-        head = 107;
+function fixture({ branch = "B", head = 107, transferOnly = false } = {}) {
+    const { ledger } = createSimulationWorld({
+        epochSeconds: 1_800_000_000,
+        transferOnly,
+    });
     const state = ledger.stateAt(branch, head);
     const chain = { publicChainId: ledger.chainId };
     const collection = {
@@ -122,6 +130,88 @@ test("final HTTP projection checks both canonical holders, collection/detail ask
     );
     assert.equal(f.paths.length, 4);
     assert.equal("freshProof" in result, false);
+});
+
+test("an explicit full-scope collection request preserves both tokens when the correct ask is absent", async () => {
+    const f = fixture({ branch: "A", head: 104, transferOnly: true });
+    f.context.snapshot.orders[0].fillability_status = ORDER_STATUS.NoBalance;
+    for (const token of [f.tokens[0], f.details[0].token]) {
+        token.listingPrice = null;
+        token.listingCurrency = null;
+    }
+    const inputs = [];
+    const adapter = new GetCollectionDetailHttpAdapter({
+        getCollectionDetail(input) {
+            inputs.push(input);
+            const items =
+                input.tokenStatus === TOKEN_BROWSER_STATUS.All
+                    ? f.tokens
+                    : f.tokens.filter((token) => token.listingPrice !== null);
+            return {
+                ...f.context.collectionHttp,
+                tokens: { items: items.slice(0, input.limit) },
+            };
+        },
+    });
+    const base = `${f.context.origin}/api/${f.context.chainRef}/${f.context.collectionRef}`;
+    const read = (url) =>
+        adapter.handle({
+            raw: { url },
+            params: {
+                chain_ref: f.context.chainRef,
+                collection_ref: f.context.collectionRef,
+            },
+        });
+    const listed = await read(base);
+    assert.equal(inputs[0].tokenStatus, TOKEN_BROWSER_STATUS.Listed);
+    assert.deepEqual(listed.tokens.items, []);
+    await assert.rejects(
+        assertHttpProjection({ ...f.context, collectionHttp: listed }),
+        { failureProperty: PROPERTY.Collection },
+    );
+    const fullUrl = buildFullCollectionProjectionUrl(base);
+    assert.equal(
+        new URL(fullUrl).searchParams.get(
+            COLLECTION_DETAIL_QUERY_PARAMS.TokenStatus,
+        ),
+        TOKEN_BROWSER_STATUS.All,
+    );
+    const full = await read(fullUrl);
+    assert.equal(inputs[1].tokenStatus, TOKEN_BROWSER_STATUS.All);
+    assert.equal(inputs[1].owner, undefined);
+    assert.equal(inputs[1].cursor, undefined);
+    assert.deepEqual(inputs[1].traits, []);
+    assert.deepEqual(inputs[1].traitRanges, []);
+    const result = await assertHttpProjection({
+        ...f.context,
+        collectionHttp: full,
+    });
+    assert.equal(result.passed, true);
+    assert.equal(result.expectedAskVisible, false);
+    assert.equal(
+        result.tokens[0].currentHolder,
+        f.context.ledger.addresses.buyer,
+    );
+    full.tokens.items = [];
+    await assert.rejects(
+        assertHttpProjection({ ...f.context, collectionHttp: full }),
+        { failureProperty: PROPERTY.Collection },
+    );
+});
+
+test("a full collection request cannot silently inherit another token/owner/cursor filter", () => {
+    for (const query of [
+        `${COLLECTION_DETAIL_QUERY_PARAMS.TokenStatus}=${TOKEN_BROWSER_STATUS.Listed}`,
+        `${COLLECTION_DETAIL_QUERY_PARAMS.Owner}=someone`,
+        `${PAGINATION_QUERY_PARAMS.Cursor}=older-page`,
+    ])
+        assert.throws(
+            () =>
+                buildFullCollectionProjectionUrl(
+                    `http://127.0.0.1:42722/api/ethereum/fixture?${query}`,
+                ),
+            /unfiltered base URL/,
+        );
 });
 
 test("the selected A-branch cut exposes its buyer holder and hides actual protocol terminals", async () => {

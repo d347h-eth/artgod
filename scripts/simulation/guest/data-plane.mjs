@@ -83,7 +83,10 @@ import {
     assertPassiveBidBook,
     PASSIVE_BID_BOOK_STAGE,
 } from "./passive-bid-book.mjs";
-import { assertHttpProjection } from "./http-projection.mjs";
+import {
+    assertHttpProjection,
+    buildFullCollectionProjectionUrl,
+} from "./http-projection.mjs";
 import {
     observeGapRepairIntents,
     inspectGapRepairIntents,
@@ -801,9 +804,10 @@ export async function runDataPlane(
         );
         checks[CHECK.SourceIngestion] = true;
         const api = `http://127.0.0.1:42722/api/ethereum/${ledger.collectionSlug}`;
+        const collectionApi = buildFullCollectionProjectionUrl(api);
         activeCheck = CHECK.HttpProjection;
         checks[activeCheck] = false;
-        const initialHttp = await fetchJson(api);
+        const initialHttp = await fetchJson(collectionApi);
         assert.ok(
             initialHttp.tokens.items.some(
                 (token) =>
@@ -973,7 +977,7 @@ export async function runDataPlane(
             let saleHttp;
             await eventually(
                 async () => {
-                    saleHttp = await fetchJson(api);
+                    saleHttp = await fetchJson(collectionApi);
                     return !saleHttp.tokens.items.some(
                         (token) => token.tokenId === "1" && token.listingPrice,
                     );
@@ -1302,7 +1306,7 @@ export async function runDataPlane(
                 "canonical B state and orderbook convergence",
                 180_000,
             );
-            const canonicalHttp = await fetchJson(api);
+            const canonicalHttp = await fetchJson(collectionApi);
             assert.ok(
                 canonicalHttp.tokens.items.some(
                     (token) =>
@@ -1553,7 +1557,7 @@ export async function runDataPlane(
         checkpoints.push({
             name: "settled",
             state: settledState,
-            http: await fetchJson(api),
+            http: await fetchJson(collectionApi),
             acquisitionIntents,
         });
         activeCheck = CHECK.ChainAcquisition;
@@ -1655,7 +1659,7 @@ export async function runDataPlane(
             const listing = current.orders.find(
                 (order) => order.id === ledger.orders.listing.orderHash,
             );
-            const actualHttp = await fetchJson(api);
+            const actualHttp = await fetchJson(collectionApi);
             checks[CHECK.ProviderDisagreement] =
                 listing?.fillability_status === ORDER_STATUS.NoBalance &&
                 !actualHttp.tokens.items.some(
@@ -1684,7 +1688,7 @@ export async function runDataPlane(
             branch: winningView.branch,
             head: winningView.head,
             snapshot: settledState,
-            collectionHttp: await fetchJson(api),
+            collectionHttp: await fetchJson(collectionApi),
         });
         checkpoints.push({ name: "final-http-projection", ...httpProjection });
         checks[activeCheck] = true;
