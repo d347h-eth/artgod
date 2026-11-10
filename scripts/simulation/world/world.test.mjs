@@ -91,6 +91,42 @@ test("independent providers expose authentic fork history, receipt and ownership
     assert.deepEqual(commonA, commonB);
 });
 
+test("Seaport status wire distinguishes untouched orders, fulfillment and maker-counter invalidation", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    world.advanceHead(107);
+    const { seaport, bidder } = world.ledger.addresses;
+    for (const [provider, block, name, expected] of [
+        ["a", 103, "listing", [false, false, 0n, 0n]],
+        ["a", 103, "bid", [false, false, 0n, 0n]],
+        ["a", 104, "listing", [true, false, 1n, 1n]],
+        ["a", 104, "bid", [false, false, 0n, 0n]],
+        ["a", 105, "bid", [false, false, 0n, 0n]],
+        ["b", 104, "listing", [false, false, 0n, 0n]],
+        ["b", 104, "bid", [false, false, 0n, 0n]],
+    ]) {
+        assert.deepEqual(
+            await call(
+                world,
+                provider,
+                seaport,
+                "getOrderStatus",
+                [world.ledger.orders[name].orderHash],
+                wireQuantity(block),
+            ),
+            expected,
+            `${provider}:${block}:${name}`,
+        );
+    }
+    assert.equal(
+        await call(world, "a", seaport, "getCounter", [bidder], "0x69"),
+        1n,
+    );
+    assert.equal(
+        await call(world, "b", seaport, "getCounter", [bidder], "0x69"),
+        0n,
+    );
+});
+
 test("actual viem deployless multicall decodes two order statuses from one coherent provider block", async () => {
     const world = createSimulationWorld({ epochSeconds });
     world.advanceHead(107);
@@ -116,16 +152,16 @@ test("actual viem deployless multicall decodes two order statuses from one coher
             allowFailure: true,
         });
     assert.deepEqual(await batch("a", 103), [
-        { status: "success", result: [false, false, 0n, 1n] },
-        { status: "success", result: [false, false, 0n, 1n] },
+        { status: "success", result: [false, false, 0n, 0n] },
+        { status: "success", result: [false, false, 0n, 0n] },
     ]);
     assert.deepEqual(await batch("a", 104), [
         { status: "success", result: [true, false, 1n, 1n] },
-        { status: "success", result: [false, false, 0n, 1n] },
+        { status: "success", result: [false, false, 0n, 0n] },
     ]);
     assert.deepEqual(await batch("b", 104), [
-        { status: "success", result: [false, false, 0n, 1n] },
-        { status: "success", result: [false, false, 0n, 1n] },
+        { status: "success", result: [false, false, 0n, 0n] },
+        { status: "success", result: [false, false, 0n, 0n] },
     ]);
     const requests = world.trace.filter((entry) => entry.type === "request");
     assert.equal(requests.length, 3);
@@ -454,8 +490,8 @@ test("repeatable status gates exclude the captured old counter and preserve orig
     assert.equal(world.snapshot().responseGates[1].pending, 2);
     world.releaseResponseGate("fresh-status");
     assert.deepEqual(await Promise.all(fresh), [
-        [false, false, 0n, 1n],
-        [false, false, 0n, 1n],
+        [false, false, 0n, 0n],
+        [false, false, 0n, 0n],
     ]);
     const final = world.snapshot().responseGates;
     assert.equal(final[0].captures.length, 1);
@@ -539,7 +575,7 @@ test("actual deployless status aggregates are held but ownership-only aggregates
         false,
         false,
         "0",
-        "1",
+        "0",
     ]);
     assert.equal(gate.captures[0].selector, "0x69");
     assert.equal(gate.captures[0].view.branch, "B");
@@ -550,7 +586,7 @@ test("actual deployless status aggregates are held but ownership-only aggregates
     world.releaseResponseGate("bid-status");
     const result = await pending;
     assert.equal(result[0].toLowerCase(), a.seller);
-    assert.deepEqual(result[1], [false, false, 0n, 1n]);
+    assert.deepEqual(result[1], [false, false, 0n, 0n]);
     assert.equal(world.snapshot().responseGates[0].captures.length, 1);
 });
 
@@ -736,7 +772,7 @@ test("transfer-only world separates NFT ownership from protocol fill and explici
         await call(world, "a", a.seaport, "getOrderStatus", [
             world.ledger.orders.listing.orderHash,
         ]),
-        [false, false, 0n, 1n],
+        [false, false, 0n, 0n],
     );
     assert.equal(
         await call(world, "a", a.seaport, "getCounter", [a.bidder], "0x69"),

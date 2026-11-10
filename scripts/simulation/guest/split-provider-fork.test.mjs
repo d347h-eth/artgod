@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { encodeFunctionData } from "viem";
+import { db, setDbPath } from "../../../shared/database/db.ts";
+import { MigrationRunner } from "../../../shared/database/migrations.ts";
+import { createArtifactRunDirectory } from "../artifacts.mjs";
 import { createSimulationWorld } from "../world/world.mjs";
 import { CONTRACT_ABI, wireQuantity } from "../world/wire.mjs";
 import fork from "../scenarios/fork.json" with { type: "json" };
@@ -616,18 +621,40 @@ test("prematurely consumed A105 or a changed ancestor cannot earn the pre-healin
 
 test("a genuine earlier supported rollback can retain resync debt while providers still conflict", async () => {
     const f = await fixture();
+    const directory = await createArtifactRunDirectory(
+        fileURLToPath(
+            new URL(
+                "../../../tmp/simulation-split-provider-tests/",
+                import.meta.url,
+            ),
+        ),
+        "recovery-",
+    );
+    const databasePath = path.join(directory, "artgod.sqlite");
+    // Use the production migrations and raw observation shape. Handwritten row
+    // aliases previously let this helper reject real retained resync work.
+    setDbPath(databasePath);
     try {
+        await new MigrationRunner(
+            fileURLToPath(
+                new URL("../../../database/migrations/", import.meta.url),
+            ),
+        ).runMigrations();
+        db.prepare(
+            "INSERT INTO chain_reorg_recoveries (chain_id,recovery_id,version,revision,checked_block,stored_hash,observed_hash,phase,retry_at,range_from,range_to,target_block) VALUES (1,'split-resync',1,1,104,?,?,?,0,104,106,106)",
+        ).run(
+            f.world.ledger.blockAt("A", 104).hash,
+            f.world.ledger.blockAt("B", 104).hash,
+            REORG_RECOVERY_PHASE.Resync,
+        );
+        const recovery = db
+            .prepare("SELECT * FROM chain_reorg_recoveries WHERE chain_id=1")
+            .get();
+        assert.equal(recovery.range_from, 104);
+        assert.equal(recovery.range_to, 106);
+        assert.equal("from_block" in recovery, false);
+        assert.equal("to_block" in recovery, false);
         const observe = f.context.observe;
-        const recovery = {
-            phase: REORG_RECOVERY_PHASE.Resync,
-            revision: 1,
-            checked_block: 104,
-            stored_hash: f.world.ledger.blockAt("A", 104).hash,
-            observed_hash: f.world.ledger.blockAt("B", 104).hash,
-            from_block: 104,
-            to_block: 106,
-            target_block: 106,
-        };
         f.context.observe = () => {
             const state = observe();
             return f.world.snapshot().phase === PHASE.Split
@@ -649,6 +676,8 @@ test("a genuine earlier supported rollback can retain resync debt while provider
         assert.equal(result.reached.explicitlyHealed, true);
         assert.equal("owners" in result.healingPremise, false);
     } finally {
+        db.raw.close();
+        setDbPath(databasePath);
         await f.close();
     }
 });
@@ -688,37 +717,53 @@ test("a cleared earlier resync needs actual canonical headers and coverage, not 
 });
 
 test("an unrelated or mismatched retained recovery cannot replace a lost delayed check", async () => {
-    const f = await fixture();
-    try {
-        const observe = f.context.observe;
-        f.context.observe = () => {
-            const state = observe();
-            return f.world.snapshot().phase === PHASE.Split
-                ? {
-                      ...state,
-                      revision: 1,
-                      canonicalChecks: [],
-                      recovery: [
-                          {
-                              phase: REORG_RECOVERY_PHASE.Resync,
-                              revision: 1,
-                              checked_block: 104,
-                              stored_hash: f.world.ledger.blockAt("A", 104)
-                                  .hash,
-                              observed_hash: f.world.ledger.blockAt("A", 104)
-                                  .hash,
-                              from_block: 104,
-                              to_block: 106,
-                              target_block: 106,
-                          },
-                      ],
-                  }
-                : state;
-        };
-        await assert.rejects(executeSplitProviderFork(config, f.context), {
-            property: PROPERTY.Window,
-        });
-    } finally {
-        await f.close();
+    for (const alter of [
+        (row, world) => ({
+            ...row,
+            observed_hash: world.ledger.blockAt("A", 104).hash,
+        }),
+        (row) => ({ ...row, revision: 0 }),
+        (row) => ({ ...row, range_from: 103 }),
+        (row) => ({ ...row, range_from: 106, range_to: 105 }),
+        (row) => ({ ...row, range_to: 107 }),
+        (row) => ({ ...row, target_block: 107 }),
+    ]) {
+        const f = await fixture();
+        try {
+            const observe = f.context.observe;
+            const recovery = alter(
+                {
+                    phase: REORG_RECOVERY_PHASE.Resync,
+                    revision: 1,
+                    checked_block: 104,
+                    stored_hash: f.world.ledger.blockAt("A", 104).hash,
+                    observed_hash: f.world.ledger.blockAt("B", 104).hash,
+                    range_from: 104,
+                    range_to: 106,
+                    target_block: 106,
+                },
+                f.world,
+            );
+            f.context.observe = () => {
+                const state = observe();
+                return f.world.snapshot().phase === PHASE.Split
+                    ? {
+                          ...state,
+                          revision: 1,
+                          canonicalChecks: [],
+                          recovery: [recovery],
+                      }
+                    : state;
+            };
+            await assert.rejects(executeSplitProviderFork(config, f.context), {
+                property: PROPERTY.Window,
+            });
+            assert.equal(
+                f.world.trace.some((entry) => entry.type === EVENT.Healed),
+                false,
+            );
+        } finally {
+            await f.close();
+        }
     }
 });

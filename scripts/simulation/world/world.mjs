@@ -498,11 +498,12 @@ export function createSimulationWorld(scenario = {}) {
                     )
                 )
                     throw invalid("Unknown Seaport order hash");
+                // Untouched Seaport storage has no recorded fill fraction.
                 result = state.statuses.get(lower(args[0])) ?? [
                     false,
                     false,
                     0n,
-                    1n,
+                    0n,
                 ];
                 break;
             case "getCounter":

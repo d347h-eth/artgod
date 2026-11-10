@@ -14,6 +14,7 @@ import {
 } from "../../../indexer/src/domain/orders.ts";
 import { createSimulationWorld } from "./world.mjs";
 import { wireQuantity } from "./wire.mjs";
+import { RESPONSE_GATE_FUNCTION } from "./contract.mjs";
 
 // Compatibility only: actual production parsers/validator consume fixture wire.
 // This is not a replacement for the guest's real runtime/NATS/SQLite journey.
@@ -57,11 +58,30 @@ test("the cancellation fixture reaches the production lifecycle normalizer witho
     );
 });
 
-test("actual full snapshot validates both signed fixture orders and rejects corrupt signature", async () => {
+test("actual full snapshot validates signed untouched orders, protocol terminals and corrupt signatures", async () => {
     const world = createSimulationWorld();
     await world.signMarketOrders();
     const request = (method, params = []) =>
         world.handleRpc("default", { jsonrpc: "2.0", id: 1, method, params });
+    const statusResults = [];
+    const readContract = async (
+        { address, abi, functionName, args },
+        selector,
+    ) => {
+        const data = encodeFunctionData({ abi, functionName, args });
+        const value = await request("eth_call", [
+            { to: address, data },
+            selector,
+        ]);
+        const result = decodeFunctionResult({
+            abi,
+            functionName,
+            data: value,
+        });
+        if (functionName === RESPONSE_GATE_FUNCTION.OrderStatus)
+            statusResults.push(result);
+        return result;
+    };
     const port = {
         getBlockNumber: async () =>
             Number(BigInt(await request("eth_blockNumber"))),
@@ -78,22 +98,18 @@ test("actual full snapshot validates both signed fixture orders and rejects corr
                 transactions: raw.transactions,
             };
         },
-        readContract: async ({
-            address,
-            abi,
-            functionName,
-            args,
-            blockNumber,
-        }) => {
-            const data = encodeFunctionData({ abi, functionName, args });
-            const value = await request("eth_call", [
-                { to: address, data },
+        readContract: ({ blockNumber, ...contract }) =>
+            readContract(
+                contract,
                 blockNumber === undefined
                     ? "latest"
                     : wireQuantity(blockNumber),
-            ]);
-            return decodeFunctionResult({ abi, functionName, data: value });
-        },
+            ),
+        readContractAtBlock: ({ block, ...contract }) =>
+            readContract(contract, {
+                blockHash: block.blockHash,
+                requireCanonical: true,
+            }),
     };
     const createSnapshot = createSeaportOrderValidationFactory({
         chainId: 1,
@@ -114,6 +130,7 @@ test("actual full snapshot validates both signed fixture orders and rejects corr
         },
         conduitController: world.ledger.addresses.conduitController,
     });
+    const orders = [];
     for (const [name, recordType] of [
         ["listing", OPENSEA_REST_EVENT_TYPE.Listing],
         ["bid", OPENSEA_REST_EVENT_TYPE.ItemOffer],
@@ -128,6 +145,7 @@ test("actual full snapshot validates both signed fixture orders and rejects corr
             chainId: 1,
             collectionId: 1,
         };
+        orders.push(order);
         const snapshot = await createSnapshot({
             chainId: 1,
             minimumBlock: null,
@@ -150,6 +168,26 @@ test("actual full snapshot validates both signed fixture orders and rejects corr
             ORDER_STATUS.Invalid,
         );
         await invalidSnapshot.finish();
+    }
+    // A 0/0 untouched order must reach ownership/funding checks, rather than
+    // being mistaken for a completed fill by the production validator.
+    assert.deepEqual(statusResults, [
+        [false, false, 0n, 0n],
+        [false, false, 0n, 0n],
+    ]);
+    for (const [block, order, status, protocolStatus] of [
+        [104, orders[0], ORDER_STATUS.Filled, [true, false, 1n, 1n]],
+        [105, orders[1], ORDER_STATUS.Cancelled, [false, false, 0n, 0n]],
+    ]) {
+        world.advanceHead(block);
+        const snapshot = await createSnapshot({
+            chainId: 1,
+            minimumBlock: null,
+            candidates: [order],
+        });
+        assert.equal((await snapshot.validate(order)).status, status);
+        await snapshot.finish();
+        assert.deepEqual(statusResults.at(-1), protocolStatus);
     }
     assert.ok(world.trace.some((entry) => entry.functionName === "ownerOf"));
     assert.ok(world.trace.some((entry) => entry.functionName === "balanceOf"));

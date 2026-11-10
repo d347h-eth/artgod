@@ -122,9 +122,9 @@ function healingPremise(initial, current, ledger, window, resyncPhase) {
                 ledger.blockAt(RETAINED.branch, row.checked_block).hash &&
             row.observed_hash ===
                 ledger.blockAt(CANONICAL.branch, row.checked_block).hash &&
-            row.from_block > ledger.forkBlock &&
-            row.from_block <= row.to_block &&
-            row.to_block <= row.target_block &&
+            row.range_from > ledger.forkBlock &&
+            row.range_from <= row.range_to &&
+            row.range_to <= row.target_block &&
             row.target_block <= CANONICAL.head,
     );
     if (recovery)
