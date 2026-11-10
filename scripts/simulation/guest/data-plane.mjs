@@ -80,6 +80,12 @@ import {
     assertPassiveBidBook,
     PASSIVE_BID_BOOK_STAGE,
 } from "./passive-bid-book.mjs";
+import { assertHttpProjection } from "./http-projection.mjs";
+import {
+    observeGapRepairIntents,
+    inspectGapRepairIntents,
+    assertGapRepairIntentsSettled,
+} from "./gap-intents.mjs";
 
 const SIMULATION_STREAM_PREFIX = "simulation";
 
@@ -254,6 +260,11 @@ function observe(database, collectionId) {
             return {
                 makerRuns,
                 collectionId,
+                gapRepairIntents: observeGapRepairIntents(
+                    database,
+                    1,
+                    collectionId,
+                ),
                 fillExecutions: database
                     .prepare(
                         "SELECT id,chain_id,kind,protocol_address,tx_hash,log_index,block_number,block_hash,block_timestamp,price_exclusion,total_price,currency,nft_quantity FROM fill_executions WHERE chain_id=1 ORDER BY id",
@@ -1482,6 +1493,10 @@ export async function runDataPlane(
         await closeSources();
         const manager = await broker.connection.jetstreamManager();
         let progressStopped = false;
+        let settledState;
+        let acquisitionIntents;
+        activeCheck = CHECK.ChainAcquisition;
+        checks[activeCheck] = false;
         await eventually(
             async () => {
                 const current = snapshot();
@@ -1501,8 +1516,15 @@ export async function runDataPlane(
                     // advancing tip forever while every business job is done.
                     return false;
                 }
-                return (
+                const intents = inspectGapRepairIntents({
+                    rows: current.gapRepairIntents,
+                    head,
+                    reorgDepth: Number(env.REORG_DEPTH),
+                    now: Date.now(),
+                });
+                const settled =
                     businessDrained &&
+                    intents.due.length === 0 &&
                     current.canonicalChecks.every(
                         (check) => check.block_number > head - 2,
                     ) &&
@@ -1511,26 +1533,32 @@ export async function runDataPlane(
                             row.block_number > acquisitionLedger.anchorBlock,
                     ).length ===
                         head - acquisitionLedger.anchorBlock &&
-                    current.headers.some((row) => row.block_number === head)
-                );
+                    current.headers.some((row) => row.block_number === head);
+                if (settled) {
+                    settledState = current;
+                    acquisitionIntents = intents;
+                }
+                return settled;
             },
-            "closed-producer durable obligation convergence",
+            "closed-producer durable work and due gap-repair intent convergence",
             180_000,
         );
         checkpoints.push({
             name: "settled",
-            state: snapshot(),
+            state: settledState,
             http: await fetchJson(api),
+            acquisitionIntents,
         });
         activeCheck = CHECK.ChainAcquisition;
         checks[activeCheck] = false;
         const winningView = server.world.providerView("default");
         assertCanonicalAcquisition({
-            snapshot: snapshot(),
+            snapshot: settledState,
             ledger: acquisitionLedger,
             branch: winningView.branch,
             head: winningView.head,
         });
+        assertGapRepairIntentsSettled(acquisitionIntents);
         for (const provider of scenario.rpcProviders ?? ["default"])
             assert.ok(
                 server.world.trace.some(
@@ -1546,7 +1574,7 @@ export async function runDataPlane(
                     ? CHECK.ReorgRecovery
                     : CHECK.OrderValidation;
             checks[activeCheck] = false;
-            const current = snapshot();
+            const current = settledState;
             const counterCancellationExposures = [];
             if (
                 scenario.journey === DATA_PLANE_JOURNEY.Fork &&
@@ -1614,7 +1642,7 @@ export async function runDataPlane(
         }
         if (providerDisagreementReached) {
             activeCheck = CHECK.ProviderDisagreement;
-            const current = snapshot();
+            const current = settledState;
             const canonicalOwner = ledger.stateAt("A", 104).owners.get("1");
             assert.equal(canonicalOwner, ledger.addresses.buyer);
             const listing = current.orders.find(
@@ -1640,6 +1668,18 @@ export async function runDataPlane(
             );
         }
         activeCheck = CHECK.HttpProjection;
+        checks[activeCheck] = false;
+        const httpProjection = await assertHttpProjection({
+            origin: "http://127.0.0.1:42722",
+            chainRef: "ethereum",
+            collectionRef: ledger.collectionSlug,
+            ledger,
+            branch: winningView.branch,
+            head: winningView.head,
+            snapshot: settledState,
+            collectionHttp: await fetchJson(api),
+        });
+        checkpoints.push({ name: "final-http-projection", ...httpProjection });
         checks[activeCheck] = true;
         for (const expected of scenario.expectedChecks)
             assert.equal(

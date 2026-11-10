@@ -6,6 +6,7 @@ export const COLLECTION_API_ROUTE_TEMPLATE = {
     PriceHistory: "/api/:chain_ref/:collection_ref/price-history",
     PriceChartContext: "/api/:chain_ref/:collection_ref/chart-context",
     TokenCard: "/api/:chain_ref/:collection_ref/:token_ref/card",
+    TokenDetail: "/api/:chain_ref/:collection_ref/:token_ref",
     StartBootstrap: "/api/:chain_ref/:collection_ref/bootstrap/start",
     ProbeOpenSeaSlug: "/api/:chain_ref/:collection_ref/opensea/slug-probe",
     StartOpenSeaSync: "/api/:chain_ref/:collection_ref/opensea/sync",
@@ -60,6 +61,17 @@ export function buildTokenCardPath(input: {
 }): string {
     return buildCollectionRoute(
         COLLECTION_API_ROUTE_TEMPLATE.TokenCard,
+        input,
+    ).replace(":token_ref", encodeURIComponent(input.tokenRef));
+}
+
+export function buildTokenDetailPath(input: {
+    chainRef: string;
+    collectionRef: string;
+    tokenRef: string;
+}): string {
+    return buildCollectionRoute(
+        COLLECTION_API_ROUTE_TEMPLATE.TokenDetail,
         input,
     ).replace(":token_ref", encodeURIComponent(input.tokenRef));
 }

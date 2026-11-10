@@ -119,6 +119,7 @@ import {
 	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
 	buildTokenCardPath,
+	buildTokenDetailPath,
 	buildPriceHistoryPath,
 	buildPriceChartContextPath,
 	buildStartCollectionOpenSeaSyncPath,
@@ -850,7 +851,7 @@ export async function getTokenDetail(
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`,
+		buildTokenDetailPath({ chainRef, collectionRef, tokenRef }) + suffix,
 		tokenMediaRequestInit(params)
 	);
 }

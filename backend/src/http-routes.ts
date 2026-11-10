@@ -533,7 +533,7 @@ export function registerApiRoutes(
     registerObservedGet<GetTokenDetailRoute>(
         app,
         options,
-        "/api/:chain_ref/:collection_ref/:token_ref",
+        COLLECTION_API_ROUTE_TEMPLATE.TokenDetail,
         getTokenDetailAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,

@@ -3,6 +3,7 @@ import test from "node:test";
 import { createSimulationWorld } from "../world/world.mjs";
 import {
     assertPassiveBidBook,
+    assertPassiveMarketBidBook,
     PASSIVE_BID_BOOK_PROPERTY,
 } from "./passive-bid-book.mjs";
 import {
@@ -103,6 +104,25 @@ test("passive HTTP probes verify the exact indexed bid and separately declared p
             })
         ).passed,
         true,
+    );
+});
+
+test("the market-only probe needs no job, while maintenance still requires its real declared job", async () => {
+    const f = fixture();
+    const { expectedJobId: _job, ...marketContext } = f.context;
+    assert.equal(
+        (await assertPassiveMarketBidBook(marketContext)).passed,
+        true,
+    );
+    assert.equal(f.paths.length, 1);
+    await assert.rejects(
+        assertPassiveBidBook(marketContext),
+        /real declared job identity/,
+    );
+    assert.equal(
+        f.paths.length,
+        1,
+        "Missing intent identity must fail before any maintenance probe",
     );
 });
 

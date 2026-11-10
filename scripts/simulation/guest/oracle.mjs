@@ -6,10 +6,6 @@ import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
 import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import { completedCounterValidationRead } from "./committed-cancellation.mjs";
 import {
-    assertOrderValidationRequest,
-    validationProofSatisfies,
-} from "../../../indexer/src/domain/order-validation-demand.ts";
-import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
     ORDER_SIDE,
@@ -427,13 +423,21 @@ export function assertMarketConvergence({
                 // Missing requirements are unknown evidence, not zero/null
                 // defaults. The owning contract combines source identity,
                 // chain identity and the retained observation/trigger floors.
-                const request = {
-                    chainId: ledger.chainId,
-                    orderId: order.orderHash,
-                    requiredAt: proof.required_at,
-                    minimumBlock: proof.minimum_block,
-                };
-                assertOrderValidationRequest(request);
+                // Compare requirements independently of the production demand
+                // predicate, so a regression in that predicate cannot bless its
+                // own persisted result. Zero is a real canonical-event time;
+                // null alone means that no event-height floor was requested.
+                assert.ok(
+                    Number.isSafeInteger(proof.required_at) &&
+                        proof.required_at >= 0,
+                    `Current ${name} requires an explicit source-time floor`,
+                );
+                assert.ok(
+                    proof.minimum_block === null ||
+                        (Number.isSafeInteger(proof.minimum_block) &&
+                            proof.minimum_block >= 0),
+                    `Current ${name} requires an explicit null or valid event-height floor`,
+                );
                 for (const [field, value] of [
                     ["canonical order revision", actual.state_revision],
                     ["canonical chain revision", snapshot.revision],
@@ -455,16 +459,14 @@ export function assertMarketConvergence({
                     proof.proof_chain_revision <= snapshot.revision,
                     `Current ${name} cannot retain proof from a future chain revision`,
                 );
-                assert.equal(
-                    validationProofSatisfies(
-                        {
-                            observedAt: proof.proof_at,
-                            blockNumber: proof.proof_block,
-                        },
-                        request,
-                    ),
-                    true,
-                    `Current ${name} proof must cover its retained source-time/event-height requirements`,
+                assert.ok(
+                    proof.proof_at >= proof.required_at,
+                    `Current ${name} proof must cover its retained source-time requirement`,
+                );
+                assert.ok(
+                    proof.minimum_block === null ||
+                        proof.proof_block >= proof.minimum_block,
+                    `Current ${name} proof must cover its retained event-height requirement`,
                 );
             },
         );
