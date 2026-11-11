@@ -288,6 +288,13 @@ survive restarts, cascade on collection purge and are cleared when bootstrap
 finalization replaces the ownership snapshot. Only tokens affected by rollback
 are checkpointed; the reorg worker does not scan the whole collection inventory.
 
+Post-anchor ERC721 replays materialize ownership even when their immutable
+Transfer facts already exist. This restores current ownership during bootstrap
+catch-up after the anchor snapshot replaces balances. The projector still uses
+the latest persisted transfer/checkpoint, so an older replay cannot replace a
+newer owner or resurrect a burned token. ERC1155 continues applying only newly
+inserted transfer deltas. Pre-anchor facts never rewrite snapshot ownership.
+
 Sync persistence validates every result's block identities before writing facts
 or collection coverage. It rejects mismatched fact/header hashes, conflicting
 duplicate headers, broken adjacent parent links and replacement of a stored

@@ -402,11 +402,11 @@ export class SqliteStorage
             this.persistBlocks(chainId, blocks, canonicalCheck);
             this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
-            const inserted = this.persistTransfers(chainId, data, blockMeta);
+            const transfers = this.persistTransfers(chainId, data, blockMeta);
             this.persistFills(chainId, data, blockMeta);
             this.persistCollectionExtensionEvents(chainId, data, blockMeta);
             this.persistCollectionExtensionEventMedia(chainId, data, blockMeta);
-            const currentStateTransfers = inserted.filter((event) => {
+            const currentStateTransfers = transfers.filter((event) => {
                 const collection = currentStateCollections.get(
                     event.collectionId,
                 );
@@ -709,8 +709,9 @@ export class SqliteStorage
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
     ): OnChainData["collectionScoped"]["nftTransferEvents"] {
-        // Transfers are immutable; insert once (ignore duplicates).
-        const inserted: OnChainData["collectionScoped"]["nftTransferEvents"] =
+        // Immutable facts are inserted once. ERC721 replays must still rebuild
+        // ownership after snapshot replacement; ERC1155 deltas apply only once.
+        const projectionCandidates: OnChainData["collectionScoped"]["nftTransferEvents"] =
             [];
         for (const event of data.collectionScoped.nftTransferEvents) {
             const contract = event.contract.toLowerCase();
@@ -733,11 +734,14 @@ export class SqliteStorage
                 event.logIndex,
                 event.kind,
             );
-            if (result.changes > 0) {
-                inserted.push(event);
+            if (
+                event.kind === COLLECTION_STANDARD.Erc721 ||
+                result.changes > 0
+            ) {
+                projectionCandidates.push(event);
             }
         }
-        return inserted;
+        return projectionCandidates;
     }
 
     private persistFills(
@@ -881,7 +885,7 @@ export class SqliteStorage
         }
     }
 
-    // Projects newly inserted post-anchor transfers into current balances.
+    // Projects post-anchor ERC721 observations and newly inserted ERC1155 transfers.
     // ERC721 uses the latest transfer or verified fork ownership checkpoint;
     // ERC1155 applies each transfer's balance deltas once.
     private applyBalanceUpdatesFromEvents(
