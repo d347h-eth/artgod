@@ -77,9 +77,11 @@ The following remain deferred:
 Unavailable or incomplete metadata now enters the core
 [permanent pending backlog](../indexer/20-metadata-pending-backlog.md).
 Bootstrap's initial settlement remains independent of eventual reveal readiness.
-The 111K extension requires `collection block` and non-placeholder media; a
-declared reveal flag does not replace that requirement. No trait restructuring
-is included.
+The 111K extension requires non-placeholder media. Contract-identified crates,
+warehouses and relics, and artwork metadata explicitly categorized as an egg,
+are ready without `collection block`. Other responses still require that root;
+a declared reveal flag does not replace it. Accepted eggs rely on later metadata
+events or explicit refreshes for replacement. No trait restructuring is included.
 
 ## Setup and admission
 
@@ -173,7 +175,8 @@ network pages and ownership batches stay bounded.
 The existing later ownership phase still reads individual `ownerOf` values.
 Bootstrap catch-up starts at `anchor + 1`; realtime continues after the ordinary
 live gates. Burned token records may remain browseable even after their balances
-are removed. Initially absent metadata keeps its existing recovery limitation.
+are removed. Unavailable metadata remains in the permanent pending backlog
+independently of initial snapshot settlement.
 
 ## Implementation verification
 

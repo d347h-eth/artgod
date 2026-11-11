@@ -19,12 +19,14 @@ import { createMetadataPendingFollowups } from "../src/application/metadata/pend
 import { CollectionExtensionMetadataReadiness } from "../src/application/collection-extensions/metadata-readiness.js";
 import {
     NFT111K_METADATA,
+    NFT111K_TOKEN_RANGES,
     isNft111kMetadataReady,
 } from "../src/application/collection-extensions/111k.js";
 import {
     METADATA_PENDING_POLICY as POLICY,
     METADATA_PENDING_REASON as REASON,
     METADATA_PENDING_LOG,
+    type MetadataTarget,
 } from "../src/domain/metadata-pending.js";
 import {
     DOMAIN_JOB_KIND,
@@ -51,6 +53,13 @@ const HASH = "0x" + "11".repeat(32);
 const IMAGE = "https://example.invalid/ready.png";
 const URI = "https://example.invalid/1.json";
 const NO_EFFECT = () => {};
+const TARGET: MetadataTarget = {
+    chainId: CHAIN,
+    collectionId: COLLECTION,
+    contract: CONTRACT,
+    tokenId: "1",
+    standard: COLLECTION_STANDARD.Erc721,
+};
 
 function document(ready = true, name = "current"): TokenMetadata {
     return {
@@ -68,6 +77,14 @@ function document(ready = true, name = "current"): TokenMetadata {
         rawJson: JSON.stringify({
             [NFT111K_METADATA.RevealStatus]: NFT111K_METADATA.Revealed,
         }),
+    };
+}
+
+function documentWithoutRoot(category?: string): TokenMetadata {
+    return {
+        ...document(),
+        attributes: [],
+        rawJson: JSON.stringify({ [NFT111K_METADATA.Category]: category }),
     };
 }
 
@@ -123,9 +140,9 @@ function insertBurn(
         standard,
     );
 }
-function fixture(extension = true) {
+function fixture(extension = true, tokenId = TARGET.tokenId) {
     insertCollection();
-    insertOwner();
+    insertOwner(tokenId);
     const installs = new SqliteCollectionExtensions({
         persistRawDebugPayloads: false,
     });
@@ -177,7 +194,7 @@ function fixture(extension = true) {
             domain.handleMetadataRefresh({
                 chainId: CHAIN,
                 collectionId: COLLECTION,
-                tokenId: "1",
+                tokenId,
                 reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
             }),
         due: () => {
@@ -186,9 +203,9 @@ function fixture(extension = true) {
         row: () =>
             db
                 .prepare(
-                    "SELECT * FROM metadata_pending WHERE collection_id=? AND token_id='1'",
+                    "SELECT * FROM metadata_pending WHERE collection_id=? AND token_id=?",
                 )
-                .get(COLLECTION) as
+                .get(COLLECTION, tokenId) as
                 | {
                       attempts: number;
                       due_at: number;
@@ -201,9 +218,9 @@ function fixture(extension = true) {
             (
                 db
                     .prepare(
-                        "SELECT image FROM token_metadata WHERE collection_id=? AND token_id='1'",
+                        "SELECT image FROM token_metadata WHERE collection_id=? AND token_id=?",
                     )
-                    .get(COLLECTION) as { image: string } | undefined
+                    .get(COLLECTION, tokenId) as { image: string } | undefined
             )?.image,
     };
 }
@@ -250,6 +267,54 @@ describe("durable metadata pending backlog", () => {
         expect(db.prepare("SELECT raw_json FROM token_metadata").get()).toEqual(
             { raw_json: null },
         );
+        expect(
+            db
+                .prepare(
+                    "SELECT a.value FROM token_attributes t JOIN attributes a ON a.id=t.attribute_id JOIN attribute_keys k ON k.id=a.attribute_key_id WHERE k.key=?",
+                )
+                .get(NFT111K_METADATA.CollectionBlock),
+        ).toEqual({ value: "block-a" });
+    });
+
+    it.each([
+        NFT111K_TOKEN_RANGES.Crate.first.toString(),
+        NFT111K_TOKEN_RANGES.Warehouse.first.toString(),
+        NFT111K_TOKEN_RANGES.Relic.first.toString(),
+        TARGET.tokenId,
+    ])(
+        "settles retained pending metadata for a container or egg at token %s",
+        async (tokenId) => {
+            const f = fixture(true, tokenId);
+            await f.refresh();
+            expect(f.row()?.reason).toBe(REASON.NotReady);
+            f.state.metadata = documentWithoutRoot(
+                tokenId === TARGET.tokenId ? NFT111K_METADATA.Egg : undefined,
+            );
+            f.due();
+            const effect = vi.fn();
+            await f.domain.retryPending(CHAIN, effect);
+            expect(f.row()).toBeUndefined();
+            expect(f.image()).toBe(IMAGE);
+            expect(effect).toHaveBeenCalledOnce();
+            expect(effect.mock.calls[0][0].tokenId).toBe(tokenId);
+        },
+    );
+
+    it("accepts an egg immediately and replaces it when a later refresh provides its artwork root", async () => {
+        const f = fixture();
+        f.state.metadata = documentWithoutRoot(NFT111K_METADATA.Egg);
+        f.state.metadata.name = "current egg";
+        await f.refresh();
+        expect(f.row()).toBeUndefined();
+        expect(db.prepare("SELECT name FROM token_metadata").get()).toEqual({
+            name: "current egg",
+        });
+        f.state.metadata = document(true, "revealed artwork");
+        await f.refresh();
+        expect(f.row()).toBeUndefined();
+        expect(db.prepare("SELECT name FROM token_metadata").get()).toEqual({
+            name: "revealed artwork",
+        });
         expect(
             db
                 .prepare(
@@ -824,21 +889,89 @@ describe("111k metadata readiness", () => {
     it("requires the root and media even when the host declares revealed", () => {
         const noRoot = document();
         noRoot.attributes = [];
-        expect(isNft111kMetadataReady(noRoot)).toBe(false);
-        expect(isNft111kMetadataReady(document(false))).toBe(false);
+        expect(isNft111kMetadataReady(TARGET, noRoot)).toBe(false);
+        expect(isNft111kMetadataReady(TARGET, document(false))).toBe(false);
         const placeholder = document();
         placeholder.image = NFT111K_METADATA.PlaceholderImage + "?v=1";
-        expect(isNft111kMetadataReady(placeholder)).toBe(false);
-        expect(isNft111kMetadataReady(document())).toBe(true);
+        expect(isNft111kMetadataReady(TARGET, placeholder)).toBe(false);
+        expect(isNft111kMetadataReady(TARGET, document())).toBe(true);
     });
     it("requires usable root content and respects an explicitly unrevealed server state", () => {
         const empty = document();
         empty.attributes[0].value = "  ";
-        expect(isNft111kMetadataReady(empty)).toBe(false);
+        expect(isNft111kMetadataReady(TARGET, empty)).toBe(false);
         const pending = document();
         pending.rawJson = JSON.stringify({
             [NFT111K_METADATA.RevealStatus]: null,
         });
-        expect(isNft111kMetadataReady(pending)).toBe(false);
+        expect(isNft111kMetadataReady(TARGET, pending)).toBe(false);
     });
+
+    // These are the deployed contract's wire boundaries, including each container kind.
+    it.each(["111112", "116666", "116667", "117171", "117172", "117189"])(
+        "accepts container boundary %s without an artwork root or a descriptive name",
+        (tokenId) => {
+            const metadata = documentWithoutRoot();
+            metadata.name = "arbitrary container name";
+            expect(
+                isNft111kMetadataReady({ ...TARGET, tokenId }, metadata),
+            ).toBe(true);
+        },
+    );
+
+    it.each(["111111", "117190", "1000001", "2000001", "3000001"])(
+        "does not grant a container exception to artwork or receipt ID %s",
+        (tokenId) => {
+            const metadata = documentWithoutRoot();
+            metadata.name = "Warehouse #1";
+            expect(
+                isNft111kMetadataReady({ ...TARGET, tokenId }, metadata),
+            ).toBe(false);
+        },
+    );
+
+    it.each([undefined, NFT111K_METADATA.Revealed, null])(
+        "accepts concrete egg metadata regardless of its future artwork reveal flag %s",
+        (revealStatus) => {
+            const egg = documentWithoutRoot(NFT111K_METADATA.Egg);
+            egg.rawJson = JSON.stringify({
+                [NFT111K_METADATA.Category]: NFT111K_METADATA.Egg,
+                [NFT111K_METADATA.RevealStatus]: revealStatus,
+            });
+            expect(isNft111kMetadataReady(TARGET, egg)).toBe(true);
+        },
+    );
+
+    it("requires an explicit egg category on an artwork, rather than an egg-like name or image", () => {
+        const metadata = documentWithoutRoot();
+        metadata.name = "Egg #1";
+        metadata.image = "https://cdn.lil.org/nft/111k/eggs/1.png";
+        expect(isNft111kMetadataReady(TARGET, metadata)).toBe(false);
+        expect(
+            isNft111kMetadataReady(
+                { ...TARGET, tokenId: "1000001" },
+                documentWithoutRoot(NFT111K_METADATA.Egg),
+            ),
+        ).toBe(false);
+    });
+
+    it.each([
+        NFT111K_TOKEN_RANGES.Crate.first.toString(),
+        NFT111K_TOKEN_RANGES.Warehouse.first.toString(),
+        NFT111K_TOKEN_RANGES.Relic.first.toString(),
+        TARGET.tokenId,
+    ])(
+        "keeps placeholder media and malformed JSON pending for special token %s",
+        (tokenId) => {
+            const target = { ...TARGET, tokenId };
+            const metadata = documentWithoutRoot(NFT111K_METADATA.Egg);
+            metadata.image = NFT111K_METADATA.PlaceholderImage + "#cached";
+            expect(isNft111kMetadataReady(target, metadata)).toBe(false);
+            metadata.image = IMAGE;
+            for (const rawJson of ["{", "null", "[]", "true"])
+                expect(
+                    isNft111kMetadataReady(target, { ...metadata, rawJson }),
+                ).toBe(false);
+        },
+    );
 });

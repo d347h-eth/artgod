@@ -20,6 +20,7 @@ import type { BootstrapCollectionExtensionArtifactTaskSeed } from "../../ports/b
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
 import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import type { TokenMetadata } from "../../domain/metadata.js";
+import type { MetadataTarget } from "../../domain/metadata-pending.js";
 
 /** Required snapshot inventory, separate from eventual artifact enrichment. */
 export type CollectionExtensionBootstrapEnumerationContext = {
@@ -95,8 +96,8 @@ export type CollectionExtensionArtifactRefreshResult = {
 
 export interface IndexerCollectionExtension {
     key: CollectionExtensionKey;
-    /** Successful JSON can still be pending; core retains it until this rule accepts it. */
-    isMetadataReady?(metadata: TokenMetadata): boolean;
+    /** Canonical identity lets readiness distinguish token kinds without trusting host labels. */
+    isMetadataReady?(target: MetadataTarget, metadata: TokenMetadata): boolean;
     /** Return confirmed present IDs at the exact anchor, never a replacement scope. */
     enumerateBootstrapTokenIds?(
         context: CollectionExtensionBootstrapEnumerationContext,

@@ -24,6 +24,7 @@ export class CollectionExtensionMetadataReadiness implements MetadataReadinessPo
         if (!install?.enabled) return true;
         const ready =
             resolveIndexerCollectionExtension(install)?.isMetadataReady?.(
+                target,
                 metadata,
             ) ?? true;
         if (!ready) {

@@ -253,9 +253,11 @@ This extension has no custom watch specs or presentation. Existing
 metadata-derived artifact jobs complete without attribute changes or RPC reads.
 There are no extension-specific queues, migrations, synthetic token records or mint watchers.
 Enumeration page durability, owner reuse (`BKL-037`), crash-safe metadata seeding
-(`BKL-061`) remain deferred. The optional `isMetadataReady` rule requires the
-`collection block` root and non-placeholder media, independently of the
-eventual artifact hook. Core's [permanent metadata backlog](../indexer/20-metadata-pending-backlog.md)
+(`BKL-061`) remain deferred. The optional `isMetadataReady` rule receives canonical
+token identity alongside metadata. It requires non-placeholder media, accepts
+contract-identified containers and explicitly categorized eggs without an artwork
+root, and requires `collection block` on other responses. It runs independently
+of the eventual artifact hook. Core's [permanent metadata backlog](../indexer/20-metadata-pending-backlog.md)
 retains unavailable or incomplete responses and domain-worker retries them
 directly from SQLite.
 

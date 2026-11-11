@@ -33,6 +33,7 @@ normal initial notifications and retained successful-write follow-ups.
   retry progress. `SqliteMetadataStore` implements that contract.
 - `CollectionExtensionMetadataReadiness` delegates successful-response
   assessment to an enabled extension's optional `isMetadataReady` hook.
+  The hook receives canonical token identity alongside fetched metadata.
   Ordinary parsed metadata is ready when no hook applies.
 - Domain-worker's pending poller invokes the same use case directly. Scheduler
   retains chain-head scheduling; collection-extension-worker retains artifact
@@ -129,14 +130,33 @@ Existing RPC/HTTP timeout and budget shutdown contracts continue to apply.
 
 ## 111K readiness
 
-The `111k` extension requires a nonempty string-valued `collection block` trait
-and a non-placeholder image. If the response explicitly supplies `revealStatus`,
-it must be `revealed`. An absent root remains pending even when that flag says
-revealed. The extension owns those names and URL semantics.
+The `111k` extension first requires a JSON object and a nonempty image other
+than its known placeholder. It then distinguishes the current representation:
 
-Some previously captured host responses declared revealed while lacking the
-required root. This policy deliberately keeps them pending. Retries cannot
-invent the field or guarantee the host will eventually supply it. Trait
+- Crates (`111112`–`116666`), warehouses (`116667`–`117171`) and relics
+  (`117172`–`117189`) are ready without `collection block`. These fixed ranges
+  come from the deployed contract's `getTokenInfo`; mutable names and host
+  labels do not determine container identity. Receipt IDs are outside them.
+- Artwork IDs (`1`–`111111`) whose JSON explicitly has `category: "egg"` are
+  ready without a root or an artwork reveal flag. An egg is a complete current
+  representation even though its future artwork is not yet assigned.
+- Other responses require a nonempty string-valued `collection block` trait.
+  If they explicitly supply `revealStatus`, it must be `revealed`.
+
+These decisions require no additional RPC calls. The extension owns the ranges,
+field names and URL semantics; core only passes canonical token identity.
+Known placeholders and unavailable URI/fetch outcomes remain pending for eggs
+and containers as well.
+
+Accepted eggs leave the pending backlog. A later metadata event or explicit
+refresh fetches their replacement and reassesses it using the same rule. There
+is no periodic reveal polling for an already accepted egg. Existing pending
+container/egg rows settle through ordinary due attempts after this policy is
+loaded; the correction needs no migration or collection purge.
+
+Some previously captured artwork responses declared revealed while lacking the
+required root and without an explicit egg category. Those remain pending.
+Retries cannot invent the field or guarantee the host will eventually supply it. Trait
 hierarchy/restructuring, manual Userland controls and another trait report are
 outside this change.
 

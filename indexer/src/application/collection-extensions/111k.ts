@@ -7,11 +7,13 @@ import {
 } from "@artgod/shared/extensions/111k";
 import { normalizeAddressRef } from "@artgod/shared/utils/ref-resolver";
 import { normalizeErc721Owner } from "@artgod/shared/evm/erc721-ownership";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import { ERC721_ABI } from "../../abi/index.js";
 import { ChainSyncConflict } from "../../domain/chain-sync.js";
 import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import type { Hex } from "../../ports/rpc.js";
 import type { TokenMetadata } from "../../domain/metadata.js";
+import type { MetadataTarget } from "../../domain/metadata-pending.js";
 import { decodeNftTransferLog } from "../nft-transfers.js";
 import type {
     CollectionExtensionBootstrapEnumerationContext,
@@ -41,14 +43,32 @@ export const NFT111K_TOKEN_INFO_BATCH_LIMIT = 150;
 export const NFT111K_MINT_LOG_PAGE_BLOCKS = 2_000;
 const ITEM_KINDS = new Set<number>(Object.values(NFT111K_ITEM_KIND));
 
+// Fixed by the deployed contract's getTokenInfo; receipts have separate ID ranges.
+export const NFT111K_TOKEN_RANGES = {
+    Artwork: { first: 1n, last: 111_111n },
+    Crate: { first: 111_112n, last: 116_666n },
+    Warehouse: { first: 116_667n, last: 117_171n },
+    Relic: { first: 117_172n, last: 117_189n },
+} as const;
+const CONTAINER_TOKEN_RANGES = [
+    NFT111K_TOKEN_RANGES.Crate,
+    NFT111K_TOKEN_RANGES.Warehouse,
+    NFT111K_TOKEN_RANGES.Relic,
+];
+
 export const NFT111K_METADATA = {
+    Category: "category",
     CollectionBlock: "collection block",
+    Egg: "egg",
     PlaceholderImage: "https://cdn.lil.org/nft/111k/placeholder.png",
     RevealStatus: "revealStatus",
     Revealed: "revealed",
 } as const;
 
-export function isNft111kMetadataReady(metadata: TokenMetadata): boolean {
+export function isNft111kMetadataReady(
+    target: MetadataTarget,
+    metadata: TokenMetadata,
+): boolean {
     const image = metadata.image?.trim().split(/[?#]/, 1)[0];
     if (!image || image === NFT111K_METADATA.PlaceholderImage) return false;
     let raw: unknown;
@@ -57,9 +77,24 @@ export function isNft111kMetadataReady(metadata: TokenMetadata): boolean {
     } catch {
         return false;
     }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const normalizedId = normalizeEvmTokenId(target.tokenId);
+    if (normalizedId === null) return false;
+    const tokenId = BigInt(normalizedId);
     if (
-        raw &&
-        typeof raw === "object" &&
+        CONTAINER_TOKEN_RANGES.some(
+            (range) => tokenId >= range.first && tokenId <= range.last,
+        )
+    )
+        return true;
+    if (
+        tokenId >= NFT111K_TOKEN_RANGES.Artwork.first &&
+        tokenId <= NFT111K_TOKEN_RANGES.Artwork.last &&
+        Reflect.get(raw, NFT111K_METADATA.Category) === NFT111K_METADATA.Egg
+    )
+        // An egg is a complete current representation, independent of its future artwork reveal.
+        return true;
+    if (
         NFT111K_METADATA.RevealStatus in raw &&
         Reflect.get(raw, NFT111K_METADATA.RevealStatus) !==
             NFT111K_METADATA.Revealed
@@ -75,7 +110,6 @@ export function isNft111kMetadataReady(metadata: TokenMetadata): boolean {
 
 export const nft111kIndexerExtension: IndexerCollectionExtension = {
     key: NFT111K_EXTENSION_KEY,
-    // A declared reveal flag alone cannot prove the required sub-collection is present.
     isMetadataReady: isNft111kMetadataReady,
     enumerateBootstrapTokenIds,
     buildSyncWatchSpecs: () => [],
