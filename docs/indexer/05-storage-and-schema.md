@@ -891,6 +891,17 @@ unchanged; neither requires retaining expired-order evidence. See [activity sema
 [order retention](07-domain-orders.md#current-state-retention-and-replay), and
 [recovery design](../development/03-sqlite-storage-and-recovery.md).
 
+## Permanent Pending Metadata
+
+`074_metadata_pending.sql` adds one durable obligation per chain, collection and
+token in `metadata_pending`. Due times and active leases share an indexed
+availability key. Requests coalesce into that row; attempt age/count and media
+options survive restarts without creating delayed retry messages.
+Canonical writes and background completion effects commit with pending progress;
+collection purge explicitly deletes this state and the collection foreign key
+also cascades. See [pending metadata](20-metadata-pending-backlog.md) for the
+readiness, polling, lifecycle and recovery contracts.
+
 ## Metadata Refresh Follow-Ups and Queue Outbox
 
 ### `queue_outbox`

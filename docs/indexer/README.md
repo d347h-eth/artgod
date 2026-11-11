@@ -33,6 +33,7 @@ and [operator procedure](18-order-queue-recovery.md).
 - [Storage and schema](05-storage-and-schema.md)
 - [Orders and token sets](07-domain-orders.md)
 - [Metadata and traits](08-domain-metadata.md)
+- [Permanent pending metadata](20-metadata-pending-backlog.md)
 - [Activities](09-domain-activities.md)
 - [Fill decoding](15-fill-decoding.md)
 - [Blockspace exploration](16-blockspace-exploration.md)

@@ -71,9 +71,15 @@ The following remain deferred:
 
 - `BKL-037`: durable enumeration pages, broader concurrency and anchor-owner reuse.
 - `BKL-061`: crash-safe completion of enumeration plus all metadata task seeding.
-- Guaranteed durable recovery when a new token's URI or metadata is initially absent.
 - General scope/strategy separation, new enumeration modes, arbitrary ERC721
   discovery, custom renderers, synthetic production tokens and marketplace policy.
+
+Unavailable or incomplete metadata now enters the core
+[permanent pending backlog](../indexer/20-metadata-pending-backlog.md).
+Bootstrap's initial settlement remains independent of eventual reveal readiness.
+The 111K extension requires `collection block` and non-placeholder media; a
+declared reveal flag does not replace that requirement. No trait restructuring
+is included.
 
 ## Setup and admission
 
@@ -269,5 +275,11 @@ by these checks.
    owners, burns and metadata availability. Keep marketplace and bidding choices
    explicit; this extension does not change their policy.
 
-Durable enumeration/seeding and initially missing metadata recovery remain
-separate deferred work.
+6. Inspect the permanent metadata backlog and its readiness logs/metrics during
+   reveals. Verify a missing `collection block` remains pending, then clears
+   after complete metadata arrives. Check pause/resume and restart without
+   manually editing data or holding delayed metadata jobs in NATS.
+
+Durable enumeration/seeding remain separate deferred work. Permanent metadata
+recovery is implemented as described in the [backlog contract](../indexer/20-metadata-pending-backlog.md);
+this installed-desktop live qualification remains user-run.

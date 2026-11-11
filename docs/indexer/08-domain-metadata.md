@@ -31,6 +31,13 @@ This keeps historical backfill before the bootstrap anchor from rewriting curren
 
 ## Refresh Triggers
 
+Initial attempts retain a per-token obligation in SQLite before RPC/HTTP work.
+Unavailable URIs, failed fetches and extension-classified incomplete responses
+remain in the [permanent pending backlog](20-metadata-pending-backlog.md).
+Domain-worker polls and executes that work directly; pending tokens do not
+become delayed broker messages. Ordinary successful JSON is ready by default;
+an enabled extension can provide a stricter content-readiness rule.
+
 Canonical refresh work enters through current-state metadata sync ranges,
 ERC-4906 token/range events, collection-extension watch specs, OpenSea metadata
 events, and bootstrap snapshot tasks. Runtime jobs support exact-token and

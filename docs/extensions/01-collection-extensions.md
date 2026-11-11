@@ -251,9 +251,13 @@ Tracking stays all-contract, including future high-ID containers and receipts.
 
 This extension has no custom watch specs or presentation. Existing
 metadata-derived artifact jobs complete without attribute changes or RPC reads.
-There are no new queues, migrations, synthetic token records or mint watchers.
+There are no extension-specific queues, migrations, synthetic token records or mint watchers.
 Enumeration page durability, owner reuse (`BKL-037`), crash-safe metadata seeding
-(`BKL-061`) and recovery of initially missing metadata remain deferred.
+(`BKL-061`) remain deferred. The optional `isMetadataReady` rule requires the
+`collection block` root and non-placeholder media, independently of the
+eventual artifact hook. Core's [permanent metadata backlog](../indexer/20-metadata-pending-backlog.md)
+retains unavailable or incomplete responses and domain-worker retries them
+directly from SQLite.
 
 The [111K implementation contract and pilot checklist](03-111k-bootstrap.md)
 record the deployment, tests and remaining user-run mainnet validation.
