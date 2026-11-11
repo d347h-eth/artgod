@@ -1,4 +1,5 @@
 import type { TokenMetadata, TokenStandard } from "../domain/metadata.js";
+import type { MetadataFetchOptions } from "../domain/metadata-pending.js";
 
 export interface TokenUriResolverPort {
     resolveTokenUri(
@@ -12,9 +13,6 @@ export interface TokenUriResolverPort {
 export interface MetadataFetcherPort {
     fetchMetadata(
         uri: string,
-        options?: {
-            imageSourceField?: string | null;
-            animationSourceField?: string | null;
-        },
+        options?: MetadataFetchOptions,
     ): Promise<TokenMetadata | null>;
 }

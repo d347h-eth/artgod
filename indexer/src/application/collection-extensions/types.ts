@@ -19,6 +19,7 @@ import type {
 import type { BootstrapCollectionExtensionArtifactTaskSeed } from "../../ports/bootstrap.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
 import type { ChainBlockReference } from "../../domain/chain-sync.js";
+import type { TokenMetadata } from "../../domain/metadata.js";
 
 /** Required snapshot inventory, separate from eventual artifact enrichment. */
 export type CollectionExtensionBootstrapEnumerationContext = {
@@ -94,6 +95,8 @@ export type CollectionExtensionArtifactRefreshResult = {
 
 export interface IndexerCollectionExtension {
     key: CollectionExtensionKey;
+    /** Successful JSON can still be pending; core retains it until this rule accepts it. */
+    isMetadataReady?(metadata: TokenMetadata): boolean;
     /** Return confirmed present IDs at the exact anchor, never a replacement scope. */
     enumerateBootstrapTokenIds?(
         context: CollectionExtensionBootstrapEnumerationContext,

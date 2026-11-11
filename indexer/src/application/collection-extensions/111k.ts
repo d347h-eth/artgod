@@ -11,6 +11,7 @@ import { ERC721_ABI } from "../../abi/index.js";
 import { ChainSyncConflict } from "../../domain/chain-sync.js";
 import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import type { Hex } from "../../ports/rpc.js";
+import type { TokenMetadata } from "../../domain/metadata.js";
 import { decodeNftTransferLog } from "../nft-transfers.js";
 import type {
     CollectionExtensionBootstrapEnumerationContext,
@@ -40,8 +41,42 @@ export const NFT111K_TOKEN_INFO_BATCH_LIMIT = 150;
 export const NFT111K_MINT_LOG_PAGE_BLOCKS = 2_000;
 const ITEM_KINDS = new Set<number>(Object.values(NFT111K_ITEM_KIND));
 
+export const NFT111K_METADATA = {
+    CollectionBlock: "collection block",
+    PlaceholderImage: "https://cdn.lil.org/nft/111k/placeholder.png",
+    RevealStatus: "revealStatus",
+    Revealed: "revealed",
+} as const;
+
+export function isNft111kMetadataReady(metadata: TokenMetadata): boolean {
+    const image = metadata.image?.trim().split(/[?#]/, 1)[0];
+    if (!image || image === NFT111K_METADATA.PlaceholderImage) return false;
+    let raw: unknown;
+    try {
+        raw = JSON.parse(metadata.rawJson);
+    } catch {
+        return false;
+    }
+    if (
+        raw &&
+        typeof raw === "object" &&
+        NFT111K_METADATA.RevealStatus in raw &&
+        Reflect.get(raw, NFT111K_METADATA.RevealStatus) !==
+            NFT111K_METADATA.Revealed
+    )
+        return false;
+    return metadata.attributes.some(
+        (attribute) =>
+            attribute.traitType === NFT111K_METADATA.CollectionBlock &&
+            typeof attribute.value === "string" &&
+            attribute.value.trim().length > 0,
+    );
+}
+
 export const nft111kIndexerExtension: IndexerCollectionExtension = {
     key: NFT111K_EXTENSION_KEY,
+    // A declared reveal flag alone cannot prove the required sub-collection is present.
+    isMetadataReady: isNft111kMetadataReady,
     enumerateBootstrapTokenIds,
     buildSyncWatchSpecs: () => [],
     // Existing canonical-metadata follow-ups can schedule these harmless jobs.

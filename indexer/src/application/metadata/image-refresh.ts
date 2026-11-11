@@ -22,15 +22,15 @@ export interface MetadataImageCachePolicyPort {
 }
 
 // Reused by single-token and range refreshes after their canonical metadata write.
-export async function publishMetadataImageRefreshes(input: {
-    queue: Pick<QueuePort, "publish">;
+export function buildMetadataImageRefreshes(input: {
     policy: MetadataImageCachePolicyPort;
     chainId: number;
     updatedTokens: readonly MetadataUpdatedToken[];
     traceId: string;
     source?: string | null;
     workClass?: SyncWorkClass;
-}): Promise<void> {
+}): JobEnvelope<TokenImageCacheRefreshTokenPayload>[] {
+    const jobs: JobEnvelope<TokenImageCacheRefreshTokenPayload>[] = [];
     const policies = new Map<number, ImageCachePolicyConfig>();
     for (const updated of input.updatedTokens) {
         const sourceImageUrl = updated.image?.trim() ?? "";
@@ -68,6 +68,17 @@ export async function publishMetadataImageRefreshes(input: {
                 ? {}
                 : { workClass: input.workClass }),
         };
-        await input.queue.publish(QUEUE_NAMES.TokenImageCache, job);
+        jobs.push(job);
     }
+    return jobs;
+}
+
+// Queue handlers and transactional pending completion share the same policy/job builder.
+export async function publishMetadataImageRefreshes(
+    input: Parameters<typeof buildMetadataImageRefreshes>[0] & {
+        queue: Pick<QueuePort, "publish">;
+    },
+): Promise<void> {
+    for (const job of buildMetadataImageRefreshes(input))
+        await input.queue.publish(job.queue, job);
 }

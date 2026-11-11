@@ -1,6 +1,7 @@
 import { logger } from "@artgod/shared/utils";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
+import type { MetadataFetchOptions } from "../../domain/metadata-pending.js";
 import {
     TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD,
     TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT,
@@ -45,10 +46,7 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
 
     async fetchMetadata(
         uri: string,
-        options?: {
-            imageSourceField?: string | null;
-            animationSourceField?: string | null;
-        },
+        options?: MetadataFetchOptions,
     ): Promise<TokenMetadata | null> {
         const resolved = resolveTokenResourceUri(uri, {
             ipfsGatewayOrigin: this.ipfsGatewayOrigin,

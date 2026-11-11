@@ -39,6 +39,8 @@ import { runWorker } from "../application/worker-runner.js";
 import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
 import { createMetadataRefreshRangeHandler } from "../application/metadata/refresh-range.js";
 import { publishMetadataImageRefreshes } from "../application/metadata/image-refresh.js";
+import { startMetadataPendingPoller } from "../application/metadata/pending-poller.js";
+import { createMetadataPendingFollowups } from "../application/metadata/pending-followups.js";
 import { startQueueOutboxDrainer } from "../application/queue-outbox/drainer.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
@@ -71,7 +73,7 @@ import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
-import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
+import { createMetadataDomain } from "./create-metadata-domain.js";
 import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
 import { SqliteMetadataRefreshFollowups } from "../infra/metadata/sqlite-refresh-followups.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
@@ -240,7 +242,7 @@ async function main() {
             fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
-        const metadataDomain = new SqliteMetadataDomain(
+        const metadataDomain = createMetadataDomain(
             metadataResolver,
             metadataFetcher,
             config.debugPayloads,
@@ -276,6 +278,19 @@ async function main() {
             ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
             maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
             fetchResilience: config.httpFetch,
+        });
+        const stopMetadataPending = startMetadataPendingPoller({
+            chainId: config.chainId,
+            metadata: metadataDomain,
+            workScope: rpcAllocation.workScope,
+            metrics: runtimeMetrics.metrics,
+            afterWrite: createMetadataPendingFollowups({
+                chainId: config.chainId,
+                followups: metadataRefreshFollowups,
+                extensions: collectionExtensions,
+                imagePolicy: imageCachePolicyResolver,
+                outbox: queueOutbox,
+            }),
         });
         const makerQueues = [
             QUEUE_NAMES.OrdersUpdateByMaker,
@@ -753,6 +768,7 @@ async function main() {
             });
             await stopMakerRecovery();
             await stopOrderValidation();
+            await stopMetadataPending();
             await stopOrders();
             for (const stop of stopMakerConsumers) await stop();
             for (const stop of stopIdConsumers) await stop();

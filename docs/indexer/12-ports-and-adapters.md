@@ -72,7 +72,9 @@ Provides basic in-memory caching for RPC calls with metric hooks.
 - Interface: `indexer/src/ports/domain-handlers.ts`
 - Adapters:
     - Orders: `indexer/src/infra/domain/orders.ts`
-    - Metadata: `indexer/src/infra/domain/metadata.ts`
+    - Metadata use case: `indexer/src/application/metadata/domain.ts`, with
+      `indexer/src/infra/metadata/sqlite-metadata-store.ts` implementing
+      `indexer/src/ports/metadata-store.ts`
     - Activities: `indexer/src/infra/domain/activities.ts`
 
 These ports allow the sync pipeline to remain independent of domain-specific persistence logic.

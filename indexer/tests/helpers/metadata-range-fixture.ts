@@ -14,7 +14,7 @@ import {
 } from "../../src/domain/sync-jobs.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { QueuePort } from "../../src/ports/queue.js";
-import { SqliteMetadataDomain } from "../../src/infra/domain/metadata.js";
+import { createMetadataDomain } from "../../src/runtime/create-metadata-domain.js";
 import { SqliteMetadataRefreshFollowups } from "../../src/infra/metadata/sqlite-refresh-followups.js";
 import { SqliteCollectionExtensions } from "../../src/infra/collection-extensions/sqlite.js";
 import { SqliteImageCachePolicyResolver } from "../../src/infra/media/sqlite-image-cache-policy.js";
@@ -45,7 +45,7 @@ export function metadataRangeFixture(input: {
     const collection = services.registry.getCollection(1, collectionId)!;
     let version = 0;
     const uriReads: Array<{ tokenId: string; version: number }> = [];
-    const metadata = new SqliteMetadataDomain(
+    const metadata = createMetadataDomain(
         {
             resolveTokenUri: async (_contract, tokenId) => {
                 uriReads.push({ tokenId, version });

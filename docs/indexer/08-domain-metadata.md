@@ -6,7 +6,8 @@ Primary files:
 
 - `indexer/src/application/metadata/refresh-range.ts`
 - `indexer/src/domain/metadata-refresh-range.ts`
-- `indexer/src/infra/domain/metadata.ts`
+- `indexer/src/application/metadata/domain.ts`
+- `indexer/src/infra/metadata/sqlite-metadata-store.ts`
 - `indexer/src/infra/metadata/viem-token-uri.ts`
 - `indexer/src/infra/metadata/http-fetcher.ts`
 

@@ -61,7 +61,7 @@ import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
-import { SqliteMetadataDomain } from "../src/infra/domain/metadata.js";
+import { createMetadataDomain } from "../src/runtime/create-metadata-domain.js";
 import { HttpMetadataFetcher } from "../src/infra/metadata/http-fetcher.js";
 import { Erc721TokenOwnership } from "../src/infra/ownership/erc721-token-ownership.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
@@ -405,7 +405,7 @@ describe("111K bootstrap and continuous transfer projection", () => {
             COLLECTION_STATUS.Bootstrapping,
         );
 
-        const metadata = new SqliteMetadataDomain(
+        const metadata = createMetadataDomain(
             {
                 resolveTokenUri: async (_contract, id) =>
                     "data:application/json," +

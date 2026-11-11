@@ -14,7 +14,7 @@ import {
 } from "../src/domain/domain-jobs.js";
 import type { TokenMetadata } from "../src/domain/metadata.js";
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
-import { SqliteMetadataDomain } from "../src/infra/domain/metadata.js";
+import { createMetadataDomain } from "../src/runtime/create-metadata-domain.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -74,7 +74,7 @@ describe("metadata domain anchor gating", () => {
         });
 
         const resolvedTokenIds: string[] = [];
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async (_contract, tokenId) => {
                     resolvedTokenIds.push(tokenId);
@@ -119,7 +119,7 @@ describe("metadata domain anchor gating", () => {
             address: contract,
             anchorBlock: 100,
         });
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async (_contract, tokenId) =>
                     `data:application/json;base64,${tokenId}`,
@@ -175,7 +175,7 @@ describe("metadata domain anchor gating", () => {
                 value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
             },
         ];
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async (_contract, tokenId) =>
                     `data:application/json;base64,${tokenId}`,
@@ -219,7 +219,7 @@ describe("metadata domain anchor gating", () => {
             blockNumber: 101,
         });
 
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async () => {
                     throw new Error("resolver should not run for facts-only");
@@ -261,7 +261,7 @@ describe("metadata domain anchor gating", () => {
             anchorBlock: 100,
         });
         let metadataVersion = 0;
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async (_contract, tokenId) =>
                     `https://example.com/${tokenId}`,

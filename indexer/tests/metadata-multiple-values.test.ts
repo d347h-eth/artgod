@@ -8,7 +8,7 @@ import captured from "./fixtures/cambria-charter-1997-metadata.json" with { type
 import { METADATA_STATS_RECOMPUTE_REASON } from "../src/domain/domain-jobs.js";
 import { CollectionTokenScope } from "../src/domain/collections.js";
 import { SqliteTokenAttributeWriter } from "../src/infra/attributes/sqlite-token-attributes.js";
-import { SqliteMetadataDomain } from "../src/infra/domain/metadata.js";
+import { createMetadataDomain } from "../src/runtime/create-metadata-domain.js";
 import { SqliteMetadataStatsDomain } from "../src/infra/domain/metadata-stats.js";
 import { HttpMetadataFetcher } from "../src/infra/metadata/http-fetcher.js";
 import type { TokenSetRequest } from "../src/ports/token-sets.js";
@@ -48,7 +48,7 @@ describe("metadata with multiple values per trait", () => {
             );
         collectionId = Number(inserted.lastInsertRowid);
         let document: Record<string, unknown> = { ...captured, attributes: [] };
-        const domain = new SqliteMetadataDomain(
+        const domain = createMetadataDomain(
             {
                 resolveTokenUri: async () =>
                     `data:application/json,${encodeURIComponent(JSON.stringify(document))}`,

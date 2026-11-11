@@ -43,6 +43,7 @@ export type MetadataStatsRecomputeReason =
 // Metadata refresh reasons are persisted in refresh payloads and extension jobs.
 export const METADATA_REFRESH_REASON = {
     BootstrapSnapshot: "bootstrap-snapshot",
+    Pending: "metadata-pending",
 } as const;
 
 export type MetadataRefreshReason =
