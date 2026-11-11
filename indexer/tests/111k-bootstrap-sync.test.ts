@@ -4,9 +4,9 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID as CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS as CONTRACT,
-    NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+    NFT111K_MAINNET_CHAIN_ID as CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS as CONTRACT,
+    NFT111K_MAINNET_DEPLOYMENT_BLOCK,
 } from "@artgod/shared/extensions/111k";
 import { COLLECTION_TOKEN_SCOPE_KIND as ScopeKind } from "@artgod/shared/collections/token-scope";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
@@ -95,15 +95,7 @@ describe("111K bootstrap and continuous transfer projection", () => {
             blockNumber: anchorBlock,
             blockHash: opening.parentHash,
         };
-        // The hash is captured; parent/timestamp are controlled header fields.
-        const anchorHeader: RpcBlock = {
-            ...opening,
-            number: anchorBlock,
-            hash: opening.parentHash,
-            parentHash: `0x${"00".repeat(32)}`,
-            timestamp: opening.timestamp - 12,
-            transactions: [],
-        };
+        const anchorHeader = captured.anchorBlock as RpcBlock;
         const anchorOwners = new Map<string, string>();
         for (const log of logs.filter(
             (log) => log.blockNumber <= anchorBlock,
@@ -116,15 +108,15 @@ describe("111K bootstrap and continuous transfer projection", () => {
                 else anchorOwners.set(tokenId, to.toLowerCase());
             }
         }
-        expect(anchorOwners.size).toBe(41);
+        expect(anchorOwners.size).toBe(272);
         const realOpeningLogs = logs.filter(
             (log) => log.blockNumber === opening.number,
         );
-        expect(realOpeningLogs).toHaveLength(12);
+        expect(realOpeningLogs).toHaveLength(59);
 
         // Explicitly synthetic: no receipt mint was needed on the public chain.
         const receiptIds = ["1000001", "2000001", "3000001"];
-        const laterIds = ["112000", ...receiptIds];
+        const laterIds = ["116666", ...receiptIds];
         const syntheticBlock: RpcBlock = {
             ...opening,
             number: opening.number + 1,
@@ -195,8 +187,11 @@ describe("111K bootstrap and continuous transfer projection", () => {
                 return filter.events === NFT_TRANSFER_EVENTS ? inRange : [];
             },
             getTransaction: async (hash) => {
-                if (hash === captured.transaction.hash)
-                    return captured.transaction as Awaited<
+                const transaction = captured.transactions.find(
+                    (tx) => tx.hash === hash,
+                );
+                if (transaction)
+                    return transaction as Awaited<
                         ReturnType<RpcProviderPort["getTransaction"]>
                     >;
                 if (hash === syntheticBlock.transactions[0])
@@ -208,10 +203,21 @@ describe("111K bootstrap and continuous transfer projection", () => {
                     };
                 throw new Error("Unexpected fixture transaction");
             },
-            getTransactionReceipt: async (hash) => ({
-                transactionHash: hash as `0x${string}`,
-                logs: allLogs.filter((log) => log.transactionHash === hash),
-            }),
+            getTransactionReceipt: async (hash) => {
+                const receipt = captured.receipts.find(
+                    (item) => item.transactionHash === hash,
+                );
+                return receipt
+                    ? (receipt as Awaited<
+                          ReturnType<RpcProviderPort["getTransactionReceipt"]>
+                      >)
+                    : {
+                          transactionHash: hash as `0x${string}`,
+                          logs: syntheticLogs.filter(
+                              (log) => log.transactionHash === hash,
+                          ),
+                      };
+            },
             readContract: async () => {
                 throw new Error(
                     "Enumerable reads are forbidden for this fixture",
@@ -284,8 +290,8 @@ describe("111K bootstrap and continuous transfer projection", () => {
         );
         const presentIds = snapshots.listMetadataTaskTokenIds(runId);
         expect(new Set(presentIds)).toEqual(new Set(anchorOwners.keys()));
-        expect(presentIds).toHaveLength(41);
-        expect(presentIds).not.toContain("111891"); // First crate minted after the anchor.
+        expect(presentIds).toHaveLength(272);
+        expect(presentIds).not.toContain("113087"); // First crate from the captured warehouse opening.
         const lastMint = logs
             .filter(
                 (log) =>
@@ -300,28 +306,35 @@ describe("111K bootstrap and continuous transfer projection", () => {
         );
         expectScope(collectionId);
 
-        const tasks = snapshots.listMetadataTasksDueNow(runId, Date.now(), 100);
-        snapshots.insertOwnershipTasks(tasks);
-        for (const task of tasks) {
-            // Metadata completion is controlled; production ownership still reads ownerOf.
-            snapshots.markMetadataTaskSucceeded(runId, task.tokenId, 1);
-            const owner = await ownership.readOwner({
-                contract: CONTRACT,
-                tokenId: task.tokenId,
-                block: anchor,
-            });
-            snapshots.markOwnershipTaskSucceeded({
+        while (true) {
+            const tasks = snapshots.listMetadataTasksDueNow(
                 runId,
-                tokenId: task.tokenId,
-                attempts: 1,
-                owner: owner!,
-            });
+                Date.now(),
+                100,
+            );
+            if (tasks.length === 0) break;
+            snapshots.insertOwnershipTasks(tasks);
+            for (const task of tasks) {
+                // Metadata completion is controlled; production ownership still reads ownerOf.
+                snapshots.markMetadataTaskSucceeded(runId, task.tokenId, 1);
+                const owner = await ownership.readOwner({
+                    contract: CONTRACT,
+                    tokenId: task.tokenId,
+                    block: anchor,
+                });
+                snapshots.markOwnershipTaskSucceeded({
+                    runId,
+                    tokenId: task.tokenId,
+                    attempts: 1,
+                    owner: owner!,
+                });
+            }
         }
         expect(
             readContractAtBlock.mock.calls.filter(
                 ([p]) => p.functionName === ERC721_OWNER_OF_FUNCTION,
             ),
-        ).toHaveLength(41);
+        ).toHaveLength(272);
         snapshots.finalizeSnapshot({
             runId,
             chainId: CHAIN_ID,
@@ -332,8 +345,11 @@ describe("111K bootstrap and continuous transfer projection", () => {
             anchorTimestamp: anchorHeader.timestamp,
         });
         for (const step of [Step.Metadata, Step.Ownership])
-            steps.markStepSucceeded(runId, step, { completed: 41, total: 41 });
-        expect(count("nft_balances", collectionId)).toBe(41);
+            steps.markStepSucceeded(runId, step, {
+                completed: 272,
+                total: 272,
+            });
+        expect(count("nft_balances", collectionId)).toBe(272);
 
         const queue = {
             scheduleBackfillRange: vi.fn(async () => {}),
@@ -437,10 +453,20 @@ describe("111K bootstrap and continuous transfer projection", () => {
         const transfers = await projectBlock(opening, "backfill");
         const mints = transfers.filter((event) => event.from === zeroAddress),
             burns = transfers.filter((event) => event.to === zeroAddress);
-        expect(mints.map((event) => event.tokenId)).toEqual(
-            Array.from({ length: 11 }, (_, i) => String(111891 + i)),
+        const warehouseTransfers = transfers.filter(
+            (event) =>
+                event.txHash === captured.warehouseOpeningTransactionHash,
         );
-        expect(burns).toHaveLength(1);
+        expect(
+            warehouseTransfers
+                .filter((event) => event.from === zeroAddress)
+                .map((event) => event.tokenId),
+        ).toEqual(Array.from({ length: 11 }, (_, i) => String(113087 + i)));
+        expect(
+            warehouseTransfers.filter((event) => event.to === zeroAddress),
+        ).toHaveLength(1);
+        expect(mints).toHaveLength(56);
+        expect(burns).toHaveLength(3);
         expect(
             db
                 .prepare(
@@ -448,7 +474,7 @@ describe("111K bootstrap and continuous transfer projection", () => {
                 )
                 .get(collectionId, burns[0].tokenId),
         ).toBeUndefined();
-        expect(count("nft_balances", collectionId)).toBe(51);
+        expect(count("nft_balances", collectionId)).toBe(325);
         for (const event of mints)
             expect(
                 db
@@ -497,7 +523,7 @@ describe("111K bootstrap and continuous transfer projection", () => {
 
         const later = await projectBlock(syntheticBlock, "realtime");
         expect(later.map((event) => event.tokenId)).toEqual(laterIds);
-        expect(count("nft_balances", collectionId)).toBe(55);
+        expect(count("nft_balances", collectionId)).toBe(329);
         for (const id of laterIds) {
             expect(
                 db
@@ -515,11 +541,11 @@ describe("111K bootstrap and continuous transfer projection", () => {
             ).toEqual({ token_id: id });
         }
         await projectBlock(syntheticBlock, "realtime");
-        expect(count("nft_balances", collectionId)).toBe(55);
-        expect(count("nft_transfer_events", collectionId)).toBe(16);
+        expect(count("nft_balances", collectionId)).toBe(329);
+        expect(count("nft_transfer_events", collectionId)).toBe(63);
         expectScope(collectionId);
 
-        // Reproduce the old 1..378 scope's inability to route the same real opening.
+        // An artwork-only range excludes the same warehouse-opening transaction.
         db.prepare(
             "UPDATE collections SET token_scope_kind = ?, scope_start_token_id = '1', scope_total_supply = 378 WHERE collection_id = ?",
         ).run(ScopeKind.TokenRange, collectionId);
@@ -530,7 +556,10 @@ describe("111K bootstrap and continuous transfer projection", () => {
                     fromBlock: opening.number,
                     toBlock: opening.number,
                 })
-            ).collectionScoped.nftTransferEvents,
+            ).collectionScoped.nftTransferEvents.filter(
+                (event) =>
+                    event.txHash === captured.warehouseOpeningTransactionHash,
+            ),
         ).toEqual([]);
         expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     });
@@ -549,7 +578,7 @@ function seedRun() {
                 COLLECTION_STANDARD.Erc721,
                 COLLECTION_STATUS.Bootstrapping,
                 ScopeKind.AllContractTokens,
-                NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+                NFT111K_MAINNET_DEPLOYMENT_BLOCK,
             ).lastInsertRowid,
     );
     const runId = Number(

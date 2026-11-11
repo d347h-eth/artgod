@@ -94,8 +94,8 @@ import {
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
 } from "@artgod/shared/extensions/111k";
 import {
     BOOTSTRAP_STREAM_CONTENT_TYPE,
@@ -816,7 +816,7 @@ beforeAll(async () => {
             {
                 async discoverContract(address) {
                     return bootstrapTestContract(
-                        address === NFT111K_SEPOLIA_CONTRACT_ADDRESS
+                        address === NFT111K_MAINNET_CONTRACT_ADDRESS
                             ? { enumerable: { supported: false, error: null } }
                             : {},
                     );
@@ -7253,10 +7253,7 @@ describe("backend api routes", () => {
     });
 
     it("exposes the 111K preset in JSON and streamed probes and persists only authoritative scope matches", async () => {
-        db.prepare(
-            "INSERT INTO chains (type, public_chain_id, slug, name, average_block_time_seconds) VALUES ('evm', ?, 'sepolia', 'Sepolia', 12)",
-        ).run(NFT111K_SEPOLIA_CHAIN_ID);
-        const url = `/api/sepolia/collections/bootstrap/probe?address=${NFT111K_SEPOLIA_CONTRACT_ADDRESS}`;
+        const url = `/api/ethereum/collections/bootstrap/probe?address=${NFT111K_MAINNET_CONTRACT_ADDRESS}`;
         const probe = await resolve("GET", url);
         expect(probe.statusCode).toBe(200);
         const preset = {
@@ -7280,10 +7277,10 @@ describe("backend api routes", () => {
         // No preview is sent. CLI and UI admission use the exact same server-side registry.
         const created = await resolve(
             "POST",
-            "/api/sepolia/collections/bootstrap",
+            "/api/ethereum/collections/bootstrap",
             {
                 slug: "111k-full",
-                address: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                address: NFT111K_MAINNET_CONTRACT_ADDRESS,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
@@ -7299,7 +7296,7 @@ describe("backend api routes", () => {
                 )
                 .get(created.payload.runId),
         ).toEqual({
-            chain_id: NFT111K_SEPOLIA_CHAIN_ID,
+            chain_id: NFT111K_MAINNET_CHAIN_ID,
             request_extension_key: NFT111K_EXTENSION_KEY,
             enumeration_mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
             manual_token_ids_json: null,
@@ -7329,17 +7326,17 @@ describe("backend api routes", () => {
         deleteCollectionFixture(created.payload.collectionId);
         const manual = await resolve(
             "POST",
-            "/api/sepolia/collections/bootstrap",
+            "/api/ethereum/collections/bootstrap",
             {
                 slug: "111k-manual",
-                address: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                address: NFT111K_MAINNET_CONTRACT_ADDRESS,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 scope: {
                     mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
                     startTokenId: "1",
-                    tokenCount: 378,
+                    tokenCount: 100,
                 },
                 requestExtensionKey: NFT111K_EXTENSION_KEY,
                 embeddedCollectionPreset: preset,
@@ -7354,6 +7351,7 @@ describe("backend api routes", () => {
                 )
                 .get(manual.payload.runId),
         ).toEqual({ request_extension_key: null });
+        deleteCollectionFixture(manual.payload.collectionId);
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {

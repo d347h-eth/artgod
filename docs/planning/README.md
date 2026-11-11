@@ -6,7 +6,7 @@ current system.
 
 - [Unified backlog](01-unified-backlog.md) is the single status and priority
   ledger for retained work and completed or superseded history.
-- [111K Sepolia bootstrap development plan](../extensions/03-111k-bootstrap.md)
+- [111K mainnet bootstrap contract](../extensions/03-111k-bootstrap.md)
   gives the bounded implementation contract for `BKL-073`. It lives with the
   owning extension documentation and retains the implementation specification and
   user-run pilot checklist. The extension-system reference describes current behavior.

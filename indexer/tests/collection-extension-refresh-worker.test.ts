@@ -7,7 +7,7 @@ import {
 } from "../src/application/collection-extensions/refresh-artifacts-worker.js";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
 } from "@artgod/shared/extensions/111k";
 import { nft111kTestInstall } from "./fixtures/111k-bootstrap.js";
 import type {
@@ -67,7 +67,7 @@ describe("collection extension refresh worker handler", () => {
             buildRefreshJob({
                 chainId: install.chainId,
                 collectionId: install.collectionId,
-                contract: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                contract: NFT111K_MAINNET_CONTRACT_ADDRESS,
             }),
             queue,
             buildUnusedRpc(),

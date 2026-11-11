@@ -252,7 +252,7 @@ ERC721Enumerable or a matching embedded inventory hook at any time after acknowl
 (initially empty) and token count define `first .. first + count - 1`,
 including unminted IDs. Unknown/false Enumerable support without a matching
 full-contract preset produces a warning when entire-contract mode is selected,
-not a disabled control. The 111K Sepolia preset offers the ordinary entire-contract
+not a disabled control. The 111K mainnet preset offers the ordinary entire-contract
 apply action and suppresses the misleading supply-as-range suggestion. Applying
 it changes scope only; the contract's interface finding remains false.
 The suggestion and selected mode both show the detected contract-wide token

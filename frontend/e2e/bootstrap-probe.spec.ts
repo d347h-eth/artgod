@@ -83,11 +83,11 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
-	test('111K Sepolia preset preserves manual inputs and queues the entire contract', async ({
+	test('111K mainnet preset preserves manual inputs and queues the entire contract', async ({
 		page
 	}, info) => {
 		const api = await installBootstrapProbeApiMock(page);
-		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=ethereum&opensea=disabled`);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
 		await page.locator('#bootstrap-sample').fill('1');
@@ -100,7 +100,7 @@ test.describe('bootstrap setup', () => {
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => (release = resolve));
 		await page.route(
-			'**/sepolia/collections/bootstrap/probe?**',
+			'**/ethereum/collections/bootstrap/probe?**',
 			async (route) => {
 				await gate;
 				await route.fallback();
@@ -123,7 +123,7 @@ test.describe('bootstrap setup', () => {
 		);
 		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
 		await expect(
-			formRow(page, 'Token count').getByRole('button', { name: 'apply "378"', exact: true })
+			formRow(page, 'Token count').getByRole('button', { name: 'apply "3498"', exact: true })
 		).toHaveCount(0);
 		await probeButton(page).click();
 		await expect(apply).toBeVisible();
@@ -141,7 +141,7 @@ test.describe('bootstrap setup', () => {
 		await queueButton(page).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]).toMatchObject({
-			path: '/api/sepolia/collections/bootstrap',
+			path: '/api/ethereum/collections/bootstrap',
 			body: {
 				address: BOOTSTRAP_PROBE_CONTRACTS.NFT111K,
 				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
@@ -154,14 +154,14 @@ test.describe('bootstrap setup', () => {
 		page
 	}, info) => {
 		await installBootstrapProbeApiMock(page);
-		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=ethereum&opensea=disabled`);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
 		await page.locator('#bootstrap-slug').fill('111k-retry');
 		await rowControl(page, 'Image source field').fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
 		await page.locator('#bootstrap-scope-mode').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
 		await page.route(
-			'**/sepolia/collections/bootstrap/probe?**',
+			'**/ethereum/collections/bootstrap/probe?**',
 			(route) =>
 				route.fulfill({
 					status: 503,
@@ -186,7 +186,7 @@ test.describe('bootstrap setup', () => {
 			page
 		}, info) => {
 			await installBootstrapProbeApiMock(page);
-			await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+			await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=ethereum&opensea=disabled`);
 			await contractAddressSafetyAcknowledgement(page).check();
 			await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
 			await probeButton(page).click();
@@ -199,7 +199,7 @@ test.describe('bootstrap setup', () => {
 			let release!: () => void;
 			const gate = new Promise<void>((resolve) => (release = resolve));
 			await page.route(
-				'**/sepolia/collections/bootstrap/probe?**',
+				'**/ethereum/collections/bootstrap/probe?**',
 				async (route) => {
 					await gate;
 					await route.fallback();
@@ -213,7 +213,7 @@ test.describe('bootstrap setup', () => {
 			else
 				await page
 					.getByRole('navigation', { name: 'Test chain' })
-					.getByRole('link', { name: 'Ethereum', exact: true })
+					.getByRole('link', { name: 'Arbitrum', exact: true })
 					.click();
 			release();
 			await probeButton(page).click();

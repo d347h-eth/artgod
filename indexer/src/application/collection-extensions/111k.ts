@@ -1,9 +1,9 @@
 import { parseAbi, zeroAddress } from "viem";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
-    NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_DEPLOYMENT_BLOCK,
 } from "@artgod/shared/extensions/111k";
 import { normalizeAddressRef } from "@artgod/shared/utils/ref-resolver";
 import { normalizeErc721Owner } from "@artgod/shared/evm/erc721-ownership";
@@ -56,29 +56,29 @@ async function enumerateBootstrapTokenIds(
     if (
         !install.enabled ||
         install.extensionKey !== NFT111K_EXTENSION_KEY ||
-        install.chainId !== NFT111K_SEPOLIA_CHAIN_ID ||
+        install.chainId !== NFT111K_MAINNET_CHAIN_ID ||
         anchor.chainId !== install.chainId ||
         normalizeAddressRef(context.contract) !==
-            NFT111K_SEPOLIA_CONTRACT_ADDRESS ||
+            NFT111K_MAINNET_CONTRACT_ADDRESS ||
         !config ||
         typeof config !== "object" ||
         !("mainContractAddress" in config) ||
         typeof config.mainContractAddress !== "string" ||
         normalizeAddressRef(config.mainContractAddress) !==
-            NFT111K_SEPOLIA_CONTRACT_ADDRESS ||
+            NFT111K_MAINNET_CONTRACT_ADDRESS ||
         !("deploymentBlock" in config) ||
-        config.deploymentBlock !== NFT111K_SEPOLIA_DEPLOYMENT_BLOCK
+        config.deploymentBlock !== NFT111K_MAINNET_DEPLOYMENT_BLOCK
     )
         throw new Error(
-            "111K bootstrap requires the embedded Sepolia v17 deployment",
+            "111K bootstrap requires the embedded Ethereum mainnet deployment",
         );
     if (
         !Number.isSafeInteger(anchor.blockNumber) ||
-        anchor.blockNumber < NFT111K_SEPOLIA_DEPLOYMENT_BLOCK ||
+        anchor.blockNumber < NFT111K_MAINNET_DEPLOYMENT_BLOCK ||
         !/^0x[0-9a-fA-F]{64}$/.test(anchor.blockHash)
     )
         throw new ChainSyncConflict("Invalid 111K bootstrap anchor");
-    const contract = NFT111K_SEPOLIA_CONTRACT_ADDRESS as Hex;
+    const contract = NFT111K_MAINNET_CONTRACT_ADDRESS as Hex;
     const verifyHeader = async () => {
         const header = await rpc.getBlock(anchor.blockNumber, { fresh: true });
         if (
@@ -103,7 +103,7 @@ async function enumerateBootstrapTokenIds(
     const supply = await readSupply();
     const issued = new Set<string>();
     for (
-        let fromBlock = NFT111K_SEPOLIA_DEPLOYMENT_BLOCK;
+        let fromBlock = NFT111K_MAINNET_DEPLOYMENT_BLOCK;
         fromBlock <= anchor.blockNumber;
         fromBlock += NFT111K_MINT_LOG_PAGE_BLOCKS
     ) {

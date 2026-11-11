@@ -35,7 +35,7 @@ import {
 import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { NFT111K_SEPOLIA_CONTRACT_ADDRESS } from '@artgod/shared/extensions/111k';
+import { NFT111K_MAINNET_CONTRACT_ADDRESS } from '@artgod/shared/extensions/111k';
 import { resolveEmbeddedCollectionBootstrapPreset } from '@artgod/shared/extensions/built-ins';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
@@ -45,7 +45,7 @@ import {
 } from '../../src/lib/e2e/bootstrap-probe-fixtures';
 export { BOOTSTRAP_PROBE_E2E_ROUTE_PATH };
 export const BOOTSTRAP_PROBE_CONTRACTS = {
-	NFT111K: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+	NFT111K: NFT111K_MAINNET_CONTRACT_ADDRESS,
 	Aeon: BOOTSTRAP_CONTRACT_CASES[4].address,
 	NonEnumerable: BOOTSTRAP_CONTRACT_CASES[1].address,
 	EnumerableRaster: BOOTSTRAP_CONTRACT_CASES[0].address,
@@ -374,9 +374,9 @@ function contractResponse(address: string): BootstrapContractProbeResponse {
 			enumerable: { supported: false, error: null },
 			totalSupply: {
 				status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-				value: '378',
-				safeIntegerValue: 378,
-				bootstrapRangeValue: 378,
+				value: '3498',
+				safeIntegerValue: 3498,
+				bootstrapRangeValue: 3498,
 				error: null
 			},
 			discovery: bootstrapTokenDiscovery({ checked: false, tokenId: null, error: null }, [

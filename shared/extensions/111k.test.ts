@@ -8,9 +8,9 @@ import {
 } from "./built-ins.js";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
-    NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_DEPLOYMENT_BLOCK,
 } from "./111k.js";
 import {
     TERRAFORMS_MAINNET_CHAIN_ID,
@@ -18,8 +18,8 @@ import {
 } from "./terraforms.js";
 
 const identity = {
-    chainId: NFT111K_SEPOLIA_CHAIN_ID,
-    contractAddress: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+    chainId: NFT111K_MAINNET_CHAIN_ID,
+    contractAddress: NFT111K_MAINNET_CONTRACT_ADDRESS,
 };
 
 describe("111K embedded definition", () => {
@@ -48,12 +48,12 @@ describe("111K embedded definition", () => {
             );
             expect(JSON.parse(install!.configJson)).toEqual({
                 mainContractAddress: identity.contractAddress,
-                deploymentBlock: NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+                deploymentBlock: NFT111K_MAINNET_DEPLOYMENT_BLOCK,
             });
         },
     );
     it.each([
-        { ...identity, chainId: 1 },
+        { ...identity, chainId: 10 },
         { ...identity, contractAddress: "0x" + "12".repeat(20) },
         {
             chainId: TERRAFORMS_MAINNET_CHAIN_ID,
@@ -63,7 +63,7 @@ describe("111K embedded definition", () => {
         expect(resolveEmbeddedCollectionBootstrapPreset(input)).toBeNull();
     });
     it.each([
-        { kind: ScopeKind.TokenRange, startTokenId: "1", totalSupply: 378 },
+        { kind: ScopeKind.TokenRange, startTokenId: "1", totalSupply: 100 },
         { kind: ScopeKind.ExplicitTokenIds, tokenIds: ["1", "111891"] },
     ])("does not install for a manual scope: %j", (scope) => {
         expect(

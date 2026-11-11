@@ -9,8 +9,8 @@ import {
 import { bindCollectionExtensionBootstrapEnumerator } from "../src/application/collection-extensions/bootstrap-enumeration.js";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
 } from "@artgod/shared/extensions/111k";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import {
@@ -24,10 +24,10 @@ import { BOOTSTRAP_ENUMERATION_PROGRESS_EVENT_STEP } from "../src/application/bo
 describe("extension bootstrap dispatch", () => {
     function fixture() {
         const run = {
-            chainId: NFT111K_SEPOLIA_CHAIN_ID,
+            chainId: NFT111K_MAINNET_CHAIN_ID,
             collectionId: 7,
             requestExtensionKey: NFT111K_EXTENSION_KEY as string | null,
-            requestAddress: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+            requestAddress: NFT111K_MAINNET_CONTRACT_ADDRESS,
             anchorBlockHash: NFT111K_TEST_ANCHOR.blockHash as string | null,
             enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
             manualTokenIdsJson: null,
@@ -103,7 +103,7 @@ describe("extension bootstrap dispatch", () => {
     it.each([
         { enabled: false },
         { extensionKey: "wrong" },
-        { chainId: 1 },
+        { chainId: 10 },
         { collectionId: 99 },
     ])("rejects a missing or mismatched requested install: %j", (overrides) => {
         const f = fixture();

@@ -21,8 +21,8 @@ import { ProbeCollectionContractUseCase } from "./probe-collection-contract.js";
 import { BuiltInCollectionExtensionResolver } from "../../../infra/collection-extensions/built-in-collection-extension-resolver.js";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
 } from "@artgod/shared/extensions/111k";
 import {
     InspectBootstrapSampleUseCase,
@@ -62,7 +62,7 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
     };
 }
 describe("bootstrap probe use cases", () => {
-    it.each([NFT111K_SEPOLIA_CHAIN_ID, 1])(
+    it.each([NFT111K_MAINNET_CHAIN_ID, 10])(
         "resolves identity presets on public chain %s without altering chain facts",
         async (publicChainId) => {
             const facts = bootstrapTestContract({
@@ -77,7 +77,7 @@ describe("bootstrap probe use cases", () => {
             );
             const result = await useCase.probe({
                 chainRef: "3",
-                address: NFT111K_SEPOLIA_CONTRACT_ADDRESS.toUpperCase().replace(
+                address: NFT111K_MAINNET_CONTRACT_ADDRESS.toUpperCase().replace(
                     "0X",
                     "0x",
                 ),
@@ -87,7 +87,7 @@ describe("bootstrap probe use cases", () => {
             expect(result.discovery).toEqual(facts.discovery);
             expect(result.totalSupply).toEqual(facts.totalSupply);
             expect(result.embeddedCollectionPreset).toEqual(
-                publicChainId === NFT111K_SEPOLIA_CHAIN_ID
+                publicChainId === NFT111K_MAINNET_CHAIN_ID
                     ? {
                           extensionKey: NFT111K_EXTENSION_KEY,
                           scope: { mode: Mode.Enumerable },
@@ -95,7 +95,7 @@ describe("bootstrap probe use cases", () => {
                     : null,
             );
             expect(discoverContract).toHaveBeenCalledExactlyOnceWith(
-                NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                NFT111K_MAINNET_CONTRACT_ADDRESS,
                 publicChainId,
                 undefined,
             );

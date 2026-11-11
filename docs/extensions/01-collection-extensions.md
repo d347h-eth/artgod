@@ -235,7 +235,7 @@ This split keeps each runtime on its own contract instead of sharing a single cr
 
 ## Bundled Extension: 111K
 
-The `111k` extension matches only the Sepolia v17 address defined in
+The `111k` extension matches only the Ethereum mainnet address defined in
 `shared/extensions/111k.ts`, with all-contract token scope. Its probe preset offers
 the existing **entire contract** apply action while preserving the contract's
 false ERC721Enumerable finding and withholding circulating supply as a range
@@ -256,7 +256,7 @@ Enumeration page durability, owner reuse (`BKL-037`), crash-safe metadata seedin
 (`BKL-061`) and recovery of initially missing metadata remain deferred.
 
 The [111K implementation contract and pilot checklist](03-111k-bootstrap.md)
-record the deployment, tests and remaining user-run Sepolia validation.
+record the deployment, tests and remaining user-run mainnet validation.
 
 ## Bundled Extension: Terraforms
 

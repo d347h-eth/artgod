@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { zeroAddress } from "viem";
 import {
     NFT111K_EXTENSION_KEY,
-    NFT111K_SEPOLIA_CHAIN_ID,
-    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
-    NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
+    NFT111K_MAINNET_DEPLOYMENT_BLOCK,
 } from "@artgod/shared/extensions/111k";
 import {
     NFT111K_BOOTSTRAP_ABI,
@@ -77,7 +77,7 @@ function fixture(
     const context: Context = {
         rpc,
         install: nft111kTestInstall(),
-        contract: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+        contract: NFT111K_MAINNET_CONTRACT_ADDRESS,
         anchor: { ...NFT111K_TEST_ANCHOR },
         onProgress: vi.fn(),
     };
@@ -96,10 +96,10 @@ describe("111K anchored bootstrap inventory", () => {
         const f = fixture();
         expect(await f.enumerate()).toEqual(["1", "111891", "1000001"]);
         expect(f.rpc.getLogs).toHaveBeenCalledExactlyOnceWith({
-            address: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+            address: NFT111K_MAINNET_CONTRACT_ADDRESS,
             event: ERC721_ABI[0],
             args: { from: zeroAddress },
-            fromBlock: NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+            fromBlock: NFT111K_MAINNET_DEPLOYMENT_BLOCK,
             toBlock: NFT111K_TEST_ANCHOR.blockNumber,
         });
         expect(
@@ -131,9 +131,9 @@ describe("111K anchored bootstrap inventory", () => {
     it("includes deployment and anchor boundaries in bounded pages, with no request for post-anchor mints", async () => {
         const f = fixture(["1", "2", "3"], new Set());
         f.context.anchor.blockNumber =
-            NFT111K_SEPOLIA_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS * 2;
+            NFT111K_MAINNET_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS * 2;
         f.logs[1].blockNumber =
-            NFT111K_SEPOLIA_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS;
+            NFT111K_MAINNET_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS;
         f.logs[2].blockNumber = f.context.anchor.blockNumber;
         f.logs.push(
             nft111kTestMint("3000001", {
@@ -145,13 +145,13 @@ describe("111K anchored bootstrap inventory", () => {
             f.rpc.getLogs.mock.calls.map(([p]) => [p.fromBlock, p.toBlock]),
         ).toEqual([
             [
-                NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
-                NFT111K_SEPOLIA_DEPLOYMENT_BLOCK +
+                NFT111K_MAINNET_DEPLOYMENT_BLOCK,
+                NFT111K_MAINNET_DEPLOYMENT_BLOCK +
                     NFT111K_MINT_LOG_PAGE_BLOCKS -
                     1,
             ],
             [
-                NFT111K_SEPOLIA_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS,
+                NFT111K_MAINNET_DEPLOYMENT_BLOCK + NFT111K_MINT_LOG_PAGE_BLOCKS,
                 f.context.anchor.blockNumber - 1,
             ],
             [f.context.anchor.blockNumber, f.context.anchor.blockNumber],
@@ -267,7 +267,7 @@ describe("111K anchored bootstrap inventory", () => {
 
     it.each([
         { address: zeroAddress },
-        { blockNumber: NFT111K_SEPOLIA_DEPLOYMENT_BLOCK - 1 },
+        { blockNumber: NFT111K_MAINNET_DEPLOYMENT_BLOCK - 1 },
         { blockNumber: NFT111K_TEST_ANCHOR.blockNumber + 1 },
         { topics: [] },
         { data: "0x1234" as const, topics: [] },
@@ -297,7 +297,7 @@ describe("111K anchored bootstrap inventory", () => {
 
     it("rejects a pre-deployment anchor and a mismatched fresh header", async () => {
         const f = fixture();
-        f.context.anchor.blockNumber = NFT111K_SEPOLIA_DEPLOYMENT_BLOCK - 1;
+        f.context.anchor.blockNumber = NFT111K_MAINNET_DEPLOYMENT_BLOCK - 1;
         await expect(f.enumerate()).rejects.toThrow("anchor");
         const changed = fixture();
         changed.rpc.getBlock.mockResolvedValue({
@@ -313,20 +313,20 @@ describe("111K anchored bootstrap inventory", () => {
     it.each([
         { enabled: false },
         { extensionKey: "unknown" },
-        { chainId: 1 },
+        { chainId: 10 },
         { configJson: "{}" },
         { configJson: "null" },
         { configJson: "bad" },
         {
             configJson: JSON.stringify({
                 mainContractAddress: zeroAddress,
-                deploymentBlock: NFT111K_SEPOLIA_DEPLOYMENT_BLOCK,
+                deploymentBlock: NFT111K_MAINNET_DEPLOYMENT_BLOCK,
             }),
         },
         {
             configJson: JSON.stringify({
-                mainContractAddress: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
-                deploymentBlock: NFT111K_SEPOLIA_DEPLOYMENT_BLOCK + 1,
+                mainContractAddress: NFT111K_MAINNET_CONTRACT_ADDRESS,
+                deploymentBlock: NFT111K_MAINNET_DEPLOYMENT_BLOCK + 1,
             }),
         },
     ])("rejects a changed install: %o", async (overrides) => {
@@ -339,8 +339,8 @@ describe("111K anchored bootstrap inventory", () => {
         const f = fixture();
         f.context.contract = zeroAddress;
         await expect(f.enumerate()).rejects.toThrow("deployment");
-        f.context.contract = NFT111K_SEPOLIA_CONTRACT_ADDRESS;
-        f.context.anchor.chainId = 1;
+        f.context.contract = NFT111K_MAINNET_CONTRACT_ADDRESS;
+        f.context.anchor.chainId = 10;
         await expect(f.enumerate()).rejects.toThrow("deployment");
         await expect(fixture([], new Set()).enumerate()).rejects.toThrow(
             "No tokens exist",
