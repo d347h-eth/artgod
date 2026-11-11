@@ -8,6 +8,9 @@ collection-specific rules into generic indexer, backend, or UI code.
    and generic boundaries.
 2. [Terraforms](02-terraforms.md) — the shipped Terraforms extension, live media,
    customization, event facts, traits, and Hypercastle explorer.
+3. [111K Sepolia bootstrap development plan](03-111k-bootstrap.md)
+   — proposed embedded preset and anchored inventory hook for v17, implementation
+   steps, tests, explicit deferrals, and the user-run Sepolia pilot.
 
 The generic extension contract owns shared hook shapes. An extension module owns
 its own keys, event names, trait vocabulary, and presentation rules. Topic docs
