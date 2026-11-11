@@ -1,5 +1,6 @@
 import { COLLECTION_TOKEN_SCOPE_KIND } from "../collections/token-scope.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
+import type { BootstrapScope } from "../bootstrap/scope.js";
 
 // Core collection media sources available without an installed extension.
 export const COLLECTION_MEDIA_MODES = {
@@ -110,6 +111,13 @@ export type EmbeddedCollectionExtensionMatch = {
     contractAddress: string;
     scope: EmbeddedCollectionExtensionScope;
     install: EmbeddedCollectionExtensionInstall;
+    /** Identity-based setup recommendation; installation still requires exact scope. */
+    bootstrapPreset?: { scope: BootstrapScope };
+};
+
+export type EmbeddedCollectionBootstrapPreset = {
+    extensionKey: CollectionExtensionKey;
+    scope: BootstrapScope;
 };
 
 export function resolveEmbeddedCollectionExtensionInstallFromMatches(input: {

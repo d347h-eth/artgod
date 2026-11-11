@@ -101,6 +101,7 @@ export function bootstrapTestContract(
         chain: BOOTSTRAP_TEST_CHAIN,
         address: BOOTSTRAP_TEST_ADDRESS,
         standard: "erc721",
+        embeddedCollectionPreset: null,
         observation: BOOTSTRAP_TEST_OBSERVATION,
         proxy: null,
         proxyError: null,

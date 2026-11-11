@@ -93,6 +93,15 @@ import {
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    NFT111K_EXTENSION_KEY,
+    NFT111K_SEPOLIA_CHAIN_ID,
+    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+} from "@artgod/shared/extensions/111k";
+import {
+    BOOTSTRAP_STREAM_CONTENT_TYPE,
+    BOOTSTRAP_STREAM_RECORD,
+} from "@artgod/shared/bootstrap/operation-output";
+import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
@@ -805,10 +814,15 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             {
-                async discoverContract() {
-                    return bootstrapTestContract();
+                async discoverContract(address) {
+                    return bootstrapTestContract(
+                        address === NFT111K_SEPOLIA_CONTRACT_ADDRESS
+                            ? { enumerable: { supported: false, error: null } }
+                            : {},
+                    );
                 },
             },
+            builtInCollectionExtensionResolver,
         );
     const inspectBootstrapSampleUseCase = new InspectBootstrapSampleUseCase(
         1,
@@ -7236,6 +7250,110 @@ describe("backend api routes", () => {
         expect(
             response.headers["access-control-expose-headers"],
         ).toBeUndefined();
+    });
+
+    it("exposes the 111K preset in JSON and streamed probes and persists only authoritative scope matches", async () => {
+        db.prepare(
+            "INSERT INTO chains (type, public_chain_id, slug, name, average_block_time_seconds) VALUES ('evm', ?, 'sepolia', 'Sepolia', 12)",
+        ).run(NFT111K_SEPOLIA_CHAIN_ID);
+        const url = `/api/sepolia/collections/bootstrap/probe?address=${NFT111K_SEPOLIA_CONTRACT_ADDRESS}`;
+        const probe = await resolve("GET", url);
+        expect(probe.statusCode).toBe(200);
+        const preset = {
+            extensionKey: NFT111K_EXTENSION_KEY,
+            scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
+        };
+        expect(probe.payload.embeddedCollectionPreset).toEqual(preset);
+        expect(probe.payload.enumerable.supported).toBe(false);
+        const stream = await app!.inject({
+            method: "GET",
+            url,
+            headers: { accept: BOOTSTRAP_STREAM_CONTENT_TYPE },
+        });
+        const result = stream.body
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+            .find((record) => record.type === BOOTSTRAP_STREAM_RECORD.Result);
+        expect(result.result.embeddedCollectionPreset).toEqual(preset);
+        const headers = await issueAdminCsrf();
+        // No preview is sent. CLI and UI admission use the exact same server-side registry.
+        const created = await resolve(
+            "POST",
+            "/api/sepolia/collections/bootstrap",
+            {
+                slug: "111k-full",
+                address: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                scope: preset.scope,
+            },
+            headers,
+        );
+        expect(created.statusCode).toBe(200);
+        expect(
+            db
+                .prepare(
+                    "SELECT chain_id, request_extension_key, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply FROM bootstrap_runs WHERE run_id = ?",
+                )
+                .get(created.payload.runId),
+        ).toEqual({
+            chain_id: NFT111K_SEPOLIA_CHAIN_ID,
+            request_extension_key: NFT111K_EXTENSION_KEY,
+            enumeration_mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+            manual_token_ids_json: null,
+            manual_range_start_token_id: null,
+            manual_range_total_supply: null,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT token_scope_kind, scope_start_token_id, scope_total_supply FROM collections WHERE collection_id = ?",
+                )
+                .get(created.payload.collectionId),
+        ).toEqual({
+            token_scope_kind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            scope_start_token_id: null,
+            scope_total_supply: null,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT * FROM collection_extension_installs WHERE collection_id = ?",
+                )
+                .get(created.payload.collectionId),
+        ).toBeUndefined();
+        // A client-supplied key/preset cannot select the hook for a manual scope.
+        deleteCollectionFixture(created.payload.collectionId);
+        const manual = await resolve(
+            "POST",
+            "/api/sepolia/collections/bootstrap",
+            {
+                slug: "111k-manual",
+                address: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                scope: {
+                    mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+                    startTokenId: "1",
+                    tokenCount: 378,
+                },
+                requestExtensionKey: NFT111K_EXTENSION_KEY,
+                embeddedCollectionPreset: preset,
+            },
+            headers,
+        );
+        expect(manual.statusCode).toBe(200);
+        expect(
+            db
+                .prepare(
+                    "SELECT request_extension_key FROM bootstrap_runs WHERE run_id = ?",
+                )
+                .get(manual.payload.runId),
+        ).toEqual({ request_extension_key: null });
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {

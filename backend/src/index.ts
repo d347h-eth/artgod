@@ -337,6 +337,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         bootstrapContractProbe,
+        builtInCollectionExtensionResolver,
     );
     const inspectBootstrapSampleUseCase = new InspectBootstrapSampleUseCase(
         config.defaultChainId,
