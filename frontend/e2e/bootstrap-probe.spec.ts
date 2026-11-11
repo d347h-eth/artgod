@@ -83,6 +83,151 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
+	test('111K Sepolia preset preserves manual inputs and queues the entire contract', async ({
+		page
+	}, info) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+		await contractAddressSafetyAcknowledgement(page).check();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
+		await page.locator('#bootstrap-sample').fill('1');
+		await page.locator('#bootstrap-range-start').fill('1');
+		await page.locator('#bootstrap-range-count').fill('999');
+		await page.locator('#bootstrap-slug').fill('111k-pilot');
+		await rowControl(page, 'Image source field').fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+		await page.screenshot({ path: info.outputPath('111k-editable.png'), fullPage: true });
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		await page.route(
+			'**/sepolia/collections/bootstrap/probe?**',
+			async (route) => {
+				await gate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await probeButton(page).click();
+		await expect(probeButton(page)).toContainText('probing');
+		await page.screenshot({ path: info.outputPath('111k-loading.png'), fullPage: true });
+		release();
+		const apply = formRow(page, 'Token scope').getByRole('button', {
+			name: 'apply "entire contract"',
+			exact: true
+		});
+		await expect(apply).toBeVisible();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('no');
+		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+			BOOTSTRAP_ENUMERATION_MODE.ManualRange
+		);
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+		await expect(
+			formRow(page, 'Token count').getByRole('button', { name: 'apply "378"', exact: true })
+		).toHaveCount(0);
+		await probeButton(page).click();
+		await expect(apply).toBeVisible();
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+		await apply.click();
+		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+			BOOTSTRAP_ENUMERATION_MODE.Enumerable
+		);
+		await expect(page.getByText(/ERC721Enumerable not confirmed/)).toHaveCount(0);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('111k-pilot');
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('1');
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('111k-selected.png'), fullPage: true });
+		await expect(queueButton(page)).toBeEnabled();
+		await queueButton(page).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]).toMatchObject({
+			path: '/api/sepolia/collections/bootstrap',
+			body: {
+				address: BOOTSTRAP_PROBE_CONTRACTS.NFT111K,
+				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
+			}
+		});
+		expect(api.mutations[0].body).not.toHaveProperty('requestExtensionKey');
+	});
+
+	test('111K probe failure keeps manual queueing available and recovers through retry', async ({
+		page
+	}, info) => {
+		await installBootstrapProbeApiMock(page);
+		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+		await contractAddressSafetyAcknowledgement(page).check();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
+		await page.locator('#bootstrap-slug').fill('111k-retry');
+		await rowControl(page, 'Image source field').fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await page.locator('#bootstrap-scope-mode').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+		await page.route(
+			'**/sepolia/collections/bootstrap/probe?**',
+			(route) =>
+				route.fulfill({
+					status: 503,
+					contentType: 'application/json',
+					body: JSON.stringify({ message: 'RPC unavailable' })
+				}),
+			{ times: 1 }
+		);
+		await probeButton(page).click();
+		await expect(page.getByText('RPC unavailable', { exact: true })).toBeVisible();
+		await expect(queueButton(page)).toBeEnabled();
+		await expect(page.getByText(/ERC721Enumerable not confirmed/)).toBeVisible();
+		await page.screenshot({ path: info.outputPath('111k-failed.png'), fullPage: true });
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.getByText(/ERC721Enumerable not confirmed/)).toHaveCount(0);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('111k-retry');
+	});
+
+	for (const target of ['address', 'chain'] as const)
+		test(`111K preset is discarded after a ${target} change and late response`, async ({
+			page
+		}, info) => {
+			await installBootstrapProbeApiMock(page);
+			await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=sepolia&opensea=disabled`);
+			await contractAddressSafetyAcknowledgement(page).check();
+			await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
+			await probeButton(page).click();
+			const apply = formRow(page, 'Token scope').getByRole('button', {
+				name: 'apply "entire contract"',
+				exact: true
+			});
+			await expect(apply).toBeVisible();
+			await page.getByRole('button', { name: Action.Inspect, exact: true }).waitFor();
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => (release = resolve));
+			await page.route(
+				'**/sepolia/collections/bootstrap/probe?**',
+				async (route) => {
+					await gate;
+					await route.fallback();
+				},
+				{ times: 1 }
+			);
+			await probeButton(page).click();
+			await expect(probeButton(page)).toContainText('probing');
+			if (target === 'address')
+				await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+			else
+				await page
+					.getByRole('navigation', { name: 'Test chain' })
+					.getByRole('link', { name: 'Ethereum', exact: true })
+					.click();
+			release();
+			await probeButton(page).click();
+			await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+			await expect(apply).toHaveCount(0);
+			await page
+				.locator('#bootstrap-scope-mode')
+				.selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+			await expect(page.getByText(/ERC721Enumerable not confirmed/)).toBeVisible();
+			await page.screenshot({
+				path: info.outputPath(`111k-${target}-changed.png`),
+				fullPage: true
+			});
+		});
 	test('keeps first-ID review links through unknown reads and removes them after confirming zero', async ({
 		page
 	}, info) => {

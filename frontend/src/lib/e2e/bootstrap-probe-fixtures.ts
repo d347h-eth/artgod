@@ -1,6 +1,7 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 import type { ApiChain, ApiOpenSeaIntegrationStatus } from '../api-types';
+import { NFT111K_SEPOLIA_CHAIN_ID } from '@artgod/shared/extensions/111k';
 
 // Browser-test route for the bootstrap probe harness page.
 export const BOOTSTRAP_PROBE_E2E_ROUTE_PATH = '/e2e-harness/bootstrap-runs';
@@ -18,7 +19,8 @@ export const BOOTSTRAP_PROBE_E2E_CHAIN: ApiChain = {
 export const BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM = 'chain';
 export const BOOTSTRAP_PROBE_E2E_CHAINS: ApiChain[] = [
 	BOOTSTRAP_PROBE_E2E_CHAIN,
-	{ id: 2, type: 'evm', publicChainId: 42161, slug: 'arbitrum', name: 'Arbitrum' }
+	{ id: 2, type: 'evm', publicChainId: 42161, slug: 'arbitrum', name: 'Arbitrum' },
+	{ id: 3, type: 'evm', publicChainId: NFT111K_SEPOLIA_CHAIN_ID, slug: 'sepolia', name: 'Sepolia' }
 ];
 
 // Browser-test OpenSea state keeps optional bootstrap inputs visible.
