@@ -20,6 +20,7 @@ import {
     METADATA_PENDING_POLICY as POLICY,
     METADATA_PENDING_REASON as REASON,
     metadataRetryDelay,
+    isMetadataHostingFailure,
     type MetadataAttempt,
     type MetadataAttribution,
     type MetadataFetchOptions,
@@ -32,6 +33,7 @@ import type {
     MetadataStorePort,
 } from "../../ports/metadata-store.js";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
+import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import { SqliteTokenAttributeWriter } from "../attributes/sqlite-token-attributes.js";
 import { captureChainSyncCheckpoint } from "../storage/sqlite-chain-revisions.js";
 
@@ -58,6 +60,7 @@ type PendingRow = {
     token_id: string;
     options_json: string;
     attempts: number;
+    failures: number;
     lease_owner: string;
     due_at: number;
 };
@@ -213,6 +216,8 @@ export class SqliteMetadataStore implements MetadataStorePort {
     }
 
     private burned(target: MetadataTarget): boolean {
+        // An ERC1155 transfer/balance subset cannot prove extinction of its token ID.
+        if (target.standard !== COLLECTION_STANDARD.Erc721) return false;
         if (this.balance(target)) return false;
         const row = db
             .prepare(
@@ -222,6 +227,16 @@ export class SqliteMetadataStore implements MetadataStorePort {
             | { to_address: string }
             | undefined;
         return row?.to_address === zeroAddress;
+    }
+
+    private observed(target: MetadataTarget): boolean {
+        return Boolean(
+            db
+                .prepare(
+                    "SELECT 1 FROM nft_transfer_events WHERE chain_id=? AND collection_id=? AND token_id=? LIMIT 1",
+                )
+                .get(target.chainId, target.collectionId, target.tokenId),
+        );
     }
 
     begin(
@@ -269,6 +284,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 target,
                 owner,
                 attempts: row.attempts,
+                failures: row.failures,
                 options,
                 checkpoint: captureChainSyncCheckpoint(target.chainId).revision,
                 retry: false,
@@ -332,9 +348,20 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 )!;
                 const attribution = this.balance(target);
                 if (!attribution) {
-                    db.prepare(
-                        "DELETE FROM metadata_pending WHERE chain_id=? AND collection_id=? AND token_id=?",
-                    ).run(chainId, row.collection_id, row.token_id);
+                    if (this.burned(target))
+                        db.prepare(
+                            "DELETE FROM metadata_pending WHERE chain_id=? AND collection_id=? AND token_id=?",
+                        ).run(chainId, row.collection_id, row.token_id);
+                    else
+                        db.prepare(
+                            "UPDATE metadata_pending SET reason=?,due_at=?,lease_owner=NULL WHERE chain_id=? AND collection_id=? AND token_id=?",
+                        ).run(
+                            REASON.AwaitingOwnership,
+                            now + POLICY.retryBaseMs,
+                            chainId,
+                            row.collection_id,
+                            row.token_id,
+                        );
                     continue;
                 }
                 const owner = randomUUID();
@@ -355,6 +382,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
                         target,
                         owner,
                         attempts: row.attempts + 1,
+                        failures: row.failures,
                         options: JSON.parse(
                             row.options_json,
                         ) as MetadataFetchOptions,
@@ -399,17 +427,20 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 !status ||
                 this.burned(attempt.target) ||
                 (status === COLLECTION_STATUS.Live &&
+                    !attempt.retry &&
                     !this.balance(attempt.target) &&
-                    !this.hasMetadata(attempt.target))
+                    !this.hasMetadata(attempt.target) &&
+                    !this.observed(attempt.target))
             ) {
                 this.remove(attempt);
                 return;
             }
             db.prepare(
-                "UPDATE metadata_pending SET reason=?,due_at=?,lease_owner=NULL WHERE chain_id=? AND collection_id=? AND token_id=? AND lease_owner=?",
+                "UPDATE metadata_pending SET reason=?,due_at=?,lease_owner=NULL,failures=failures+? WHERE chain_id=? AND collection_id=? AND token_id=? AND lease_owner=?",
             ).run(
                 reason,
                 now + Math.max(1, delayMs),
+                isMetadataHostingFailure(reason) ? 1 : 0,
                 attempt.target.chainId,
                 attempt.target.collectionId,
                 attempt.target.tokenId,
@@ -437,12 +468,17 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 return null;
             }
             const status = this.status(attempt.target);
-            if (
-                !status ||
-                this.burned(attempt.target) ||
-                (attempt.retry && !this.balance(attempt.target))
-            ) {
+            if (!status || this.burned(attempt.target)) {
                 this.remove(attempt);
+                return null;
+            }
+            if (attempt.retry && !this.balance(attempt.target)) {
+                this.defer(
+                    attempt,
+                    REASON.AwaitingOwnership,
+                    now,
+                    POLICY.retryBaseMs,
+                );
                 return null;
             }
             if (

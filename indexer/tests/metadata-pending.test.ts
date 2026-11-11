@@ -3,6 +3,7 @@ import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
+import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_IMAGE_CACHE_JOB_KIND } from "@artgod/shared/media/token-image-cache-jobs";
@@ -97,6 +98,26 @@ function insertOwner(tokenId = "1", collectionId = COLLECTION) {
         NFT111K_TEST_OWNER,
         HASH,
         HASH,
+    );
+}
+
+function insertBurn(
+    tokenId = "1",
+    standard: string = COLLECTION_STANDARD.Erc721,
+) {
+    db.prepare(
+        "INSERT INTO nft_transfer_events(chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind) VALUES(?,?,?,?,?,?,'1',102,?,1,?,?,?)",
+    ).run(
+        CHAIN,
+        COLLECTION,
+        CONTRACT,
+        NFT111K_TEST_OWNER,
+        zeroAddress,
+        tokenId,
+        HASH,
+        HASH,
+        Number(tokenId),
+        standard,
     );
 }
 function fixture(extension = true) {
@@ -285,22 +306,62 @@ describe("durable metadata pending backlog", () => {
         },
     );
 
-    it("retains local RPC allocation deferrals without retaining a broker delivery", async () => {
+    it("retains local allocation waits without inflating hosting backoff", async () => {
         const f = fixture();
-        f.resolver.resolveTokenUri.mockRejectedValueOnce(
-            new RpcBudgetDeferred(7_500),
+        for (let i = 0; i < 8; i++) {
+            f.resolver.resolveTokenUri.mockRejectedValueOnce(
+                new RpcBudgetDeferred(7_500),
+            );
+            expect(await f.refresh()).toBeNull();
+            expect(f.row()).toMatchObject({
+                attempts: i + 1,
+                failures: 0,
+                reason: REASON.Deferred,
+                due_at: f.state.now + 7_500,
+                lease_owner: null,
+            });
+            f.state.now += 7_501;
+        }
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.row()).toMatchObject({ attempts: 9, failures: 1 });
+        expect(f.row()!.due_at - f.state.now).toBeLessThanOrEqual(
+            POLICY.retryBaseMs,
         );
-        expect(await f.refresh()).toBeNull();
-        expect(f.row()).toMatchObject({
-            reason: REASON.Deferred,
-            due_at: f.state.now + 7_500,
-            lease_owner: null,
-        });
-        f.state.now += 7_501;
+        f.due();
         f.state.metadata = document();
         await f.domain.retryPending(CHAIN, NO_EFFECT);
         expect(f.image()).toBe(IMAGE);
         expect(f.row()).toBeUndefined();
+    });
+
+    it("does not turn superseded quota waits into host failures", async () => {
+        const f = fixture();
+        let rejectFirst!: (error: Error) => void;
+        let started!: () => void;
+        const begin = new Promise<void>((resolve) => {
+            started = resolve;
+        });
+        f.resolver.resolveTokenUri.mockImplementationOnce(async () => {
+            started();
+            return new Promise<string>((_resolve, reject) => {
+                rejectFirst = reject;
+            });
+        });
+        const first = f.refresh();
+        await begin;
+        f.resolver.resolveTokenUri.mockRejectedValueOnce(
+            new RpcBudgetDeferred(1_000),
+        );
+        await f.refresh();
+        rejectFirst(new RpcBudgetDeferred(1_000));
+        await first;
+        expect(f.row()).toMatchObject({ attempts: 2, failures: 0 });
+        f.due();
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.row()).toMatchObject({ attempts: 3, failures: 1 });
+        expect(f.row()!.due_at - f.state.now).toBeLessThanOrEqual(
+            POLICY.retryBaseMs,
+        );
     });
 
     it("coalesces repeated signals without losing the original pending age", async () => {
@@ -475,7 +536,14 @@ describe("durable metadata pending backlog", () => {
         expect(f.row()).toBeUndefined();
     });
 
-    it.each(["purge", "burn", "reorg", "pause", "disable"] as const)(
+    it.each([
+        "purge",
+        "burn",
+        "reorg",
+        "pause",
+        "disable",
+        "ownership",
+    ] as const)(
         "fences completion after %s during network work",
         async (change) => {
             const f = fixture();
@@ -500,19 +568,9 @@ describe("durable metadata pending backlog", () => {
                     chainId: CHAIN,
                     collectionId: COLLECTION,
                 });
-            if (change === "burn") {
+            if (change === "burn" || change === "ownership") {
                 db.exec("DELETE FROM nft_balances");
-                db.prepare(
-                    "INSERT INTO nft_transfer_events(chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind) VALUES(?,?,?,?,?,'1','1',102,?,1,?,0,'erc721')",
-                ).run(
-                    CHAIN,
-                    COLLECTION,
-                    CONTRACT,
-                    NFT111K_TEST_OWNER,
-                    zeroAddress,
-                    HASH,
-                    HASH,
-                );
+                if (change === "burn") insertBurn();
             }
             if (change === "reorg")
                 db.writeTransaction(() => advanceChainSyncRevision(CHAIN))();
@@ -529,7 +587,8 @@ describe("durable metadata pending backlog", () => {
             if (
                 change === "reorg" ||
                 change === "pause" ||
-                change === "disable"
+                change === "disable" ||
+                change === "ownership"
             )
                 expect(f.row()).toBeDefined();
             else expect(f.row()).toBeUndefined();
@@ -539,6 +598,49 @@ describe("durable metadata pending backlog", () => {
                 ).toEqual({ n: 0 });
         },
     );
+
+    it("keeps ownerless known tokens pending without HTTP until ownership is available", async () => {
+        const f = fixture();
+        await f.refresh();
+        db.exec("DELETE FROM nft_balances");
+        f.due();
+        expect(await f.domain.retryPending(CHAIN, NO_EFFECT)).toBeNull();
+        expect(f.row()).toMatchObject({
+            reason: REASON.AwaitingOwnership,
+            attempts: 1,
+            lease_owner: null,
+        });
+        expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(1);
+        insertOwner();
+        f.state.now += POLICY.retryBaseMs + 1;
+        f.state.metadata = document();
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.image()).toBe(IMAGE);
+        expect(f.row()).toBeUndefined();
+    });
+
+    it("does not infer ERC1155 extinction from an incomplete balance/transfer subset", async () => {
+        const f = fixture(false);
+        db.prepare("UPDATE collections SET standard=?").run(
+            COLLECTION_STANDARD.Erc1155,
+        );
+        f.state.metadata = null;
+        await f.refresh();
+        db.exec("DELETE FROM nft_balances");
+        insertBurn("1", COLLECTION_STANDARD.Erc1155);
+        f.due();
+        expect(await f.domain.retryPending(CHAIN, NO_EFFECT)).toBeNull();
+        expect(f.row()?.reason).toBe(REASON.AwaitingOwnership);
+        expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(1);
+        insertOwner();
+        f.state.now += POLICY.retryBaseMs + 1;
+        f.state.metadata = document();
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.row()).toBeUndefined();
+        expect(f.resolver.resolveTokenUri.mock.calls.at(-1)?.[2]).toBe(
+            COLLECTION_STANDARD.Erc1155,
+        );
+    });
 
     it("streams transfer candidates across multiple closed reader pages without skipping or duplicating tokens", async () => {
         const f = fixture(false);
@@ -636,10 +738,13 @@ describe("durable metadata pending backlog", () => {
         f.due();
         db.exec("DELETE FROM nft_balances");
         db.writeTransaction(() => {
-            for (let i = 2; i < 70; i++)
+            insertBurn();
+            for (let i = 2; i < 70; i++) {
+                insertBurn(String(i));
                 db.prepare(
                     "INSERT INTO metadata_pending(chain_id,collection_id,token_id,options_json,first_pending_at,due_at,reason) VALUES(?,?,?,'{}',0,0,?)",
                 ).run(CHAIN, COLLECTION, String(i), REASON.UriUnavailable);
+            }
         })();
         insertCollection(8);
         insertOwner("1", 8);
