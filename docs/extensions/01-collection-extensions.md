@@ -48,8 +48,25 @@ the bootstrap flow persists that requested extension key and installs it onto th
 Shared registry and embedded definitions live in:
 
 - `shared/extensions/index.ts`
+- `shared/extensions/built-ins.ts`
 
 Current matching is intentionally explicit rather than open-ended.
+Definitions can also supply an identity-based bootstrap scope preset before
+scope selection. That recommendation does not install an extension or assert
+ERC721Enumerable support; admission still matches the final scope exactly.
+
+### Anchored bootstrap inventory
+
+An indexer extension can implement `enumerateBootstrapTokenIds` to return present
+token IDs at the worker's exact anchor. Bootstrap binds it only for an
+entire-contract run with the requested enabled install. Missing or mismatched
+installs, missing implementations and hook failures fail enumeration. Extensions
+without the hook retain the ordinary Enumerable path; manual scopes retain their
+existing ownership-filtering path.
+
+This hook is part of required snapshot enumeration, not the eventual artifact
+lane. It supplies metadata task inputs without replacing the persisted tracking
+scope, ownership phase, catch-up or collection-live gates.
 
 ### 2. Sync-time collection-specific watch specs
 
@@ -193,6 +210,7 @@ This file is the stable cross-runtime registry.
 
 Indexer extensions currently own:
 
+- optional anchored bootstrap inventory
 - sync watch specs
 - artifact refresh logic
 - extension-owned normalized trait enrichment
@@ -215,9 +233,34 @@ Backend extensions currently own:
 
 This split keeps each runtime on its own contract instead of sharing a single cross-runtime implementation object.
 
+## Bundled Extension: 111K
+
+The `111k` extension matches only the Sepolia v17 address defined in
+`shared/extensions/111k.ts`, with all-contract token scope. Its probe preset offers
+the existing **entire contract** apply action while preserving the contract's
+false ERC721Enumerable finding and withholding circulating supply as a range
+count. Manual range/list requests do not select this extension.
+
+Initial inventory uses bounded zero-address mint Transfer log pages from the
+embedded deployment block through the worker anchor, then exact-hash
+`getTokenInfos` batches of at most 150 IDs. Burned IDs are excluded. Validated
+holders, fresh anchor headers and an anchored `totalSupply` checksum are required;
+incomplete history and unavailable historical state fail visibly. The complete
+present array goes through ordinary metadata seeding and later `ownerOf` reads.
+Tracking stays all-contract, including future high-ID containers and receipts.
+
+This extension has no custom watch specs or presentation. Existing
+metadata-derived artifact jobs complete without attribute changes or RPC reads.
+There are no new queues, migrations, synthetic token records or mint watchers.
+Enumeration page durability, owner reuse (`BKL-037`), crash-safe metadata seeding
+(`BKL-061`) and recovery of initially missing metadata remain deferred.
+
+The [111K implementation contract and pilot checklist](03-111k-bootstrap.md)
+record the deployment, tests and remaining user-run Sepolia validation.
+
 ## Bundled Extension: Terraforms
 
-The only existing embedded extension today is:
+The Terraforms embedded extension is:
 
 - `terraforms`
 

@@ -7,7 +7,9 @@ sync. Use a small embedded extension to discover the initial inventory.
 
 Implementation status and priority belong to
 [`BKL-073`](../planning/01-unified-backlog.md). This is an implementation
-specification, not a description of shipped behavior. Source contracts were
+specification; the [extension-system reference](01-collection-extensions.md#bundled-extension-111k)
+describes the implemented behavior. The constraints below are retained for review
+and the user's Sepolia pilot. Source contracts were
 checked on **2026-11-11** against ArtGod
 `24cff044058135ec177e8f6c25e200cbaa7cff54`, also the local `main` at that check.
 Recheck the named call sites if the implementation starts from another revision.
@@ -560,3 +562,56 @@ A changed deployment, inability to preserve current guards, or an unexpected cor
 schema/pipeline dependency is a reason to return a concrete decision to the
 planning owner. Cleanup, generalization and the two explicitly deferred issues
 are not reasons to expand this implementation.
+
+## Implementation verification
+
+Implemented and locally qualified on **2026-11-11**, from the plan's named
+`main` revision. Shared identity/preset resolution, backend probe and admission,
+the optional indexer hook, 111K enumeration and the existing setup apply action
+are implemented. Hook binding is in
+`indexer/src/application/collection-extensions/bootstrap-enumeration.ts`, called
+by bootstrap composition before the existing resolver. No schema, queue, ordinary
+transfer-sync or changelog change was required.
+
+| Local boundary                                                                                    | Result                                                                                                                               |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Shared definition, scope and token-scope tests                                                    | 63 passed.                                                                                                                           |
+| Backend probe, RPC probe, sample HTTP and API tests                                               | 214 passed, including JSON/streamed preset output and authoritative HTTP-to-SQLite admission.                                        |
+| Indexer enumeration, ownership, executor, scope, artifact, lifecycle and metadata-follow-up tests | 138 passed across 15 files.                                                                                                          |
+| Frontend probe/setup helpers                                                                      | 25 passed.                                                                                                                           |
+| Maintained bootstrap Playwright suite                                                             | All 190 passed at desktop 1920×1080 and Pixel 7 412×839 CSS viewports.                                                               |
+| Type checks                                                                                       | `tsc -b shared backend indexer` passed; focused changed indexer test/fixture types passed. Frontend check: zero errors, 87 warnings. |
+| Documentation and formatting                                                                      | Documentation links/contracts, changed supported-file Prettier checks and `git diff --check` passed.                                 |
+
+Rendered review followed the whole setup surface through editable, loading,
+selected, identity-change and failed/retry states, using the existing control
+families at both viewports. The only changed product copy corrects the scope
+tooltip's Enumerable-only claim. Screenshots are retained under
+`tmp/bootstrap-revamp-playwright/`; check logs are under
+`tmp/111k-bootstrap-tests/`. These are ignored local artifacts.
+
+The reusable captured fixture is
+`indexer/tests/fixtures/111k-warehouse-opening.json`. It contains the opening
+transaction/header and 57 real Transfer logs, including the preceding inventory.
+The component test reconstructs controlled presence replies from those logs:
+43 issued candidates produce 41 present IDs and metadata tasks at anchor
+`12092650`. The later ownership phase still makes 41 individual anchored
+`ownerOf` reads. The real opening at `12092651` removes one warehouse balance and
+adds eleven crate balances, leaving 51. Catch-up cannot complete before that
+block's coverage is persisted; the existing collection-live executor then
+completes the run. Duplicate projection preserves balances and fact counts.
+
+A separate synthetic realtime block adds a high-ID crate and all three receipt
+families (`1000001`, `2000001`, `3000001`), producing 55 balances. Controlled data-URI
+metadata creates the new token rows. The same real opening routes zero events
+under `1..378`. The persisted scope remains all-contract through the successful
+snapshot, catch-up and realtime assertions; no present-ID list becomes the
+tracking scope.
+
+These results qualify source, deterministic fixtures and local components. They
+do not qualify a running NATS-backed Sepolia bootstrap, the configured endpoint
+pool's present historical coverage, CDN metadata readiness, native packaged
+resources, CI or a release. No live collection was purged and no chain transaction
+was submitted. The user's rebuild, purge/rebootstrap and observed mint/burn pilot
+remain the checklist above. `BKL-037`, `BKL-061` and initially unavailable metadata
+recovery remain deferred exactly as planned.

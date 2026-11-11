@@ -30,6 +30,30 @@ function fixture(
 ) {
     const logs = ids.map((id) => nft111kTestMint(id));
     const supply = BigInt(new Set(ids.filter((id) => !absent.has(id))).size);
+    const readContractAtBlock = vi.fn(
+        async (
+            input: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+        ): Promise<unknown> => {
+            if (input.functionName === Read.TotalSupply) return supply;
+            expect(input.functionName).toBe(Read.GetTokenInfos);
+            return (input.args![0] as bigint[]).map((id) =>
+                absent.has(id.toString())
+                    ? {
+                          kind: Kind.None,
+                          displayId: 0n,
+                          holder: zeroAddress,
+                      }
+                    : {
+                          kind:
+                              id > 1_000_000n
+                                  ? Kind.ArtworkReceipt
+                                  : Kind.Artwork,
+                          displayId: id,
+                          holder: NFT111K_TEST_OWNER,
+                      },
+            );
+        },
+    );
     const rpc = {
         getBlock: vi.fn(async (blockNumber: number) => ({
             number: blockNumber,
@@ -46,30 +70,9 @@ function fixture(
                         log.blockNumber <= filter.toBlock,
                 ),
         ),
-        readContractAtBlock: vi.fn(
-            async <T>(
-                input: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
-            ): Promise<T> => {
-                if (input.functionName === Read.TotalSupply) return supply as T;
-                expect(input.functionName).toBe(Read.GetTokenInfos);
-                return (input.args![0] as bigint[]).map((id) =>
-                    absent.has(id.toString())
-                        ? {
-                              kind: Kind.None,
-                              displayId: 0n,
-                              holder: zeroAddress,
-                          }
-                        : {
-                              kind:
-                                  id > 1_000_000n
-                                      ? Kind.ArtworkReceipt
-                                      : Kind.Artwork,
-                              displayId: id,
-                              holder: NFT111K_TEST_OWNER,
-                          },
-                ) as T;
-            },
-        ),
+        readContractAtBlock: <T>(
+            input: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+        ): Promise<T> => readContractAtBlock(input) as Promise<T>,
     };
     const context: Context = {
         rpc,
@@ -80,6 +83,7 @@ function fixture(
     };
     return {
         rpc,
+        readContractAtBlock,
         context,
         logs,
         enumerate: () =>
@@ -99,15 +103,15 @@ describe("111K anchored bootstrap inventory", () => {
             toBlock: NFT111K_TEST_ANCHOR.blockNumber,
         });
         expect(
-            f.rpc.readContractAtBlock.mock.calls.map(
+            f.readContractAtBlock.mock.calls.map(
                 ([input]) => input.functionName,
             ),
         ).toEqual([Read.TotalSupply, Read.GetTokenInfos, Read.TotalSupply]);
-        for (const [input] of f.rpc.readContractAtBlock.mock.calls) {
+        for (const [input] of f.readContractAtBlock.mock.calls) {
             expect(input.block).toEqual(f.context.anchor);
             expect(input.abi).toBe(NFT111K_BOOTSTRAP_ABI);
         }
-        expect(f.rpc.readContractAtBlock.mock.calls[1][0].args).toEqual([
+        expect(f.readContractAtBlock.mock.calls[1][0].args).toEqual([
             [1n, 2n, 111891n, 1000001n],
         ]);
         expect(f.rpc.getBlock).toHaveBeenCalledTimes(2);
@@ -167,7 +171,7 @@ describe("111K anchored bootstrap inventory", () => {
             ),
         );
         expect(
-            f.rpc.readContractAtBlock.mock.calls
+            f.readContractAtBlock.mock.calls
                 .filter(([p]) => p.functionName === Read.GetTokenInfos)
                 .map(([p]) => (p.args![0] as bigint[]).length),
         ).toEqual([150, 1]);
@@ -190,7 +194,7 @@ describe("111K anchored bootstrap inventory", () => {
         null,
     ])("rejects malformed or inconsistent token info: %o", async (info) => {
         const f = fixture(["1"]);
-        f.rpc.readContractAtBlock
+        f.readContractAtBlock
             .mockResolvedValueOnce(1n)
             .mockResolvedValueOnce([info]);
         await expect(f.enumerate()).rejects.toThrow();
@@ -200,7 +204,7 @@ describe("111K anchored bootstrap inventory", () => {
         "rejects a malformed batch result: %o",
         async (infos) => {
             const f = fixture(["1"]);
-            f.rpc.readContractAtBlock
+            f.readContractAtBlock
                 .mockResolvedValueOnce(1n)
                 .mockResolvedValueOnce(infos);
             await expect(f.enumerate()).rejects.toThrow("result count");
@@ -214,10 +218,10 @@ describe("111K anchored bootstrap inventory", () => {
             const error = new Error("historical state unavailable");
             if (where === "history") f.rpc.getLogs.mockRejectedValue(error);
             else if (where === "state")
-                f.rpc.readContractAtBlock
+                f.readContractAtBlock
                     .mockResolvedValueOnce(1n)
                     .mockRejectedValueOnce(error);
-            else f.rpc.readContractAtBlock.mockRejectedValue(error);
+            else f.readContractAtBlock.mockRejectedValue(error);
             await expect(f.enumerate()).rejects.toBe(error);
         },
     );
@@ -226,14 +230,14 @@ describe("111K anchored bootstrap inventory", () => {
         "rejects invalid or incomplete anchored supply %s",
         async (supply) => {
             const f = fixture(["1"]);
-            f.rpc.readContractAtBlock.mockResolvedValueOnce(supply);
+            f.readContractAtBlock.mockResolvedValueOnce(supply);
             await expect(f.enumerate()).rejects.toThrow();
         },
     );
 
     it("rechecks the exact supply and fresh header before accepting inventory", async () => {
         const f = fixture(["1"]);
-        f.rpc.readContractAtBlock
+        f.readContractAtBlock
             .mockResolvedValueOnce(1n)
             .mockResolvedValueOnce([
                 {

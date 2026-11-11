@@ -248,10 +248,13 @@ Structural limits, overlap checks and anchored worker ownership checks remain
 enforced. Queueing does not promise recovery of unavailable metadata.
 
 **Token scope** offers a range, explicit IDs or **Entire contract** through
-ERC721Enumerable at any time after acknowledgement. The range's first ID
+ERC721Enumerable or a matching embedded inventory hook at any time after acknowledgement. The range's first ID
 (initially empty) and token count define `first .. first + count - 1`,
-including unminted IDs. Unknown/false Enumerable support produces a warning when
-entire-contract mode is selected, not a disabled control.
+including unminted IDs. Unknown/false Enumerable support without a matching
+full-contract preset produces a warning when entire-contract mode is selected,
+not a disabled control. The 111K Sepolia preset offers the ordinary entire-contract
+apply action and suppresses the misleading supply-as-range suggestion. Applying
+it changes scope only; the contract's interface finding remains false.
 The suggestion and selected mode both show the detected contract-wide token
 count, including all projects on shared contracts. This count is independent of
 any entered manual range. Image caching defaults to a 2400 px maximum dimension;
@@ -471,15 +474,20 @@ Current v1 limits:
 ### 4. Metadata snapshot
 
 - resolve the selected scope at the anchor: Enumerable mode uses totalSupply
-  and tokenByIndex; manual ranges/lists check ownerOf for each candidate
+  and tokenByIndex unless the requested installed extension supplies
+  `enumerateBootstrapTokenIds`; manual ranges/lists check ownerOf for each candidate
+- the optional extension hook returns confirmed-present IDs at the exact anchor
+  hash through the same executor and lease fences. A requested missing/disabled/
+  mismatched install or a hook failure never falls back to Enumerable
 - manual ranges are iterated lazily; only IDs with confirmed nonzero ownership
   receive metadata tasks, while the complete configured scope remains persisted
   for future mint routing
 - recognized decoded nonexistent-token reverts are skipped; unknown reverts,
   invalid owners, provider errors, and missing archive state remain failures
   handled by RPC resilience or explicit step retry
-- an empty anchor snapshot fails visibly; no event-history or marketplace
-  inventory discovery is performed
+- an empty anchor snapshot fails visibly. Generic paths do not discover inventory
+  from history or marketplaces. The exact-deployment [111K extension](../extensions/01-collection-extensions.md#bundled-extension-111k)
+  uses mint history and anchored batch-presence reads, with a supply checksum
 - fetch/store metadata first
 - this step runs before OpenSea offchain work so local token/attribute context exists
 - bootstrap metadata writes do not publish per-token extension work; the later
@@ -533,7 +541,9 @@ The collection can continue even when some image cache tasks fail terminally. Th
 
 ### Collection Extension Shadow Path
 
-Collection extensions intentionally run behind the canonical metadata snapshot rather than replacing it.
+Collection-extension artifacts intentionally run behind the canonical metadata
+snapshot rather than replacing it. Required extension inventory enumeration is
+a separate hook in the earlier enumeration step.
 
 Current behavior:
 
@@ -892,9 +902,9 @@ collection liveness, and the actions valid for its current state.
 
 ## Current Limits and Future Direction
 
-- Enumerable discovery and manual-scope ownership filtering still execute in
+- Enumerable/extension discovery and manual-scope ownership filtering still execute in
   one step and collect present IDs before seeding tasks. Very large collections
-  would benefit from persisted enumeration pages. Manual owners are read again
+  would benefit from persisted enumeration pages. Manual and 111K batch owners are read again
   by the later ownership step; reuse or phase consolidation remains deferred
   under `BKL-037` in the [unified backlog](../planning/01-unified-backlog.md).
 - Enumeration is marked succeeded before metadata task batches are fully

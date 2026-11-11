@@ -405,6 +405,9 @@ function buildUnusedRpc(): RpcProviderPort {
         ): Promise<RpcTransactionReceipt> {
             return unusedRpcCall();
         },
+        async readContractAtBlock<T>(): Promise<T> {
+            return unusedRpcCall();
+        },
         async readContract<T>(): Promise<T> {
             return unusedRpcCall();
         },

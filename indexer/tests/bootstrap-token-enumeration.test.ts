@@ -36,20 +36,33 @@ describe("extension bootstrap dispatch", () => {
         };
         const install = nft111kTestInstall();
         const installs = { getInstall: vi.fn(() => install) };
+        const readContractAtBlock = vi.fn(async () => 0n);
+        const readContract = vi.fn(
+            async (input: Parameters<RpcProviderPort["readContract"]>[0]) =>
+                input.functionName === "totalSupply" ? 1n : 42n,
+        );
         const rpc = {
             getBlock: vi.fn(async () => {
                 throw new Error("history unavailable");
             }),
             getLogs: vi.fn(async () => []),
-            readContractAtBlock: vi.fn(async <T>() => 0n as T),
-            readContract: vi.fn(
-                async <T>(
-                    input: Parameters<RpcProviderPort["readContract"]>[0],
-                ) => (input.functionName === "totalSupply" ? 1n : 42n) as T,
-            ),
+            readContractAtBlock: <T>(
+                input: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+            ): Promise<T> => readContractAtBlock() as Promise<T>,
+            readContract: <T>(
+                input: Parameters<RpcProviderPort["readContract"]>[0],
+            ): Promise<T> => readContract(input) as Promise<T>,
         };
         const ownership = { readOwner: vi.fn(async () => NFT111K_TEST_OWNER) };
-        return { run, install, installs, rpc, ownership };
+        return {
+            run,
+            install,
+            installs,
+            rpc,
+            ownership,
+            readContractAtBlock,
+            readContract,
+        };
     }
     it("invokes the installed hook ahead of Enumerable and propagates failure without fallback", async () => {
         const f = fixture();
@@ -68,7 +81,7 @@ describe("extension bootstrap dispatch", () => {
             NFT111K_TEST_ANCHOR.blockNumber,
             { fresh: true },
         );
-        expect(f.rpc.readContract).not.toHaveBeenCalled();
+        expect(f.readContract).not.toHaveBeenCalled();
         expect(f.ownership.readOwner).not.toHaveBeenCalled();
     });
     it("requires an anchor hash before invoking the hook", async () => {
@@ -85,7 +98,7 @@ describe("extension bootstrap dispatch", () => {
             ),
         ).rejects.toThrow("Missing bootstrap anchor hash");
         expect(f.rpc.getBlock).not.toHaveBeenCalled();
-        expect(f.rpc.readContract).not.toHaveBeenCalled();
+        expect(f.readContract).not.toHaveBeenCalled();
     });
     it.each([
         { enabled: false },
@@ -129,10 +142,11 @@ describe("extension bootstrap dispatch", () => {
         ).toEqual(["42"]);
         f.run.requestExtensionKey = null;
         expect(bindCollectionExtensionBootstrapEnumerator(f)).toBeUndefined();
-        expect(
-            f.rpc.readContract.mock.calls.map(([p]) => p.functionName),
-        ).toEqual(["totalSupply", "tokenByIndex"]);
-        expect(f.rpc.readContractAtBlock).not.toHaveBeenCalled();
+        expect(f.readContract.mock.calls.map(([p]) => p.functionName)).toEqual([
+            "totalSupply",
+            "tokenByIndex",
+        ]);
+        expect(f.readContractAtBlock).not.toHaveBeenCalled();
     });
     it("ignores extensions on manual paths and keeps the supplied anchor ownership checks", async () => {
         const f = fixture();
@@ -160,8 +174,8 @@ describe("extension bootstrap dispatch", () => {
             tokenId: "111891",
             block: NFT111K_TEST_ANCHOR,
         });
-        expect(f.rpc.readContract).not.toHaveBeenCalled();
-        expect(f.rpc.readContractAtBlock).not.toHaveBeenCalled();
+        expect(f.readContract).not.toHaveBeenCalled();
+        expect(f.readContractAtBlock).not.toHaveBeenCalled();
     });
 });
 
