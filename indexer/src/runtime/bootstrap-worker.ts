@@ -80,6 +80,7 @@ import {
 import { BootstrapDeploymentExecutor } from "../application/bootstrap-deployment-executor.js";
 import { SqliteBootstrapDeployment } from "../infra/bootstrap/sqlite-deployment.js";
 import { resolveTokenIdsForRun } from "../application/bootstrap-token-enumeration.js";
+import { bindCollectionExtensionBootstrapEnumerator } from "../application/collection-extensions/bootstrap-enumeration.js";
 import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
 import {
     ChainSyncConflict,
@@ -302,6 +303,11 @@ async function main() {
                         run,
                         anchorBlock,
                         onProgress,
+                        bindCollectionExtensionBootstrapEnumerator({
+                            run,
+                            installs: collectionExtensions,
+                            rpc,
+                        }),
                     ),
             },
             bootstrapStorage,

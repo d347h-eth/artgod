@@ -22,6 +22,12 @@ export interface BootstrapTokenOwnershipPort {
     }): Promise<string | null>;
 }
 
+export type BootstrapExtensionEnumerator = (input: {
+    contract: string;
+    anchor: ChainBlockReference;
+    onProgress(progress: { resolved: number; total: number | null }): void;
+}) => Promise<string[]>;
+
 // Both production composition and integration tests use this same anchored
 // resolution boundary; declared manual candidates are never confirmed inputs.
 export async function resolveTokenIdsForRun(
@@ -34,8 +40,22 @@ export async function resolveTokenIdsForRun(
     },
     anchorBlock: number,
     onProgress?: (progress: { resolved: number; total: number | null }) => void,
+    enumerateExtension?: BootstrapExtensionEnumerator,
 ): Promise<string[]> {
     if (run.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
+        if (enumerateExtension) {
+            if (!run.anchorBlockHash)
+                throw new ChainSyncConflict("Missing bootstrap anchor hash");
+            return enumerateExtension({
+                contract: run.requestAddress,
+                anchor: {
+                    chainId: run.chainId,
+                    blockNumber: anchorBlock,
+                    blockHash: run.anchorBlockHash,
+                },
+                onProgress: onProgress ?? (() => {}),
+            });
+        }
         return resolveEnumerableBootstrapTokenIds(
             rpc,
             run.requestAddress as Hex,

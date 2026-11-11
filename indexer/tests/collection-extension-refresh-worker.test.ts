@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
-import { handleCollectionExtensionRefreshArtifactsJob } from "../src/application/collection-extensions/refresh-artifacts-worker.js";
+import {
+    handleCollectionExtensionRefreshArtifactsJob,
+    COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS,
+} from "../src/application/collection-extensions/refresh-artifacts-worker.js";
+import {
+    NFT111K_EXTENSION_KEY,
+    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+} from "@artgod/shared/extensions/111k";
+import { nft111kTestInstall } from "./fixtures/111k-bootstrap.js";
 import type {
     CollectionExtensionArtifactRefreshContext,
     IndexerCollectionExtension,
@@ -52,6 +60,30 @@ const TEST_IMPLEMENTATION_MISSING_ERROR =
     "collection-extension-implementation-missing";
 
 describe("collection extension refresh worker handler", () => {
+    it("completes 111K metadata-derived artifact jobs without reads or attribute changes", async () => {
+        const install = nft111kTestInstall();
+        const queue = new RecordingQueue();
+        const result = await handleCollectionExtensionRefreshArtifactsJob(
+            buildRefreshJob({
+                chainId: install.chainId,
+                collectionId: install.collectionId,
+                contract: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+            }),
+            queue,
+            buildUnusedRpc(),
+            buildMetadataFetcher(),
+            buildInstallPort(install),
+            buildArtifactPort(),
+            buildAttributePort(),
+            buildSyntheticTokenPort(),
+        );
+        expect(result).toEqual({
+            status: COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS.Refreshed,
+            extensionKey: NFT111K_EXTENSION_KEY,
+            attributesChanged: false,
+        });
+        expect(queue.published).toEqual([]);
+    });
     it("publishes metadata stats recompute when extension attributes change", async () => {
         const queue = new RecordingQueue();
         const install = buildInstall();

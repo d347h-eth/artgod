@@ -18,6 +18,16 @@ import type {
 } from "../../ports/collection-extensions.js";
 import type { BootstrapCollectionExtensionArtifactTaskSeed } from "../../ports/bootstrap.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
+
+/** Required snapshot inventory, separate from eventual artifact enrichment. */
+export type CollectionExtensionBootstrapEnumerationContext = {
+    rpc: Pick<RpcProviderPort, "getLogs" | "getBlock" | "readContractAtBlock">;
+    install: CollectionExtensionInstall;
+    contract: string;
+    anchor: ChainBlockReference;
+    onProgress(progress: { resolved: number; total: number | null }): void;
+};
 
 export type CollectionExtensionSyncDecodeResult = {
     metadataRefreshEvents: MetadataRefreshEvent[];
@@ -84,6 +94,10 @@ export type CollectionExtensionArtifactRefreshResult = {
 
 export interface IndexerCollectionExtension {
     key: CollectionExtensionKey;
+    /** Return confirmed present IDs at the exact anchor, never a replacement scope. */
+    enumerateBootstrapTokenIds?(
+        context: CollectionExtensionBootstrapEnumerationContext,
+    ): Promise<string[]>;
     resolveImageCachePolicyConfig?(
         install: CollectionExtensionInstall,
     ): ImageCachePolicyConfig | null;

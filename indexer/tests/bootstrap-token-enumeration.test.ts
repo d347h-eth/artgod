@@ -1,12 +1,169 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
 import {
     resolveEnumerableBootstrapTokenIds,
     resolveManualBootstrapTokenIds,
     resolvePresentBootstrapTokenIds,
+    resolveTokenIdsForRun,
 } from "../src/application/bootstrap-token-enumeration.js";
+import { bindCollectionExtensionBootstrapEnumerator } from "../src/application/collection-extensions/bootstrap-enumeration.js";
+import {
+    NFT111K_EXTENSION_KEY,
+    NFT111K_SEPOLIA_CHAIN_ID,
+    NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+} from "@artgod/shared/extensions/111k";
+import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
+import {
+    NFT111K_TEST_ANCHOR,
+    NFT111K_TEST_OWNER,
+    nft111kTestInstall,
+} from "./fixtures/111k-bootstrap.js";
 import type { RpcProviderPort } from "../src/ports/rpc.js";
 import { BOOTSTRAP_ENUMERATION_PROGRESS_EVENT_STEP } from "../src/application/bootstrap-enumeration-executor.js";
+
+describe("extension bootstrap dispatch", () => {
+    function fixture() {
+        const run = {
+            chainId: NFT111K_SEPOLIA_CHAIN_ID,
+            collectionId: 7,
+            requestExtensionKey: NFT111K_EXTENSION_KEY as string | null,
+            requestAddress: NFT111K_SEPOLIA_CONTRACT_ADDRESS,
+            anchorBlockHash: NFT111K_TEST_ANCHOR.blockHash as string | null,
+            enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+            manualTokenIdsJson: null,
+            manualRangeStartTokenId: null,
+            manualRangeTotalSupply: null,
+        };
+        const install = nft111kTestInstall();
+        const installs = { getInstall: vi.fn(() => install) };
+        const rpc = {
+            getBlock: vi.fn(async () => {
+                throw new Error("history unavailable");
+            }),
+            getLogs: vi.fn(async () => []),
+            readContractAtBlock: vi.fn(async <T>() => 0n as T),
+            readContract: vi.fn(
+                async <T>(
+                    input: Parameters<RpcProviderPort["readContract"]>[0],
+                ) => (input.functionName === "totalSupply" ? 1n : 42n) as T,
+            ),
+        };
+        const ownership = { readOwner: vi.fn(async () => NFT111K_TEST_OWNER) };
+        return { run, install, installs, rpc, ownership };
+    }
+    it("invokes the installed hook ahead of Enumerable and propagates failure without fallback", async () => {
+        const f = fixture();
+        const hook = bindCollectionExtensionBootstrapEnumerator(f);
+        await expect(
+            resolveTokenIdsForRun(
+                f.rpc,
+                f.ownership,
+                f.run,
+                NFT111K_TEST_ANCHOR.blockNumber,
+                undefined,
+                hook,
+            ),
+        ).rejects.toThrow("history unavailable");
+        expect(f.rpc.getBlock).toHaveBeenCalledExactlyOnceWith(
+            NFT111K_TEST_ANCHOR.blockNumber,
+            { fresh: true },
+        );
+        expect(f.rpc.readContract).not.toHaveBeenCalled();
+        expect(f.ownership.readOwner).not.toHaveBeenCalled();
+    });
+    it("requires an anchor hash before invoking the hook", async () => {
+        const f = fixture();
+        f.run.anchorBlockHash = null;
+        await expect(
+            resolveTokenIdsForRun(
+                f.rpc,
+                f.ownership,
+                f.run,
+                NFT111K_TEST_ANCHOR.blockNumber,
+                undefined,
+                bindCollectionExtensionBootstrapEnumerator(f),
+            ),
+        ).rejects.toThrow("Missing bootstrap anchor hash");
+        expect(f.rpc.getBlock).not.toHaveBeenCalled();
+        expect(f.rpc.readContract).not.toHaveBeenCalled();
+    });
+    it.each([
+        { enabled: false },
+        { extensionKey: "wrong" },
+        { chainId: 1 },
+        { collectionId: 99 },
+    ])("rejects a missing or mismatched requested install: %j", (overrides) => {
+        const f = fixture();
+        Object.assign(f.install, overrides);
+        expect(() => bindCollectionExtensionBootstrapEnumerator(f)).toThrow(
+            "install",
+        );
+        expect(() =>
+            bindCollectionExtensionBootstrapEnumerator({
+                ...f,
+                installs: { getInstall: () => null },
+            }),
+        ).toThrow("install");
+    });
+    it("fails when a requested implementation is missing", () => {
+        const f = fixture();
+        f.run.requestExtensionKey = f.install.extensionKey = "unregistered";
+        expect(() => bindCollectionExtensionBootstrapEnumerator(f)).toThrow(
+            "implementation missing",
+        );
+    });
+    it("keeps Terraforms and unextended entire-contract runs on Enumerable", async () => {
+        const f = fixture();
+        f.run.requestExtensionKey = f.install.extensionKey =
+            TERRAFORMS_EXTENSION_KEY;
+        expect(bindCollectionExtensionBootstrapEnumerator(f)).toBeUndefined();
+        expect(
+            await resolveTokenIdsForRun(
+                f.rpc,
+                f.ownership,
+                f.run,
+                100,
+                undefined,
+                bindCollectionExtensionBootstrapEnumerator(f),
+            ),
+        ).toEqual(["42"]);
+        f.run.requestExtensionKey = null;
+        expect(bindCollectionExtensionBootstrapEnumerator(f)).toBeUndefined();
+        expect(
+            f.rpc.readContract.mock.calls.map(([p]) => p.functionName),
+        ).toEqual(["totalSupply", "tokenByIndex"]);
+        expect(f.rpc.readContractAtBlock).not.toHaveBeenCalled();
+    });
+    it("ignores extensions on manual paths and keeps the supplied anchor ownership checks", async () => {
+        const f = fixture();
+        const run = {
+            ...f.run,
+            enumerationMode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+            manualRangeStartTokenId: "111891",
+            manualRangeTotalSupply: 1,
+        };
+        const hook = bindCollectionExtensionBootstrapEnumerator({ ...f, run });
+        expect(hook).toBeUndefined();
+        expect(f.installs.getInstall).not.toHaveBeenCalled();
+        expect(
+            await resolveTokenIdsForRun(
+                f.rpc,
+                f.ownership,
+                run,
+                NFT111K_TEST_ANCHOR.blockNumber,
+                undefined,
+                hook,
+            ),
+        ).toEqual(["111891"]);
+        expect(f.ownership.readOwner).toHaveBeenCalledExactlyOnceWith({
+            contract: run.requestAddress,
+            tokenId: "111891",
+            block: NFT111K_TEST_ANCHOR,
+        });
+        expect(f.rpc.readContract).not.toHaveBeenCalled();
+        expect(f.rpc.readContractAtBlock).not.toHaveBeenCalled();
+    });
+});
 
 describe("enumerable bootstrap progress", () => {
     it.each([13, 100, 137, 3333, 10_000, 100_001])(
