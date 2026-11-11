@@ -149,6 +149,14 @@ successes. Backlog/age include paused obligations and are sampled every thirty
 seconds. `MetadataPending` logs response readiness and whether a canonical
 write applied; a successful HTTP counter alone does not establish readiness.
 
+Every extension readiness rejection also emits an `info` log with message
+`Metadata response not ready` and component `MetadataPending`. It includes
+`metadataUrl`, `extensionKey`, `chainId`, `collectionId`, `contract` and
+`tokenId`, including repeated rejections of the same token. This applies to
+bootstrap, ordinary refresh and pending-retry lookups. The URL comes from the
+fetched metadata in memory, so it remains available in logs when raw/URI debug
+persistence is disabled. Ready responses do not emit this rejection log.
+
 Pending rows expose `attempts`, `failures`, `reason`, `first_pending_at`, `last_attempt_at`,
 `due_at` and `lease_owner`. Times are epoch milliseconds. There is no new manual
 refresh API or retry-administration UI. Existing rows are enrolled when the

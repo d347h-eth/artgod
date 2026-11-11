@@ -1,6 +1,8 @@
-import type {
-    MetadataReadinessPort,
-    MetadataTarget,
+import { logger } from "@artgod/shared/utils";
+import {
+    METADATA_PENDING_LOG,
+    type MetadataReadinessPort,
+    type MetadataTarget,
 } from "../../domain/metadata-pending.js";
 import type { TokenMetadata } from "../../domain/metadata.js";
 import type { CollectionExtensionInstallPort } from "../../ports/collection-extensions.js";
@@ -20,10 +22,22 @@ export class CollectionExtensionMetadataReadiness implements MetadataReadinessPo
             target.collectionId,
         );
         if (!install?.enabled) return true;
-        return (
+        const ready =
             resolveIndexerCollectionExtension(install)?.isMetadataReady?.(
                 metadata,
-            ) ?? true
-        );
+            ) ?? true;
+        if (!ready) {
+            // Report every rejected lookup, even when an existing canonical row is retained.
+            logger.info(METADATA_PENDING_LOG.NotReady, {
+                component: METADATA_PENDING_LOG.Component,
+                chainId: target.chainId,
+                collectionId: target.collectionId,
+                contract: target.contract,
+                tokenId: target.tokenId,
+                extensionKey: install.extensionKey,
+                metadataUrl: metadata.uri,
+            });
+        }
+        return ready;
     }
 }

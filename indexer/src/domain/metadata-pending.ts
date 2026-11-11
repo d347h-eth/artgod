@@ -27,6 +27,7 @@ export const METADATA_PENDING_LOG = {
     Component: "MetadataPending",
     Attempt: "Pending metadata attempt completed",
     Assessed: "Metadata response readiness assessed",
+    NotReady: "Metadata response not ready",
     PollFailed: "Pending metadata poll failed",
 } as const;
 

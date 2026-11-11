@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { logger } from "@artgod/shared/utils";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
@@ -10,6 +11,7 @@ import { TOKEN_IMAGE_CACHE_JOB_KIND } from "@artgod/shared/media/token-image-cac
 import {
     NFT111K_MAINNET_CHAIN_ID,
     NFT111K_MAINNET_CONTRACT_ADDRESS,
+    NFT111K_EXTENSION_KEY,
 } from "@artgod/shared/extensions/111k";
 import { SqliteCollectionPurgeRepository } from "../../backend/src/infra/collections/sqlite-collection-purge-repository.js";
 import { MetadataDomain } from "../src/application/metadata/domain.js";
@@ -22,6 +24,7 @@ import {
 import {
     METADATA_PENDING_POLICY as POLICY,
     METADATA_PENDING_REASON as REASON,
+    METADATA_PENDING_LOG,
 } from "../src/domain/metadata-pending.js";
 import {
     DOMAIN_JOB_KIND,
@@ -254,6 +257,47 @@ describe("durable metadata pending backlog", () => {
                 )
                 .get(NFT111K_METADATA.CollectionBlock),
         ).toEqual({ value: "block-a" });
+    });
+
+    it("logs each extension rejection with its fetchable URL and identity, even with raw persistence disabled", async () => {
+        const f = fixture();
+        const metadataUrl = URI + "?view=full#metadata";
+        f.state.uri = metadataUrl;
+        f.state.metadata!.uri = metadataUrl;
+        const log = vi.spyOn(logger, "info").mockImplementation(() => {});
+        try {
+            await f.refresh();
+            f.due();
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            const rejected = () =>
+                log.mock.calls.filter(
+                    ([message]) => message === METADATA_PENDING_LOG.NotReady,
+                );
+            expect(rejected()).toHaveLength(2);
+            for (const [, context] of rejected())
+                expect(context).toEqual({
+                    component: METADATA_PENDING_LOG.Component,
+                    chainId: CHAIN,
+                    collectionId: COLLECTION,
+                    contract: CONTRACT,
+                    tokenId: "1",
+                    extensionKey: NFT111K_EXTENSION_KEY,
+                    metadataUrl,
+                });
+            f.state.metadata = { ...document(), uri: metadataUrl };
+            f.due();
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(rejected()).toHaveLength(2);
+            expect(
+                db
+                    .prepare(
+                        "SELECT uri,raw_json FROM token_metadata WHERE collection_id=? AND token_id='1'",
+                    )
+                    .get(COLLECTION),
+            ).toEqual({ uri: null, raw_json: null });
+        } finally {
+            log.mockRestore();
+        }
     });
 
     it("keeps one permanent row beyond ordinary queue retry/age limits", async () => {
