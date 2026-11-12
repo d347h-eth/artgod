@@ -271,6 +271,12 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 - Mutated only by forward-processing for blocks strictly greater than `collections.bootstrap_anchor_block`
 - Historical backfill at or before the anchor must not rewrite this table
 
+Migration `077_metadata_range_balance_inventory.sql` adds the numeric seek index
+`(chain_id, collection_id, length(token_id), token_id)`. Balance IDs are normalized
+decimal strings at on-chain ingress. Metadata range refreshes merge these IDs
+with the catalog's generated numeric index, so tokens awaiting their first
+metadata participate without expanding gaps or sorting the whole inventory.
+
 ### Chain revisions and ERC721 ownership checkpoints
 
 Migration `062_chain_sync_ownership_checkpoints.sql` adds:

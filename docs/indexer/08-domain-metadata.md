@@ -58,6 +58,19 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 - The domain worker uses the application range handler to process chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueue the next cursor until complete.
 - **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `collectionId + tokenId`.
 
+Range chunks select known canonical token IDs from the token catalog and balance
+inventory, including balance-only tokens whose first metadata fetch has not
+succeeded. Synthetic browse-only records are excluded. Selection seeks by
+numeric decimal ID, deduplicates holders/catalog entries and overfetches one
+known ID to determine continuation. No URI lookup is issued for an unminted gap,
+even when an event spans the entire uint256 range. Confirmed burns and collection
+lifecycle checks remain enforced by the metadata use case.
+
+The cursor is an inclusive numeric lower bound, advanced to one above the last
+selected ID. Existing numeric continuations resume from the same bound and can
+finish immediately when no known IDs remain. Each page closes its SQLite reader
+before network work; catalog and balance indexes keep page reads bounded.
+
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. `collectionId` is the authoritative job anchor; contract address is derived from the collection row only when the metadata domain needs onchain reads such as `tokenURI(...)`.
 
 Every range continuation retains the root publication ID in `rootJobId`, the
@@ -108,6 +121,13 @@ For each block range:
 Metrics are recorded for latency and failures.
 
 ## Metadata Fetching
+
+Ordinary transfer-driven sync retains image-cache jobs in the same transaction
+as each canonical metadata write, using the shared refresh policy/job builder.
+A token ready on its first fetch therefore reaches image caching without a
+metadata retry or later refresh event. Failure to retain the job rolls back that
+observation, allowing replay or the pending worker to recover it. Existing
+explicit cache policies still apply.
 
 `HttpMetadataFetcher` fetches JSON metadata from a resolved URI:
 
@@ -213,9 +233,14 @@ reuse these artifact rows.
 
 ## Failure Behavior
 
-- If URI resolution fails, the token is skipped.
-- If fetch fails or returns invalid JSON, the token is skipped.
-- Metadata is only written once, unless updated by a new fetch.
+- URI resolution, fetch and invalid-JSON failures retain the durable pending
+  obligation; bootstrap's initial settlement remains best-effort.
+- An incomplete successful response can initialize metadata but preserves any
+  prior observation. Extension content policy determines its next check or
+  exhaustion; transport recovery remains independent.
+- A ready response writes canonical metadata and clears pending intent.
+- Ordinary transfer discovery skips existing metadata; refresh events and
+  pending work reassess it through their dedicated paths.
 
 This is intentionally conservative and idempotent.
 

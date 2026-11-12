@@ -394,7 +394,11 @@ These jobs are consumed by `collection-extension-worker` and carry:
 
 The dedicated queue keeps collection-specific artifact retries isolated from canonical metadata throughput.
 
-`token-image-cache.refresh-token` jobs are produced by `domain-worker` after metadata refresh when the collection image cache mode is `refresh_on_metadata`.
+`token-image-cache.refresh-token` jobs are produced by `domain-worker` after
+metadata sync, token/range refresh and pending completion when the collection
+image cache mode is `refresh_on_metadata`. Initial sync and pending completion
+retain required image jobs with the canonical write through the SQLite outbox,
+so first-fetch success and delayed metadata both populate the cache.
 
 `token-image-cache.refresh-collection` jobs are produced by the backend when a collection image cache policy switches to an active mode or changes max dimension. They are consumed by `domain-worker` in cursor pages and produce settled `token_image_cache` rows.
 

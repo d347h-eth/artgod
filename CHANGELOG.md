@@ -7,6 +7,12 @@ Earlier releases are available in
 
 ## Unreleased
 
+### Added
+
+- Native 111k support for collection bootstrap and new mints. Better structured
+  filtering and other collection-specific features are still coming.
+  **Warning: the 111k trait filter sidebar currently lags and is barely usable.**
+
 ## 0.1.3-alpha - 2026-10-31 (pre-release)
 
 Changes since

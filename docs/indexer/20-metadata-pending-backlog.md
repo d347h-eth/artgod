@@ -95,7 +95,10 @@ gate.
 For background writes, canonical persistence, pending progress and required
 extension/stat/image-cache outbox effects share one transaction. If retaining
 effects fails, the canonical write rolls back and the obligation remains.
-Existing initial transport/bootstrap batching keeps its normal follow-up path.
+Ordinary transfer-driven sync also retains image-cache effects with each
+canonical write, using the same policy/job builder. A ready first fetch needs
+no later metadata event or pending retry to populate the cache. Existing
+bootstrap and other refresh batching keep their normal follow-up paths.
 Image caching continues to follow the collection's configured policy; metadata
 readiness does not independently prove that remote media bytes are available.
 
