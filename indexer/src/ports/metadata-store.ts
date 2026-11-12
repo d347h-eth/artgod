@@ -8,6 +8,8 @@ import type {
     MetadataAttribution,
     MetadataFetchOptions,
     MetadataPendingReason,
+    MetadataPendingSummary,
+    MetadataReadinessDecision,
     MetadataTarget,
 } from "../domain/metadata-pending.js";
 
@@ -24,12 +26,14 @@ export interface MetadataStorePort {
         tokenId: string,
     ): MetadataTarget | null;
     hasMetadata(target: MetadataTarget): boolean;
+    // Fresh requests rearm exhausted work; coalesced active requests retain their content clock.
     begin(
         target: MetadataTarget,
         options: MetadataFetchOptions,
         now: number,
         attribution?: MetadataAttribution,
     ): MetadataAttempt | null;
+    // Exhausted obligations stay durable but are excluded from automatic claims.
     claimDue(chainId: number, now: number): MetadataAttempt | null;
     renew(attempt: MetadataAttempt, now: number): void;
     defer(
@@ -42,12 +46,9 @@ export interface MetadataStorePort {
     complete(
         attempt: MetadataAttempt,
         metadata: TokenMetadata,
-        ready: boolean,
+        readiness: MetadataReadinessDecision,
         now: number,
         afterWrite?: (updated: MetadataUpdatedToken) => void,
     ): MetadataUpdatedToken | null;
-    pendingSummary(
-        chainId: number,
-        now: number,
-    ): { pending: number; oldestAgeMs: number };
+    pendingSummary(chainId: number, now: number): MetadataPendingSummary;
 }

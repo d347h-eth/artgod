@@ -2,6 +2,7 @@ import { logger } from "@artgod/shared/utils";
 import {
     METADATA_PENDING_LOG,
     type MetadataReadinessPort,
+    type MetadataContentRetryPolicy,
     type MetadataTarget,
 } from "../../domain/metadata-pending.js";
 import type { TokenMetadata } from "../../domain/metadata.js";
@@ -16,6 +17,18 @@ export class CollectionExtensionMetadataReadiness implements MetadataReadinessPo
             "getInstall"
         >,
     ) {}
+    contentRetryPolicy(
+        target: MetadataTarget,
+    ): MetadataContentRetryPolicy | null {
+        const install = this.installs.getInstall(
+            target.chainId,
+            target.collectionId,
+        );
+        return install?.enabled
+            ? (resolveIndexerCollectionExtension(install)
+                  ?.metadataContentRetryPolicy ?? null)
+            : null;
+    }
     isReady(target: MetadataTarget, metadata: TokenMetadata): boolean {
         const install = this.installs.getInstall(
             target.chainId,

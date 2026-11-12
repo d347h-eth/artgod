@@ -64,6 +64,7 @@ export function startMetadataPendingPoller(input: {
                         input.chainId,
                     );
                     input.metrics?.gauge(METRIC.Backlog, summary.pending);
+                    input.metrics?.gauge(METRIC.Exhausted, summary.exhausted);
                     input.metrics?.gauge(METRIC.OldestAge, summary.oldestAgeMs);
                 }
             } catch (error) {

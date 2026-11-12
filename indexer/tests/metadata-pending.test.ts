@@ -1,5 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { zeroAddress } from "viem";
+import {
+    encodeAbiParameters,
+    encodeEventTopics,
+    zeroAddress,
+    type Hex,
+} from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
@@ -15,10 +20,13 @@ import {
 } from "@artgod/shared/extensions/111k";
 import { SqliteCollectionPurgeRepository } from "../../backend/src/infra/collections/sqlite-collection-purge-repository.js";
 import { MetadataDomain } from "../src/application/metadata/domain.js";
+import { ERC4906_ABI } from "../src/abi/index.js";
+import { decodeMetadataRefreshLog } from "../src/application/metadata/refresh-triggers.js";
 import { createMetadataPendingFollowups } from "../src/application/metadata/pending-followups.js";
 import { CollectionExtensionMetadataReadiness } from "../src/application/collection-extensions/metadata-readiness.js";
 import {
     NFT111K_METADATA,
+    NFT111K_METADATA_CONTENT_RETRY_POLICY,
     NFT111K_TOKEN_RANGES,
     isNft111kMetadataReady,
 } from "../src/application/collection-extensions/111k.js";
@@ -26,6 +34,8 @@ import {
     METADATA_PENDING_POLICY as POLICY,
     METADATA_PENDING_REASON as REASON,
     METADATA_PENDING_LOG,
+    decideMetadataContentRetry,
+    type MetadataReadinessPort,
     type MetadataTarget,
 } from "../src/domain/metadata-pending.js";
 import {
@@ -49,7 +59,7 @@ import { loadTestEnv } from "./helpers/test-env.js";
 const CHAIN = NFT111K_MAINNET_CHAIN_ID;
 const CONTRACT = NFT111K_MAINNET_CONTRACT_ADDRESS;
 const COLLECTION = 7;
-const HASH = "0x" + "11".repeat(32);
+const HASH = ("0x" + "11".repeat(32)) as Hex;
 const IMAGE = "https://example.invalid/ready.png";
 const URI = "https://example.invalid/1.json";
 const NO_EFFECT = () => {};
@@ -60,6 +70,8 @@ const TARGET: MetadataTarget = {
     tokenId: "1",
     standard: COLLECTION_STANDARD.Erc721,
 };
+const CONTENT_RETRY_AGES = NFT111K_METADATA_CONTENT_RETRY_POLICY.attemptAgesMs;
+const CONTENT_RETRY_END = CONTENT_RETRY_AGES.at(-1)!;
 
 function document(ready = true, name = "current"): TokenMetadata {
     return {
@@ -140,7 +152,11 @@ function insertBurn(
         standard,
     );
 }
-function fixture(extension = true, tokenId = TARGET.tokenId) {
+function fixture(
+    extension = true,
+    tokenId = TARGET.tokenId,
+    readiness?: MetadataReadinessPort,
+) {
     insertCollection();
     insertOwner(tokenId);
     const installs = new SqliteCollectionExtensions({
@@ -178,7 +194,8 @@ function fixture(extension = true, tokenId = TARGET.tokenId) {
         resolver,
         fetcher,
         store,
-        readiness: new CollectionExtensionMetadataReadiness(installs),
+        readiness:
+            readiness ?? new CollectionExtensionMetadataReadiness(installs),
         now: () => state.now,
     });
     return {
@@ -198,7 +215,12 @@ function fixture(extension = true, tokenId = TARGET.tokenId) {
                 reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
             }),
         due: () => {
-            state.now += POLICY.retryMaxMs + 1;
+            const row = db
+                .prepare(
+                    "SELECT due_at FROM metadata_pending WHERE collection_id=? AND token_id=?",
+                )
+                .get(COLLECTION, tokenId) as { due_at: number };
+            state.now = Math.max(state.now, row.due_at);
         },
         row: () =>
             db
@@ -208,6 +230,9 @@ function fixture(extension = true, tokenId = TARGET.tokenId) {
                 .get(COLLECTION, tokenId) as
                 | {
                       attempts: number;
+                      failures: number;
+                      content_pending_at: number | null;
+                      exhausted_at: number | null;
                       due_at: number;
                       first_pending_at: number;
                       lease_owner: string | null;
@@ -274,6 +299,276 @@ describe("durable metadata pending backlog", () => {
                 )
                 .get(NFT111K_METADATA.CollectionBlock),
         ).toEqual({ value: "block-a" });
+    });
+
+    it("checks incomplete 111k content at absolute ages, then retains exhausted intent outside automatic work", async () => {
+        const f = fixture();
+        // This response declares itself revealed but still lacks its artwork root.
+        f.state.metadata = { ...document(), attributes: [] };
+        const startedAt = f.state.now;
+        const agesInMinutes = [0, 5, 15, 60, 180, 300, 480, 780, 1260, 1440];
+        for (const [index, age] of agesInMinutes.entries()) {
+            f.state.now = startedAt + age * 60_000;
+            if (index === 0) await f.refresh();
+            else await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(f.row()).toMatchObject({
+                attempts: index + 1,
+                content_pending_at: startedAt,
+                first_pending_at: startedAt,
+                lease_owner: null,
+                reason: REASON.NotReady,
+                exhausted_at:
+                    index === agesInMinutes.length - 1 ? f.state.now : null,
+            });
+            if (index < agesInMinutes.length - 1) {
+                const nextAt = startedAt + agesInMinutes[index + 1] * 60_000;
+                expect(f.row()?.due_at).toBe(nextAt);
+                f.state.now = nextAt - 1;
+                expect(
+                    await f.domain.retryPending(CHAIN, NO_EFFECT),
+                ).toBeNull();
+            }
+            expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(index + 1);
+        }
+        f.state.now += CONTENT_RETRY_END * 10;
+        expect(await f.domain.retryPending(CHAIN, NO_EFFECT)).toBeNull();
+        expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(10);
+        expect(f.image()).toBe(IMAGE);
+        expect(f.domain.pendingSummary(CHAIN)).toEqual({
+            pending: 0,
+            exhausted: 1,
+            oldestAgeMs: 0,
+        });
+        expect(db.prepare("SELECT count(*) n FROM queue_outbox").get()).toEqual(
+            { n: 0 },
+        );
+    });
+
+    it("skips missed milestones and preserves the content clock when a live refresh coalesces", async () => {
+        const f = fixture();
+        const startedAt = f.state.now;
+        await f.refresh();
+        f.state.now = startedAt + CONTENT_RETRY_AGES[4] - 1;
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.row()?.due_at).toBe(startedAt + CONTENT_RETRY_AGES[4]);
+        f.state.now++;
+        await f.refresh();
+        expect(f.row()).toMatchObject({
+            attempts: 3,
+            content_pending_at: startedAt,
+            first_pending_at: startedAt,
+            due_at: startedAt + CONTENT_RETRY_AGES[5],
+            exhausted_at: null,
+        });
+        expect(await f.domain.retryPending(CHAIN, NO_EFFECT)).toBeNull();
+    });
+
+    it.each([false, true])(
+        "performs a fresh final check after downtime, accepting ready=%s",
+        async (ready) => {
+            const f = fixture();
+            await f.refresh();
+            f.state.now += CONTENT_RETRY_END * 3;
+            // Mere age and a process restart never count as an unsuccessful check.
+            expect(f.row()?.exhausted_at).toBeNull();
+            const restarted = new MetadataDomain({
+                resolver: f.resolver,
+                fetcher: f.fetcher,
+                store: new SqliteMetadataStore(),
+                readiness: new CollectionExtensionMetadataReadiness(f.installs),
+                now: () => f.state.now,
+            });
+            f.state.metadata = document(ready);
+            await restarted.retryPending(CHAIN, NO_EFFECT);
+            expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(2);
+            if (ready) {
+                expect(f.row()).toBeUndefined();
+                expect(f.image()).toBe(IMAGE);
+            } else {
+                expect(f.row()?.exhausted_at).toBe(f.state.now);
+                expect(f.image()).toBe(NFT111K_METADATA.PlaceholderImage);
+            }
+        },
+    );
+
+    it.each(["uri", "fetch"] as const)(
+        "starts the content clock only after a long %s outage ends",
+        async (failure) => {
+            const f = fixture();
+            if (failure === "uri") f.state.uri = null;
+            else f.state.metadata = null;
+            await f.refresh();
+            const firstPendingAt = f.state.now;
+            for (let i = 0; i < 2; i++) {
+                f.state.now += CONTENT_RETRY_END * 2;
+                await f.domain.retryPending(CHAIN, NO_EFFECT);
+                expect(f.row()).toMatchObject({
+                    content_pending_at: null,
+                    exhausted_at: null,
+                    reason:
+                        failure === "uri"
+                            ? REASON.UriUnavailable
+                            : REASON.FetchUnavailable,
+                });
+            }
+            f.state.uri = URI;
+            f.state.metadata = document(false);
+            f.due();
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(f.row()).toMatchObject({
+                first_pending_at: firstPendingAt,
+                content_pending_at: f.state.now,
+                due_at: f.state.now + CONTENT_RETRY_AGES[1],
+                exhausted_at: null,
+            });
+        },
+    );
+
+    it.each(["uri", "fetch", "rpc"] as const)(
+        "keeps %s failures retryable past the content deadline until a fresh content assessment",
+        async (failure) => {
+            const f = fixture();
+            const startedAt = f.state.now;
+            await f.refresh();
+            f.state.now += CONTENT_RETRY_END * 2;
+            if (failure === "uri") f.state.uri = null;
+            else if (failure === "fetch") f.state.metadata = null;
+            else
+                f.resolver.resolveTokenUri.mockRejectedValueOnce(
+                    new RpcBudgetDeferred(7_500),
+                );
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(f.row()).toMatchObject({
+                content_pending_at: startedAt,
+                exhausted_at: null,
+                reason:
+                    failure === "uri"
+                        ? REASON.UriUnavailable
+                        : failure === "fetch"
+                          ? REASON.FetchUnavailable
+                          : REASON.Deferred,
+            });
+            expect(f.row()!.due_at).toBeGreaterThan(f.state.now);
+            f.state.uri = URI;
+            f.state.metadata = documentWithoutRoot();
+            f.due();
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(f.row()?.exhausted_at).toBe(f.state.now);
+        },
+    );
+
+    it.each([false, true])(
+        "reopens exhausted intent on a later metadata event, accepting ready=%s",
+        async (ready) => {
+            const f = fixture();
+            const firstPendingAt = f.state.now;
+            await f.refresh();
+            f.state.now += CONTENT_RETRY_END;
+            await f.domain.retryPending(CHAIN, NO_EFFECT);
+            expect(f.row()?.exhausted_at).toBe(f.state.now);
+            f.state.now += CONTENT_RETRY_END;
+            f.state.metadata = document(ready);
+            const {
+                tokenEvents: [event],
+            } = decodeMetadataRefreshLog({
+                address: CONTRACT,
+                topics: encodeEventTopics({
+                    abi: ERC4906_ABI,
+                    eventName: "MetadataUpdate",
+                }) as [Hex],
+                data: encodeAbiParameters(
+                    [{ type: "uint256" }],
+                    [BigInt(TARGET.tokenId)],
+                ),
+                blockNumber: 103,
+                blockHash: HASH,
+                transactionHash: HASH,
+                logIndex: 0,
+            });
+            // Metadata-event refreshes share this admission path with explicit refreshes.
+            await f.domain.handleMetadataRefresh({
+                chainId: CHAIN,
+                collectionId: COLLECTION,
+                tokenId: TARGET.tokenId,
+                reason: event.reason,
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+            });
+            if (ready) {
+                expect(f.row()).toBeUndefined();
+                expect(f.image()).toBe(IMAGE);
+            } else {
+                expect(f.row()).toMatchObject({
+                    attempts: 3,
+                    failures: 1,
+                    first_pending_at: firstPendingAt,
+                    content_pending_at: f.state.now,
+                    exhausted_at: null,
+                    due_at: f.state.now + CONTENT_RETRY_AGES[1],
+                });
+                expect(f.domain.pendingSummary(CHAIN)).toEqual({
+                    pending: 1,
+                    exhausted: 0,
+                    oldestAgeMs: f.state.now - firstPendingAt,
+                });
+            }
+        },
+    );
+
+    it("retains a refresh of exhausted work while paused and reassesses it after resume", async () => {
+        const f = fixture();
+        await f.refresh();
+        f.state.now += CONTENT_RETRY_END;
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        db.prepare("UPDATE collections SET status=?").run(
+            COLLECTION_STATUS.Paused,
+        );
+        await f.refresh();
+        expect(f.fetcher.fetchMetadata).toHaveBeenCalledTimes(2);
+        expect(f.row()).toMatchObject({
+            content_pending_at: null,
+            exhausted_at: null,
+            reason: REASON.Deferred,
+        });
+        f.due();
+        db.prepare("UPDATE collections SET status=?").run(
+            COLLECTION_STATUS.Live,
+        );
+        f.state.metadata = document();
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        expect(f.row()).toBeUndefined();
+        expect(f.image()).toBe(IMAGE);
+    });
+
+    it("rejects a stale exhaustion decision after a newer refresh has settled and reopened the token", async () => {
+        const f = fixture();
+        const startedAt = f.state.now;
+        await f.refresh();
+        f.state.now += CONTENT_RETRY_END;
+        const stale = f.store.claimDue(CHAIN, f.state.now)!;
+        f.state.metadata = document();
+        await f.refresh();
+        f.state.metadata = document(false);
+        await f.refresh();
+        const current = f.row();
+        expect(
+            f.store.complete(
+                stale,
+                document(false),
+                {
+                    ready: false,
+                    contentRetry: decideMetadataContentRetry(
+                        startedAt,
+                        f.state.now,
+                        NFT111K_METADATA_CONTENT_RETRY_POLICY,
+                    ),
+                },
+                f.state.now,
+            ),
+        ).toBeNull();
+        expect(f.row()).toEqual(current);
+        expect(f.image()).toBe(IMAGE);
+        expect(f.row()?.exhausted_at).toBeNull();
     });
 
     it.each([
@@ -366,15 +661,19 @@ describe("durable metadata pending backlog", () => {
     });
 
     it("keeps one permanent row beyond ordinary queue retry/age limits", async () => {
-        const f = fixture();
+        const f = fixture(false, TARGET.tokenId, { isReady: () => false });
         await f.refresh();
         const first = f.row()!.first_pending_at;
         for (let i = 0; i < 20; i++) {
             f.due();
             await f.domain.retryPending(CHAIN, NO_EFFECT);
         }
+        f.state.now += 2 * 24 * POLICY.retryMaxMs;
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
         expect(f.row()).toMatchObject({
-            attempts: 21,
+            attempts: 22,
+            content_pending_at: null,
+            exhausted_at: null,
             first_pending_at: first,
             lease_owner: null,
             reason: REASON.NotReady,
@@ -417,6 +716,7 @@ describe("durable metadata pending backlog", () => {
 
     it("retains local allocation waits without inflating hosting backoff", async () => {
         const f = fixture();
+        f.state.metadata = null;
         for (let i = 0; i < 8; i++) {
             f.resolver.resolveTokenUri.mockRejectedValueOnce(
                 new RpcBudgetDeferred(7_500),
@@ -445,6 +745,7 @@ describe("durable metadata pending backlog", () => {
 
     it("does not turn superseded quota waits into host failures", async () => {
         const f = fixture();
+        f.state.metadata = null;
         let rejectFirst!: (error: Error) => void;
         let started!: () => void;
         const begin = new Promise<void>((resolve) => {
@@ -497,14 +798,19 @@ describe("durable metadata pending backlog", () => {
         const second = new SqliteMetadataStore().claimDue(CHAIN, f.state.now)!;
         expect(second.owner).not.toBe(first.owner);
         expect(
-            f.store.complete(first, document(), true, f.state.now),
+            f.store.complete(first, document(), { ready: true }, f.state.now),
         ).toBeNull();
         expect(
-            f.store.complete(second, document(), true, f.state.now),
+            f.store.complete(second, document(), { ready: true }, f.state.now),
         ).not.toBeNull();
         const third = f.store.begin(second.target, {}, f.state.now)!;
         expect(
-            f.store.complete(first, document(true, "stale"), true, f.state.now),
+            f.store.complete(
+                first,
+                document(true, "stale"),
+                { ready: true },
+                f.state.now,
+            ),
         ).toBeNull();
         expect(f.row()!.lease_owner).toBe(third.owner);
     });
@@ -841,6 +1147,56 @@ describe("durable metadata pending backlog", () => {
         );
     });
 
+    it("skips a retained exhausted collection and excludes it from active age and count", async () => {
+        const f = fixture();
+        await f.refresh();
+        f.state.now += CONTENT_RETRY_END;
+        await f.domain.retryPending(CHAIN, NO_EFFECT);
+        db.writeTransaction(() => {
+            for (let i = 2; i < 70; i++) {
+                db.prepare(
+                    "INSERT INTO metadata_pending(chain_id,collection_id,token_id,options_json,first_pending_at,content_pending_at,due_at,exhausted_at,reason) VALUES(?,?,?,'{}',0,0,0,?,?)",
+                ).run(
+                    CHAIN,
+                    COLLECTION,
+                    String(i),
+                    f.state.now,
+                    REASON.NotReady,
+                );
+            }
+        })();
+        insertCollection(8);
+        insertOwner("1", 8);
+        const seed = f.store.begin(
+            f.store.target(CHAIN, 8, "1")!,
+            {},
+            f.state.now,
+        )!;
+        f.store.defer(seed, REASON.FetchUnavailable, f.state.now, 1);
+        f.state.now++;
+        expect(f.domain.pendingSummary(CHAIN)).toEqual({
+            pending: 1,
+            exhausted: 69,
+            oldestAgeMs: 1,
+        });
+        // A fresh traversal must skip the exhausted collection on its first pass.
+        const restarted = new SqliteMetadataStore();
+        expect(
+            restarted.claimDue(CHAIN, f.state.now)?.target.collectionId,
+        ).toBe(8);
+        expect(restarted.claimDue(CHAIN, f.state.now)).toBeNull();
+        new SqliteCollectionPurgeRepository().purgeCollectionData({
+            chainId: CHAIN,
+            collectionId: COLLECTION,
+        });
+        expect(f.domain.pendingSummary(CHAIN)).toEqual({
+            pending: 1,
+            exhausted: 0,
+            oldestAgeMs: 1,
+        });
+        expect(f.row()).toBeUndefined();
+    });
+
     it("rotates past a large obsolete collection and keeps due lookup indexed", async () => {
         const f = fixture();
         await f.refresh();
@@ -867,7 +1223,7 @@ describe("durable metadata pending backlog", () => {
         );
         const plan = db
             .prepare(
-                "EXPLAIN QUERY PLAN SELECT * FROM metadata_pending WHERE chain_id=? AND collection_id=? AND due_at<=? ORDER BY due_at,token_id LIMIT 16",
+                "EXPLAIN QUERY PLAN SELECT * FROM metadata_pending WHERE chain_id=? AND collection_id=? AND exhausted_at IS NULL AND due_at<=? ORDER BY due_at,token_id LIMIT 16",
             )
             .all(CHAIN, COLLECTION, f.state.now) as { detail: string }[];
         expect(

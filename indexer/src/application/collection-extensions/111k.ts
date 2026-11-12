@@ -13,7 +13,10 @@ import { ChainSyncConflict } from "../../domain/chain-sync.js";
 import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import type { Hex } from "../../ports/rpc.js";
 import type { TokenMetadata } from "../../domain/metadata.js";
-import type { MetadataTarget } from "../../domain/metadata-pending.js";
+import type {
+    MetadataContentRetryPolicy,
+    MetadataTarget,
+} from "../../domain/metadata-pending.js";
 import { decodeNftTransferLog } from "../nft-transfers.js";
 import type {
     CollectionExtensionBootstrapEnumerationContext,
@@ -65,6 +68,23 @@ export const NFT111K_METADATA = {
     Revealed: "revealed",
 } as const;
 
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+export const NFT111K_METADATA_CONTENT_RETRY_POLICY = {
+    attemptAgesMs: [
+        0,
+        5 * MINUTE_MS,
+        15 * MINUTE_MS,
+        HOUR_MS,
+        3 * HOUR_MS,
+        5 * HOUR_MS,
+        8 * HOUR_MS,
+        13 * HOUR_MS,
+        21 * HOUR_MS,
+        24 * HOUR_MS,
+    ],
+} as const satisfies MetadataContentRetryPolicy;
+
 export function isNft111kMetadataReady(
     target: MetadataTarget,
     metadata: TokenMetadata,
@@ -111,6 +131,7 @@ export function isNft111kMetadataReady(
 export const nft111kIndexerExtension: IndexerCollectionExtension = {
     key: NFT111K_EXTENSION_KEY,
     isMetadataReady: isNft111kMetadataReady,
+    metadataContentRetryPolicy: NFT111K_METADATA_CONTENT_RETRY_POLICY,
     enumerateBootstrapTokenIds,
     buildSyncWatchSpecs: () => [],
     // Existing canonical-metadata follow-ups can schedule these harmless jobs.

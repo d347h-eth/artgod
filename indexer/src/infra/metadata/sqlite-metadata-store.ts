@@ -25,6 +25,9 @@ import {
     type MetadataAttribution,
     type MetadataFetchOptions,
     type MetadataPendingReason,
+    type MetadataContentRetryDecision,
+    type MetadataReadinessDecision,
+    type MetadataPendingSummary,
     type MetadataTarget,
 } from "../../domain/metadata-pending.js";
 import type { DomainSyncContext } from "../../ports/domain-handlers.js";
@@ -61,6 +64,8 @@ type PendingRow = {
     options_json: string;
     attempts: number;
     failures: number;
+    content_pending_at: number | null;
+    exhausted_at: number | null;
     lease_owner: string;
     due_at: number;
 };
@@ -248,6 +253,11 @@ export class SqliteMetadataStore implements MetadataStorePort {
         return db.writeTransaction(() => {
             const status = this.status(target);
             if (!status || this.burned(target)) return null;
+            // Fresh notifications may reassess exhausted work. Coalesced active
+            // requests keep the original content clock rather than extending it.
+            db.prepare(
+                "UPDATE metadata_pending SET content_pending_at=NULL,exhausted_at=NULL,failures=0 WHERE chain_id=? AND collection_id=? AND token_id=? AND exhausted_at IS NOT NULL",
+            ).run(target.chainId, target.collectionId, target.tokenId);
             if (
                 status === COLLECTION_STATUS.Paused ||
                 status === COLLECTION_STATUS.Disabled
@@ -285,6 +295,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 owner,
                 attempts: row.attempts,
                 failures: row.failures,
+                contentPendingAt: row.content_pending_at,
                 options,
                 checkpoint: captureChainSyncCheckpoint(target.chainId).revision,
                 retry: false,
@@ -320,7 +331,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
             const choose = (after: number) =>
                 db
                     .prepare(
-                        "SELECT c.collection_id FROM collections c WHERE c.chain_id=? AND c.status=? AND c.collection_id>? AND EXISTS(SELECT 1 FROM metadata_pending p WHERE p.chain_id=c.chain_id AND p.collection_id=c.collection_id AND p.due_at<=?) ORDER BY c.collection_id LIMIT 1",
+                        "SELECT c.collection_id FROM collections c WHERE c.chain_id=? AND c.status=? AND c.collection_id>? AND EXISTS(SELECT 1 FROM metadata_pending p WHERE p.chain_id=c.chain_id AND p.collection_id=c.collection_id AND p.exhausted_at IS NULL AND p.due_at<=?) ORDER BY c.collection_id LIMIT 1",
                     )
                     .get(chainId, COLLECTION_STATUS.Live, after, now) as
                     | { collection_id: number }
@@ -332,7 +343,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
             // Obsolete rows are removed in bounded pages, without RPC or a whole-table sweep.
             const rows = db
                 .prepare(
-                    "SELECT * FROM metadata_pending WHERE chain_id=? AND collection_id=? AND due_at<=? ORDER BY due_at,token_id LIMIT ?",
+                    "SELECT * FROM metadata_pending WHERE chain_id=? AND collection_id=? AND exhausted_at IS NULL AND due_at<=? ORDER BY due_at,token_id LIMIT ?",
                 )
                 .all(
                     chainId,
@@ -383,6 +394,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
                         owner,
                         attempts: row.attempts + 1,
                         failures: row.failures,
+                        contentPendingAt: row.content_pending_at,
                         options: JSON.parse(
                             row.options_json,
                         ) as MetadataFetchOptions,
@@ -419,6 +431,16 @@ export class SqliteMetadataStore implements MetadataStorePort {
         now: number,
         delayMs = metadataRetryDelay(attempt),
     ): void {
+        this.deferAttempt(attempt, reason, now, delayMs);
+    }
+
+    private deferAttempt(
+        attempt: MetadataAttempt,
+        reason: MetadataPendingReason,
+        now: number,
+        delayMs = metadataRetryDelay(attempt),
+        contentRetry?: MetadataContentRetryDecision,
+    ): void {
         db.writeTransaction(() => {
             if (this.pending(attempt.target)?.lease_owner !== attempt.owner)
                 return;
@@ -436,11 +458,15 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 return;
             }
             db.prepare(
-                "UPDATE metadata_pending SET reason=?,due_at=?,lease_owner=NULL,failures=failures+? WHERE chain_id=? AND collection_id=? AND token_id=? AND lease_owner=?",
+                "UPDATE metadata_pending SET reason=?,due_at=?,lease_owner=NULL,failures=failures+?,content_pending_at=COALESCE(?,content_pending_at),exhausted_at=? WHERE chain_id=? AND collection_id=? AND token_id=? AND lease_owner=?",
             ).run(
                 reason,
-                now + Math.max(1, delayMs),
+                contentRetry
+                    ? (contentRetry.nextAttemptAt ?? now)
+                    : now + Math.max(1, delayMs),
                 isMetadataHostingFailure(reason) ? 1 : 0,
+                contentRetry?.pendingSince ?? null,
+                contentRetry?.nextAttemptAt === null ? now : null,
                 attempt.target.chainId,
                 attempt.target.collectionId,
                 attempt.target.tokenId,
@@ -452,7 +478,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
     complete(
         attempt: MetadataAttempt,
         metadata: TokenMetadata,
-        ready: boolean,
+        readiness: MetadataReadinessDecision,
         now: number,
         afterWrite?: (updated: MetadataUpdatedToken) => void,
     ): MetadataUpdatedToken | null {
@@ -490,7 +516,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
             }
             let updated: MetadataUpdatedToken | null = null;
             // Never replace a previous observation with an incomplete response.
-            if (ready || !this.hasMetadata(attempt.target)) {
+            if (readiness.ready || !this.hasMetadata(attempt.target)) {
                 const t = attempt.target;
                 this.persistMetadata(
                     t.chainId,
@@ -508,23 +534,32 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 };
                 afterWrite?.(updated);
             }
-            if (ready) this.remove(attempt);
-            else this.defer(attempt, REASON.NotReady, now);
+            if (readiness.ready) this.remove(attempt);
+            else
+                this.deferAttempt(
+                    attempt,
+                    REASON.NotReady,
+                    now,
+                    undefined,
+                    readiness.contentRetry,
+                );
             return updated;
         })();
     }
 
-    pendingSummary(
-        chainId: number,
-        now: number,
-    ): { pending: number; oldestAgeMs: number } {
+    pendingSummary(chainId: number, now: number): MetadataPendingSummary {
         const row = db
             .prepare(
-                "SELECT count(*) AS pending,min(first_pending_at) AS oldest FROM metadata_pending WHERE chain_id=?",
+                "SELECT count(*)-count(exhausted_at) AS pending,count(exhausted_at) AS exhausted,min(CASE WHEN exhausted_at IS NULL THEN first_pending_at END) AS oldest FROM metadata_pending WHERE chain_id=?",
             )
-            .get(chainId) as { pending: number; oldest: number | null };
+            .get(chainId) as {
+            pending: number;
+            exhausted: number;
+            oldest: number | null;
+        };
         return {
             pending: row.pending,
+            exhausted: row.exhausted,
             oldestAgeMs:
                 row.oldest === null ? 0 : Math.max(0, now - row.oldest),
         };

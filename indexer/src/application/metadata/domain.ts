@@ -13,7 +13,9 @@ import {
     METADATA_PENDING_POLICY as POLICY,
     METADATA_PENDING_REASON as REASON,
     METADATA_PENDING_LOG,
+    decideMetadataContentRetry,
     type MetadataAttempt,
+    type MetadataReadinessDecision,
     type MetadataReadinessPort,
 } from "../../domain/metadata-pending.js";
 import type {
@@ -188,11 +190,27 @@ export class MetadataDomain implements MetadataDomainPort {
                 attempt.target,
                 metadata,
             );
+            const now = this.now();
+            const policy = ready
+                ? null
+                : this.input.readiness.contentRetryPolicy?.(attempt.target);
+            const decision: MetadataReadinessDecision = ready
+                ? { ready: true }
+                : {
+                      ready: false,
+                      contentRetry: policy
+                          ? decideMetadataContentRetry(
+                                attempt.contentPendingAt,
+                                now,
+                                policy,
+                            )
+                          : undefined,
+                  };
             const updated = this.input.store.complete(
                 attempt,
                 metadata,
-                ready,
-                this.now(),
+                decision,
+                now,
                 afterWrite,
             );
             logger.debug(METADATA_PENDING_LOG.Assessed, {
