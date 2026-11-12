@@ -2,14 +2,28 @@ export { bootstrapSampleOwnership, bootstrapSampleFailure } from '@artgod/shared
 import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
 import type {
 	BootstrapContractFindings,
+	BootstrapContractProbeResponse,
 	BootstrapProjectScopeSuggestion
 } from '@artgod/shared/bootstrap/probe';
 import { bootstrapTokenDiscovery } from '@artgod/shared/bootstrap/sample-selection';
+import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
+import type { EmbeddedCollectionBootstrapPreset } from '@artgod/shared/extensions';
+
+/** A preset supplies full-contract inventory without asserting ERC721Enumerable. */
+export function bootstrapEntireContractAvailable(
+	contract: Pick<BootstrapContractProbeResponse, 'enumerable' | 'embeddedCollectionPreset'> | null
+): boolean {
+	return (
+		contract?.enumerable.supported === true ||
+		contract?.embeddedCollectionPreset?.scope.mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable
+	);
+}
 
 /** Contract-wide facts must not become one shared project's range suggestions. */
 export function bootstrapRangeSuggestions(
 	contract: BootstrapContractFindings | null,
-	project: BootstrapProjectScopeSuggestion | null
+	project: BootstrapProjectScopeSuggestion | null,
+	preset: EmbeddedCollectionBootstrapPreset | null = null
 ) {
 	const projectStartConfirmed = Boolean(
 		project?.startTokenOwnership?.exists === true &&
@@ -31,7 +45,9 @@ export function bootstrapRangeSuggestions(
 		startTokenIdConfirmed: project ? projectStartConfirmed : startTokenId === '0',
 		tokenCount:
 			project?.mintedTokenCount ??
-			(contract?.sharedContract ? null : contract?.totalSupply.bootstrapRangeValue) ??
+			(contract?.sharedContract || preset?.scope.mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable
+				? null
+				: contract?.totalSupply.bootstrapRangeValue) ??
 			null,
 		maxTokenCount:
 			project && project.maxTokenCount !== project.mintedTokenCount ? project.maxTokenCount : null

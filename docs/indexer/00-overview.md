@@ -53,6 +53,8 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.
     - Persists canonical orders, metadata, and activities.
+    - Polls the [permanent pending metadata backlog](20-metadata-pending-backlog.md)
+      directly from SQLite, with extension-defined readiness and bounded background pace.
     - Publishes retained sync follow-ups without reacquiring RPC data.
     - Commits per-order validation demand with canonical changes, then drains it
       through bounded validation batches.

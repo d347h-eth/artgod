@@ -5,6 +5,14 @@ import type {
 import type { ChainRefResolverPort } from "./ports.js";
 import type { BootstrapOutputReporter } from "@artgod/shared/bootstrap/operation-output";
 import { BootstrapValidationError } from "./types.js";
+import type { EmbeddedCollectionBootstrapPreset } from "@artgod/shared/extensions";
+
+export interface BootstrapPresetResolverPort {
+    resolveBootstrapPreset(input: {
+        chainId: number;
+        contractAddress: string;
+    }): EmbeddedCollectionBootstrapPreset | null;
+}
 
 export type ProbeCollectionContractInput = {
     chainRef: string;
@@ -26,6 +34,7 @@ export class ProbeCollectionContractUseCase {
         private readonly defaultChainId: number,
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly collectionContractProbePort: CollectionContractProbePort,
+        private readonly bootstrapPresetResolverPort: BootstrapPresetResolverPort,
     ) {}
 
     async probe(
@@ -48,6 +57,11 @@ export class ProbeCollectionContractUseCase {
             chain,
             address,
             standard: input.standard,
+            embeddedCollectionPreset:
+                this.bootstrapPresetResolverPort.resolveBootstrapPreset({
+                    chainId: chain.publicChainId,
+                    contractAddress: address,
+                }),
         };
     }
 }

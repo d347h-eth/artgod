@@ -81,6 +81,7 @@ export class SqliteCollectionPurgeRepository {
                 "metadata_refresh_extension_artifact_tasks",
             ),
             this.deleteCollectionRows("metadata_refresh_runs"),
+            this.deleteCollectionRows("metadata_pending"),
             this.deleteCollectionRows("queue_outbox"),
             this.deleteCollectionRows("trading_bidding_bid_book_rows"),
             this.deleteCollectionRows(

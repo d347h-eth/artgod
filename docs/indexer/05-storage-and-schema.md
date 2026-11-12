@@ -271,6 +271,12 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 - Mutated only by forward-processing for blocks strictly greater than `collections.bootstrap_anchor_block`
 - Historical backfill at or before the anchor must not rewrite this table
 
+Migration `077_metadata_range_balance_inventory.sql` adds the numeric seek index
+`(chain_id, collection_id, length(token_id), token_id)`. Balance IDs are normalized
+decimal strings at on-chain ingress. Metadata range refreshes merge these IDs
+with the catalog's generated numeric index, so tokens awaiting their first
+metadata participate without expanding gaps or sorting the whole inventory.
+
 ### Chain revisions and ERC721 ownership checkpoints
 
 Migration `062_chain_sync_ownership_checkpoints.sql` adds:
@@ -287,6 +293,13 @@ checkpoint itself if no newer transfer exists. Snapshot attribution in
 survive restarts, cascade on collection purge and are cleared when bootstrap
 finalization replaces the ownership snapshot. Only tokens affected by rollback
 are checkpointed; the reorg worker does not scan the whole collection inventory.
+
+Post-anchor ERC721 replays materialize ownership even when their immutable
+Transfer facts already exist. This restores current ownership during bootstrap
+catch-up after the anchor snapshot replaces balances. The projector still uses
+the latest persisted transfer/checkpoint, so an older replay cannot replace a
+newer owner or resurrect a burned token. ERC1155 continues applying only newly
+inserted transfer deltas. Pre-anchor facts never rewrite snapshot ownership.
 
 Sync persistence validates every result's block identities before writing facts
 or collection coverage. It rejects mismatched fact/header hashes, conflicting
@@ -890,6 +903,17 @@ Order cleanup leaves extension artifacts and synthetic-token retirement records
 unchanged; neither requires retaining expired-order evidence. See [activity semantics](09-domain-activities.md),
 [order retention](07-domain-orders.md#current-state-retention-and-replay), and
 [recovery design](../development/03-sqlite-storage-and-recovery.md).
+
+## Permanent Pending Metadata
+
+`074_metadata_pending.sql` adds one durable obligation per chain, collection and
+token in `metadata_pending`. Due times and active leases share an indexed
+availability key. Requests coalesce into that row; attempt age/count and media
+options survive restarts without creating delayed retry messages.
+Canonical writes and background completion effects commit with pending progress;
+collection purge explicitly deletes this state and the collection foreign key
+also cascades. See [pending metadata](20-metadata-pending-backlog.md) for the
+readiness, polling, lifecycle and recovery contracts.
 
 ## Metadata Refresh Follow-Ups and Queue Outbox
 

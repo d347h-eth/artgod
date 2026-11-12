@@ -14,10 +14,12 @@ import {
 } from "../../src/domain/sync-jobs.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { QueuePort } from "../../src/ports/queue.js";
-import { SqliteMetadataDomain } from "../../src/infra/domain/metadata.js";
+import { createMetadataDomain } from "../../src/runtime/create-metadata-domain.js";
 import { SqliteMetadataRefreshFollowups } from "../../src/infra/metadata/sqlite-refresh-followups.js";
 import { SqliteCollectionExtensions } from "../../src/infra/collection-extensions/sqlite.js";
 import { SqliteImageCachePolicyResolver } from "../../src/infra/media/sqlite-image-cache-policy.js";
+import { SqliteMetadataRangeTokens } from "../../src/infra/metadata/sqlite-metadata-range-tokens.js";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import {
     RecoveryRpc,
     reorgRecoveryServices,
@@ -34,6 +36,8 @@ import { commitRollbackFixture } from "./rollback-fixture.js";
 export function metadataRangeFixture(input: {
     queue: Pick<QueuePort, "publish">;
     tokenCount?: number;
+    tokenIds?: readonly string[];
+    toTokenId?: string;
 }) {
     const services = reorgRecoveryServices(new RecoveryRpc(200));
     const collectionId = insertCollection({
@@ -43,9 +47,23 @@ export function metadataRangeFixture(input: {
         anchorBlock: 100,
     });
     const collection = services.registry.getCollection(1, collectionId)!;
+    const tokenCount = input.tokenCount ?? 6;
+    const tokenIds =
+        input.tokenIds ??
+        Array.from({ length: tokenCount }, (_, index) => String(index + 1));
+    const insertToken = db.prepare(
+        "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id,record_kind) VALUES(1,?,?,?,?)",
+    );
+    for (const tokenId of tokenIds)
+        insertToken.run(
+            collectionId,
+            collection.address,
+            tokenId,
+            TOKEN_RECORD_KIND.Canonical,
+        );
     let version = 0;
     const uriReads: Array<{ tokenId: string; version: number }> = [];
-    const metadata = new SqliteMetadataDomain(
+    const metadata = createMetadataDomain(
         {
             resolveTokenUri: async (_contract, tokenId) => {
                 uriReads.push({ tokenId, version });
@@ -67,12 +85,12 @@ export function metadataRangeFixture(input: {
     const handler = createMetadataRefreshRangeHandler({
         queue: input.queue,
         metadata,
+        tokens: new SqliteMetadataRangeTokens(),
         followups: new SqliteMetadataRefreshFollowups(services.outbox),
         extensions,
         imagePolicy: new SqliteImageCachePolicyResolver(extensions),
         chunkSize: 2,
     });
-    const tokenCount = input.tokenCount ?? 6;
     function commitRoot(replacement: boolean) {
         const block = {
             ...syncBlockFixture(103),
@@ -83,7 +101,7 @@ export function metadataRangeFixture(input: {
             collectionId,
             contract: collection.address,
             fromTokenId: "1",
-            toTokenId: String(tokenCount),
+            toTokenId: input.toTokenId ?? String(tokenCount),
             reason: "range-fixture",
             trigger: "range-fixture",
             blockNumber: block.number,

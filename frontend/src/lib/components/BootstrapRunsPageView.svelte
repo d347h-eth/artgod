@@ -13,7 +13,11 @@
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
 	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
-	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
+	import {
+		IMAGE_CACHE_MODE,
+		defaultImageCachePolicyConfig,
+		imageCacheModeLabel
+	} from '@artgod/shared/media/token-image-cache';
 	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
@@ -39,6 +43,7 @@
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapSampleFailure,
 		bootstrapRangeSuggestions,
+		bootstrapEntireContractAvailable,
 		contractNameToBootstrapSlug,
 		formatByteSize,
 		isBootstrapProbeableAddress,
@@ -157,7 +162,7 @@
 		imageMaxDimension:
 			'Maximum cached image width or height in pixels. Leave blank to keep original dimensions.',
 		manualMode:
-			'Choose this collection’s token range or explicit token IDs. Entire contract uses ERC721Enumerable to include all tokens on the contract.',
+			'Choose this collection’s token range or explicit token IDs. Entire contract includes current and future tokens on the contract.',
 		tokenIds: 'Required explicit token IDs, separated by commas or whitespace.',
 		startTokenId: 'First token ID in the declared range, including IDs that are not yet minted.',
 		manualRangeTotalSupply:
@@ -205,7 +210,7 @@
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
-	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
+	let imageCacheMode = $state<ApiImageCacheMode>(defaultImageCachePolicyConfig().imageCacheMode);
 	let imageCacheMaxDimensionDraft = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
@@ -305,7 +310,16 @@
 	let sampleMatchesScope = $derived(bootstrapSampleMatchesScope(effectiveSampleTokenId, setupDraft));
 	let sampleScopeConflict = $derived(Boolean(effectiveSampleTokenId && (sample || openSeaSlugResolved) && !sampleMatchesScope));
 	let projectScope = $derived(sampleResult?.projectScope ?? null);
-	let rangeSuggestions = $derived(bootstrapRangeSuggestions(latestProbeMatchesAddress ? probeResult : null, projectScope));
+	let entireContractAvailable = $derived(
+		bootstrapEntireContractAvailable(latestProbeMatchesAddress ? probeResult : null)
+	);
+	let rangeSuggestions = $derived(
+		bootstrapRangeSuggestions(
+			latestProbeMatchesAddress ? probeResult : null,
+			projectScope,
+			latestProbeMatchesAddress ? probeResult?.embeddedCollectionPreset ?? null : null
+		)
+	);
 	let likelySharedContract = $derived(Boolean(projectScope) || (latestProbeMatchesAddress && Boolean(probeResult?.sharedContract)));
 	let contractSlugSuggestion = $derived(latestProbeMatchesAddress && !likelySharedContract
 		? contractNameToBootstrapSlug(probeResult?.contractName) : '');
@@ -749,7 +763,7 @@
 		) {
 			return value;
 		}
-		return IMAGE_CACHE_MODE.CacheOnce;
+		return defaultImageCachePolicyConfig().imageCacheMode;
 	}
 
 	function onImageCacheModeChange(event: Event): void {
@@ -1240,7 +1254,7 @@
 								{#if probeResult?.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects on the contract.
 								{:else}Contract token count unavailable.{/if}
 							</p>
-						{:else if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
+						{:else if entireContractAvailable && probeResult}
 							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => setScopeMode(BOOTSTRAP_ENUMERATION_MODE.Enumerable))}
 							{#if !entireContractSelected}
 								<p class="bootstrap-row-note bootstrap-check-warning">
@@ -1257,7 +1271,7 @@
 								{:else}<span class="bootstrap-check-warning">Contract token count unavailable.</span>{/if}
 							</p>
 						{/if}
-						{#if entireContractSelected && (!latestProbeMatchesAddress || probeResult?.enumerable.supported !== true)}
+						{#if entireContractSelected && !entireContractAvailable}
 							<p class="bootstrap-row-note bootstrap-check-warning">
 								ERC721Enumerable not confirmed. Use Token range or Token ID list if enumeration is unavailable.
 							</p>

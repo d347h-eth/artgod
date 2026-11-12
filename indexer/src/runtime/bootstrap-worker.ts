@@ -1,3 +1,4 @@
+import type { MetadataDomain } from "../application/metadata/domain.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -80,6 +81,7 @@ import {
 import { BootstrapDeploymentExecutor } from "../application/bootstrap-deployment-executor.js";
 import { SqliteBootstrapDeployment } from "../infra/bootstrap/sqlite-deployment.js";
 import { resolveTokenIdsForRun } from "../application/bootstrap-token-enumeration.js";
+import { bindCollectionExtensionBootstrapEnumerator } from "../application/collection-extensions/bootstrap-enumeration.js";
 import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
 import {
     ChainSyncConflict,
@@ -118,7 +120,7 @@ import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { publishBootstrapBackfillRange } from "../infra/bootstrap/backfill-range-publisher.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
+import { createMetadataDomain } from "./create-metadata-domain.js";
 import { SqliteMetadataRefreshFollowups } from "../infra/metadata/sqlite-refresh-followups.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js";
@@ -302,6 +304,11 @@ async function main() {
                         run,
                         anchorBlock,
                         onProgress,
+                        bindCollectionExtensionBootstrapEnumerator({
+                            run,
+                            installs: collectionExtensions,
+                            rpc,
+                        }),
                     ),
             },
             bootstrapStorage,
@@ -349,7 +356,7 @@ async function main() {
             fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
-        const metadataDomain = new SqliteMetadataDomain(
+        const metadataDomain = createMetadataDomain(
             metadataResolver,
             metadataFetcher,
             config.debugPayloads,
@@ -1090,7 +1097,7 @@ type BootstrapMainStepLoopInput = {
     bootstrapCollectionLiveExecutor: BootstrapCollectionLiveExecutor;
     bootstrapLiveRunCompletionReconciler: BootstrapLiveRunCompletionReconciler;
     rpc: RpcProviderPort;
-    metadataDomain: SqliteMetadataDomain;
+    metadataDomain: MetadataDomain;
     reorgDepth: number;
     backfillBatchSize: number;
     snapshotBatchSize: number;
@@ -1454,7 +1461,7 @@ async function processBootstrapMetadataStep(input: {
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
     metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-    metadataDomain: SqliteMetadataDomain;
+    metadataDomain: MetadataDomain;
     metadataBatchSize: number;
     metadataConcurrency: number;
     metadataPollMs: number;
@@ -1968,7 +1975,7 @@ function isRunImageCacheActive(run: {
 
 async function processDueMetadataTasks(
     bootstrapStorage: BootstrapSnapshotPort,
-    metadataDomain: SqliteMetadataDomain,
+    metadataDomain: MetadataDomain,
     payload: BootstrapMetadataProcessPayload,
     metadataBatchSize: number,
     metadataConcurrency: number,
@@ -2229,7 +2236,7 @@ async function processSingleImageCacheTask(
 
 async function processSingleMetadataTask(
     bootstrapStorage: BootstrapSnapshotPort,
-    metadataDomain: SqliteMetadataDomain,
+    metadataDomain: MetadataDomain,
     payload: BootstrapMetadataProcessPayload,
     task: BootstrapMetadataTask,
     metadataRetryPolicy: RetryPolicy,

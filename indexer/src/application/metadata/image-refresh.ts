@@ -21,16 +21,16 @@ export interface MetadataImageCachePolicyPort {
     }): ImageCachePolicyConfig;
 }
 
-// Reused by single-token and range refreshes after their canonical metadata write.
-export async function publishMetadataImageRefreshes(input: {
-    queue: Pick<QueuePort, "publish">;
+// Shared policy and identity for sync writes, refreshes and pending completion.
+export function buildMetadataImageRefreshes(input: {
     policy: MetadataImageCachePolicyPort;
     chainId: number;
     updatedTokens: readonly MetadataUpdatedToken[];
     traceId: string;
     source?: string | null;
     workClass?: SyncWorkClass;
-}): Promise<void> {
+}): JobEnvelope<TokenImageCacheRefreshTokenPayload>[] {
+    const jobs: JobEnvelope<TokenImageCacheRefreshTokenPayload>[] = [];
     const policies = new Map<number, ImageCachePolicyConfig>();
     for (const updated of input.updatedTokens) {
         const sourceImageUrl = updated.image?.trim() ?? "";
@@ -68,6 +68,27 @@ export async function publishMetadataImageRefreshes(input: {
                 ? {}
                 : { workClass: input.workClass }),
         };
-        await input.queue.publish(QUEUE_NAMES.TokenImageCache, job);
+        jobs.push(job);
     }
+    return jobs;
+}
+
+/** Called synchronously inside the metadata writer; publication can recover from the outbox. */
+export function retainMetadataImageRefreshes(
+    input: Parameters<typeof buildMetadataImageRefreshes>[0] & {
+        outbox: { enqueueJob<T>(job: JobEnvelope<T>): number };
+    },
+): void {
+    for (const job of buildMetadataImageRefreshes(input))
+        input.outbox.enqueueJob(job);
+}
+
+// Transport handlers share the same policy/job builder as retained write effects.
+export async function publishMetadataImageRefreshes(
+    input: Parameters<typeof buildMetadataImageRefreshes>[0] & {
+        queue: Pick<QueuePort, "publish">;
+    },
+): Promise<void> {
+    for (const job of buildMetadataImageRefreshes(input))
+        await input.queue.publish(job.queue, job);
 }

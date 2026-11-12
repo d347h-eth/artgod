@@ -28,13 +28,13 @@ export type ImageCachePolicyConfig = {
 export function imageCacheModeLabel(mode: ImageCacheMode): string {
     if (mode === IMAGE_CACHE_MODE.Off) return "off";
     if (mode === IMAGE_CACHE_MODE.CacheOnce) return "cache once";
-    return "refresh together with token metadata updates";
+    return "refresh on metadata updates";
 }
 
 // Returns the generic image-cache policy used when no extension overrides it.
 export function defaultImageCachePolicyConfig(): ImageCachePolicyConfig {
     return {
-        imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+        imageCacheMode: IMAGE_CACHE_MODE.RefreshOnMetadata,
         maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
     };
 }
@@ -75,7 +75,7 @@ function normalizeImageCacheMode(value: unknown): ImageCacheMode {
     ) {
         return value;
     }
-    return IMAGE_CACHE_MODE.CacheOnce;
+    return defaultImageCachePolicyConfig().imageCacheMode;
 }
 
 function normalizeImageCacheMaxDimension(value: unknown): number | null {

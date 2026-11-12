@@ -21,6 +21,7 @@ import {
 } from '@artgod/shared/bootstrap/sample-selection';
 import {
 	BOOTSTRAP_SHARED_CONTRACT_REASON,
+	BOOTSTRAP_PROBE_READ_STATUS,
 	emptyBootstrapSampleMetadata,
 	type BootstrapContractProbeResponse,
 	type BootstrapSampleInspectionResponse,
@@ -34,6 +35,8 @@ import {
 import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { NFT111K_MAINNET_CONTRACT_ADDRESS } from '@artgod/shared/extensions/111k';
+import { resolveEmbeddedCollectionBootstrapPreset } from '@artgod/shared/extensions/built-ins';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_CHAINS,
@@ -42,6 +45,7 @@ import {
 } from '../../src/lib/e2e/bootstrap-probe-fixtures';
 export { BOOTSTRAP_PROBE_E2E_ROUTE_PATH };
 export const BOOTSTRAP_PROBE_CONTRACTS = {
+	NFT111K: NFT111K_MAINNET_CONTRACT_ADDRESS,
 	Aeon: BOOTSTRAP_CONTRACT_CASES[4].address,
 	NonEnumerable: BOOTSTRAP_CONTRACT_CASES[1].address,
 	EnumerableRaster: BOOTSTRAP_CONTRACT_CASES[0].address,
@@ -184,7 +188,14 @@ export async function installBootstrapProbeApiMock(
 		if (url.pathname.endsWith('/collections/bootstrap/probe')) {
 			const address = url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address)!;
 			probeRequests.push(address);
-			const response = { ...contractResponse(address), chain };
+			const response = {
+				...contractResponse(address),
+				chain,
+				embeddedCollectionPreset: resolveEmbeddedCollectionBootstrapPreset({
+					chainId: chain.publicChainId,
+					contractAddress: address
+				})
+			};
 			return fulfillJson(route, transforms.contract?.(response) ?? response);
 		}
 		if (url.pathname.endsWith('/collections/bootstrap/sample')) {
@@ -250,11 +261,14 @@ export async function installBootstrapProbeApiMock(
 				createdAt: '2026-06-01T12:00:00Z'
 			});
 		}
-		if (request.method() === 'GET' && url.pathname === BOOTSTRAP_PROBE_CREATED_RUN_API_PATH) {
+		if (
+			request.method() === 'GET' &&
+			url.pathname === `/api/${chain.slug}/bootstrap-runs/${BOOTSTRAP_PROBE_CREATED_RUN_ID}`
+		) {
 			await fulfillJson(route, {
-				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				chain,
 				collection: {
-					chainId: 1,
+					chainId: chain.publicChainId,
 					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
 					slug: 'bootstrap-probe-created',
 					address: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
@@ -262,7 +276,7 @@ export async function installBootstrapProbeApiMock(
 				},
 				run: {
 					runId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
-					chainId: 1,
+					chainId: chain.publicChainId,
 					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
 					requestSlug: 'bootstrap-probe-created',
 					requestOpenseaSlug: 'raster-images-2026',
@@ -353,6 +367,24 @@ export async function installBootstrapProbeApiMock(
 }
 
 function contractResponse(address: string): BootstrapContractProbeResponse {
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.NFT111K) {
+		return bootstrapTestContract({
+			address,
+			contractName: '111K',
+			enumerable: { supported: false, error: null },
+			totalSupply: {
+				status: BOOTSTRAP_PROBE_READ_STATUS.Available,
+				value: '3498',
+				safeIntegerValue: 3498,
+				bootstrapRangeValue: 3498,
+				error: null
+			},
+			discovery: bootstrapTokenDiscovery({ checked: false, tokenId: null, error: null }, [
+				{ tokenId: '0', exists: false, error: null },
+				{ tokenId: '1', exists: true, error: null }
+			])
+		});
+	}
 	const fixture =
 		BOOTSTRAP_CONTRACT_CASES.find((c) => c.address === address) ?? BOOTSTRAP_CONTRACT_CASES[0];
 	const response = bootstrapTestContract({

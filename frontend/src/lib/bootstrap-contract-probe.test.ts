@@ -10,12 +10,44 @@ import {
 	bootstrapSampleOwnership,
 	bootstrapSampleFailure,
 	bootstrapRangeSuggestions,
+	bootstrapEntireContractAvailable,
 	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
 } from './bootstrap-contract-probe';
+import { BOOTSTRAP_ENUMERATION_MODE as Mode } from '@artgod/shared/bootstrap/pipeline';
+import { NFT111K_EXTENSION_KEY } from '@artgod/shared/extensions/111k';
 describe('bootstrap display helpers', () => {
+	it('offers full scope from a preset without turning circulating supply into a range', () => {
+		const contract = bootstrapTestContract({
+			enumerable: { supported: false, error: null },
+			embeddedCollectionPreset: {
+				extensionKey: NFT111K_EXTENSION_KEY,
+				scope: { mode: Mode.Enumerable }
+			}
+		});
+		expect(bootstrapEntireContractAvailable(contract)).toBe(true);
+		expect(contract.enumerable.supported).toBe(false);
+		expect(
+			bootstrapRangeSuggestions(contract, null, contract.embeddedCollectionPreset).tokenCount
+		).toBeNull();
+		expect(bootstrapRangeSuggestions(contract, null).tokenCount).toBe(100);
+		expect(bootstrapEntireContractAvailable({ ...contract, embeddedCollectionPreset: null })).toBe(
+			false
+		);
+		expect(bootstrapEntireContractAvailable(null)).toBe(false);
+		expect(bootstrapEntireContractAvailable(bootstrapTestContract())).toBe(true);
+		expect(
+			bootstrapEntireContractAvailable({
+				...contract,
+				embeddedCollectionPreset: {
+					extensionKey: NFT111K_EXTENSION_KEY,
+					scope: { mode: Mode.ManualTokenIds, tokenIds: ['1'] }
+				}
+			})
+		).toBe(false);
+	});
 	it('prefers project scope and separates partial-mint choices, suppressing shared contract-wide guesses', () => {
 		const contract = bootstrapTestContract();
 		expect(bootstrapRangeSuggestions(contract, null)).toEqual({

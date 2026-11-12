@@ -13,7 +13,11 @@
 		COLLECTION_MEDIA_SOURCE,
 		defaultMediaPurposePolicyConfig
 	} from '@artgod/shared/types';
-	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
+	import {
+		IMAGE_CACHE_MODE,
+		defaultImageCachePolicyConfig,
+		imageCacheModeLabel
+	} from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -172,15 +176,9 @@
 	function fallbackImageCachePolicyState(): ImageCachePolicyState {
 		return {
 			selectedSource: 'user',
-			userConfig: {
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			},
+			userConfig: defaultImageCachePolicyConfig(),
 			extensionConfig: null,
-			effectiveConfig: {
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			}
+			effectiveConfig: defaultImageCachePolicyConfig()
 		};
 	}
 
@@ -417,7 +415,7 @@
 		) {
 			return value;
 		}
-		return IMAGE_CACHE_MODE.CacheOnce;
+		return defaultImageCachePolicyConfig().imageCacheMode;
 	}
 
 	function applyCustomizationState(

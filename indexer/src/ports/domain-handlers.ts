@@ -8,6 +8,7 @@ import type {
 import type {
     MetadataDomainSyncResult,
     MetadataRefreshResult,
+    MetadataUpdatedToken,
 } from "../domain/metadata.js";
 import type {
     OrderUpdateByIdPayload,
@@ -51,6 +52,8 @@ export interface OrdersDomainPort {
 export interface MetadataDomainPort {
     handleDomainSync(
         context: DomainSyncContext,
+        // Synchronous required effects participate in each canonical write transaction.
+        afterWrite?: (updated: MetadataUpdatedToken) => void,
     ): Promise<MetadataDomainSyncResult>;
     handleMetadataRefresh(
         payload: MetadataRefreshPayload,

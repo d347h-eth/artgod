@@ -4,6 +4,7 @@ import {
 } from "./domain-jobs.js";
 import type { JobEnvelope } from "./jobs.js";
 import { QUEUE_NAMES } from "./queues.js";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 
 // Every cursor is a child of the same root publication. Distinct canonical roots
 // cannot share a tail ID, and every on-chain child passes the root's fork fence.
@@ -31,18 +32,34 @@ export function buildMetadataRangeContinuation(input: {
     };
 }
 
-export function chunkMetadataTokenRange(input: {
+/** The persisted cursor remains an inclusive numeric lower bound, including legacy jobs. */
+export function metadataTokenRangeSelection(input: {
     fromTokenId: string;
     toTokenId: string;
     cursorTokenId: string;
     chunkSize: number;
-}): { tokenIds: string[]; nextCursorTokenId: string | null } {
+}): { fromTokenId: string; toTokenId: string; limit: number } | null {
     const { fromTokenId, toTokenId, cursorTokenId, chunkSize } = input;
-    if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0)
+    if (
+        !Number.isSafeInteger(chunkSize) ||
+        chunkSize <= 0 ||
+        !Number.isSafeInteger(chunkSize + 1)
+    )
         throw new Error(`Invalid metadata refresh chunk size: ${chunkSize}`);
-    const from = BigInt(fromTokenId),
-        to = BigInt(toTokenId),
-        cursor = BigInt(cursorTokenId);
+    const normalizedFrom = normalizeEvmTokenId(fromTokenId);
+    const normalizedTo = normalizeEvmTokenId(toTokenId);
+    if (normalizedFrom === null || normalizedTo === null)
+        throw new Error("Invalid metadata refresh token bounds");
+    const from = BigInt(normalizedFrom),
+        to = BigInt(normalizedTo);
+    // The exhausted sentinel is one beyond the upper bound, even at uint256 max.
+    const normalizedCursor =
+        cursorTokenId === (to + 1n).toString()
+            ? cursorTokenId
+            : normalizeEvmTokenId(cursorTokenId);
+    if (normalizedCursor === null)
+        throw new Error("Invalid metadata refresh cursor");
+    const cursor = BigInt(normalizedCursor);
     if (from > to)
         throw new Error(
             `Invalid metadata refresh range: fromTokenId (${fromTokenId}) > toTokenId (${toTokenId})`,
@@ -51,14 +68,25 @@ export function chunkMetadataTokenRange(input: {
         throw new Error(
             `Invalid metadata refresh cursor ${cursorTokenId} for range [${fromTokenId}, ${toTokenId}]`,
         );
-    if (cursor === to + 1n) return { tokenIds: [], nextCursorTokenId: null };
-    const limit = cursor + BigInt(chunkSize) - 1n;
-    const chunkEnd = to < limit ? to : limit;
-    const tokenIds: string[] = [];
-    for (let tokenId = cursor; tokenId <= chunkEnd; tokenId += 1n)
-        tokenIds.push(tokenId.toString());
+    if (cursor === to + 1n) return null;
+    return {
+        fromTokenId: cursor.toString(),
+        toTokenId: to.toString(),
+        limit: chunkSize + 1,
+    };
+}
+
+/** Overfetch one known ID to decide continuation without exploring empty numeric space. */
+export function chunkMetadataTokenRange(input: {
+    tokenIds: readonly string[];
+    chunkSize: number;
+}): { tokenIds: string[]; nextCursorTokenId: string | null } {
+    const tokenIds = input.tokenIds.slice(0, input.chunkSize);
     return {
         tokenIds,
-        nextCursorTokenId: chunkEnd >= to ? null : (chunkEnd + 1n).toString(),
+        nextCursorTokenId:
+            input.tokenIds.length > input.chunkSize
+                ? (BigInt(tokenIds.at(-1)!) + 1n).toString()
+                : null,
     };
 }

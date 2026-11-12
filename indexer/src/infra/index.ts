@@ -4,7 +4,7 @@ export * from "./rpc/viem.js";
 export * from "./rpc/viem-ws.js";
 export * from "./storage/sqlite.js";
 export * from "./domain/orders.js";
-export * from "./domain/metadata.js";
+export * from "./metadata/sqlite-metadata-store.js";
 export * from "./domain/metadata-stats.js";
 export * from "./domain/activities.js";
 export * from "./bootstrap/sqlite.js";

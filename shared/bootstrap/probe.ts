@@ -1,6 +1,9 @@
 import type { ChainRecord } from "../types/browse.js";
 import type { EvmProxyResolution } from "../evm/proxy-detection.js";
-import type { CollectionExtensionKey } from "../extensions/index.js";
+import type {
+    CollectionExtensionKey,
+    EmbeddedCollectionBootstrapPreset,
+} from "../extensions/index.js";
 import type { CollectionCustomizationSourceKind } from "../types/index.js";
 import type { ImageCachePolicyConfig } from "../media/token-image-cache.js";
 import type { BootstrapScope } from "./scope.js";
@@ -78,6 +81,7 @@ export type BootstrapContractProbeResponse = BootstrapContractFindings & {
     chain: ChainRecord;
     address: string;
     standard: "erc721";
+    embeddedCollectionPreset: EmbeddedCollectionBootstrapPreset | null;
 };
 
 /** Bounded metadata and separately classified chain/download/parse results. */

@@ -18,6 +18,12 @@ import { COLLECTION_CUSTOMIZATION_SOURCE_KIND as SourceKind } from "@artgod/shar
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND as ScopeKind } from "@artgod/shared/extensions";
 import { defaultImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
 import { ProbeCollectionContractUseCase } from "./probe-collection-contract.js";
+import { BuiltInCollectionExtensionResolver } from "../../../infra/collection-extensions/built-in-collection-extension-resolver.js";
+import {
+    NFT111K_EXTENSION_KEY,
+    NFT111K_MAINNET_CHAIN_ID,
+    NFT111K_MAINNET_CONTRACT_ADDRESS,
+} from "@artgod/shared/extensions/111k";
 import {
     InspectBootstrapSampleUseCase,
     type BootstrapSampleInspectionPort,
@@ -56,6 +62,45 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
     };
 }
 describe("bootstrap probe use cases", () => {
+    it.each([NFT111K_MAINNET_CHAIN_ID, 10])(
+        "resolves identity presets on public chain %s without altering chain facts",
+        async (publicChainId) => {
+            const facts = bootstrapTestContract({
+                enumerable: { supported: false, error: null },
+            });
+            const discoverContract = vi.fn(async () => facts);
+            const useCase = new ProbeCollectionContractUseCase(
+                3,
+                { resolveChainRef: () => ({ ...CHAIN, id: 3, publicChainId }) },
+                { discoverContract },
+                new BuiltInCollectionExtensionResolver(),
+            );
+            const result = await useCase.probe({
+                chainRef: "3",
+                address: NFT111K_MAINNET_CONTRACT_ADDRESS.toUpperCase().replace(
+                    "0X",
+                    "0x",
+                ),
+                standard: "erc721",
+            });
+            expect(result.enumerable).toEqual(facts.enumerable);
+            expect(result.discovery).toEqual(facts.discovery);
+            expect(result.totalSupply).toEqual(facts.totalSupply);
+            expect(result.embeddedCollectionPreset).toEqual(
+                publicChainId === NFT111K_MAINNET_CHAIN_ID
+                    ? {
+                          extensionKey: NFT111K_EXTENSION_KEY,
+                          scope: { mode: Mode.Enumerable },
+                      }
+                    : null,
+            );
+            expect(discoverContract).toHaveBeenCalledExactlyOnceWith(
+                NFT111K_MAINNET_CONTRACT_ADDRESS,
+                publicChainId,
+                undefined,
+            );
+        },
+    );
     it("retains project facts through metadata failure without replacing the entered scope", async () => {
         const { inspector, port } = fixture();
         vi.mocked(port.readProjectScope).mockResolvedValue(
@@ -215,6 +260,7 @@ describe("bootstrap probe use cases", () => {
             chain.id,
             { resolveChainRef: () => chain },
             { discoverContract },
+            new BuiltInCollectionExtensionResolver(),
         );
         await useCase.probe({
             chainRef: CHAIN.slug,
@@ -229,9 +275,14 @@ describe("bootstrap probe use cases", () => {
     });
     it("discovers facts without sample or scope recommendations", async () => {
         const discoverContract = vi.fn(async () => bootstrapTestContract());
-        const useCase = new ProbeCollectionContractUseCase(1, resolver, {
-            discoverContract,
-        });
+        const useCase = new ProbeCollectionContractUseCase(
+            1,
+            resolver,
+            {
+                discoverContract,
+            },
+            new BuiltInCollectionExtensionResolver(),
+        );
         const result = await useCase.probe({
             chainRef: CHAIN.slug,
             address: " " + ADDRESS.toUpperCase().replace("0X", "0x") + " ",
@@ -244,6 +295,7 @@ describe("bootstrap probe use cases", () => {
         );
         expect(result).not.toHaveProperty("firstToken");
         expect(result).not.toHaveProperty("suggestedInput");
+        expect(result.embeddedCollectionPreset).toBeNull();
         await expect(
             useCase.probe({
                 chainRef: CHAIN.slug,

@@ -6,7 +6,8 @@ Primary files:
 
 - `indexer/src/application/metadata/refresh-range.ts`
 - `indexer/src/domain/metadata-refresh-range.ts`
-- `indexer/src/infra/domain/metadata.ts`
+- `indexer/src/application/metadata/domain.ts`
+- `indexer/src/infra/metadata/sqlite-metadata-store.ts`
 - `indexer/src/infra/metadata/viem-token-uri.ts`
 - `indexer/src/infra/metadata/http-fetcher.ts`
 
@@ -30,6 +31,17 @@ This keeps historical backfill before the bootstrap anchor from rewriting curren
 
 ## Refresh Triggers
 
+Initial attempts retain a per-token obligation in SQLite before RPC/HTTP work.
+Unavailable URIs, failed fetches and extension-classified incomplete responses
+remain in the [permanent pending backlog](20-metadata-pending-backlog.md).
+Domain-worker polls and executes that work directly; pending tokens do not
+become delayed broker messages. Ordinary successful JSON is ready by default;
+an enabled extension can provide a stricter content-readiness rule.
+It can also bound incomplete-content retries by absolute ages. Exhausted rows
+remain stored, outside automatic work, and later metadata events or explicit
+refreshes reassess them. URI/HTTP/RPC failures retain recovery without an age
+cutoff.
+
 Canonical refresh work enters through current-state metadata sync ranges,
 ERC-4906 token/range events, collection-extension watch specs, OpenSea metadata
 events, and bootstrap snapshot tasks. Runtime jobs support exact-token and
@@ -45,6 +57,19 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 - `BatchMetadataUpdate` publishes collection-scoped range refresh jobs (`domain.metadata.refresh-range`) with a queue cursor.
 - The domain worker uses the application range handler to process chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueue the next cursor until complete.
 - **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `collectionId + tokenId`.
+
+Range chunks select known canonical token IDs from the token catalog and balance
+inventory, including balance-only tokens whose first metadata fetch has not
+succeeded. Synthetic browse-only records are excluded. Selection seeks by
+numeric decimal ID, deduplicates holders/catalog entries and overfetches one
+known ID to determine continuation. No URI lookup is issued for an unminted gap,
+even when an event spans the entire uint256 range. Confirmed burns and collection
+lifecycle checks remain enforced by the metadata use case.
+
+The cursor is an inclusive numeric lower bound, advanced to one above the last
+selected ID. Existing numeric continuations resume from the same bound and can
+finish immediately when no known IDs remain. Each page closes its SQLite reader
+before network work; catalog and balance indexes keep page reads bounded.
 
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. `collectionId` is the authoritative job anchor; contract address is derived from the collection row only when the metadata domain needs onchain reads such as `tokenURI(...)`.
 
@@ -96,6 +121,13 @@ For each block range:
 Metrics are recorded for latency and failures.
 
 ## Metadata Fetching
+
+Ordinary transfer-driven sync retains image-cache jobs in the same transaction
+as each canonical metadata write, using the shared refresh policy/job builder.
+A token ready on its first fetch therefore reaches image caching without a
+metadata retry or later refresh event. Failure to retain the job rolls back that
+observation, allowing replay or the pending worker to recover it. Existing
+explicit cache policies still apply.
 
 `HttpMetadataFetcher` fetches JSON metadata from a resolved URI:
 
@@ -201,9 +233,14 @@ reuse these artifact rows.
 
 ## Failure Behavior
 
-- If URI resolution fails, the token is skipped.
-- If fetch fails or returns invalid JSON, the token is skipped.
-- Metadata is only written once, unless updated by a new fetch.
+- URI resolution, fetch and invalid-JSON failures retain the durable pending
+  obligation; bootstrap's initial settlement remains best-effort.
+- An incomplete successful response can initialize metadata but preserves any
+  prior observation. Extension content policy determines its next check or
+  exhaustion; transport recovery remains independent.
+- A ready response writes canonical metadata and clears pending intent.
+- Ordinary transfer discovery skips existing metadata; refresh events and
+  pending work reassess it through their dedicated paths.
 
 This is intentionally conservative and idempotent.
 

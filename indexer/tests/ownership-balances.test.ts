@@ -1,4 +1,7 @@
-import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
+import {
+    FINALIZED_SYNC_CHECK_POLICY,
+    syncBlockFixture,
+} from "./helpers/chain-fixture.js";
 import {
     insertCollection,
     loadCollection,
@@ -16,6 +19,7 @@ import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
+import { zeroAddress } from "viem";
 
 describe("ownership balance persistence", () => {
     loadTestEnv();
@@ -142,6 +146,61 @@ describe("ownership balance persistence", () => {
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
         ]);
+    });
+
+    it("rebuilds post-anchor ERC721 ownership when catch-up replays transfers recorded before snapshot finalization", () => {
+        const { collectionId, contract, transfer, persist } = transferFixture();
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const bootstrap = new SqliteBootstrapStorage();
+        const anchor = syncBlockFixture(100);
+        bootstrap.insertSnapshotRows(
+            ["1", "2"].map((tokenId) => ({
+                runId: 1,
+                chainId: 1,
+                collectionId,
+                contract,
+                tokenId,
+                owner: seller,
+                anchorBlock: anchor.number,
+            })),
+        );
+        const events = [
+            transfer(101, 1, seller, buyer),
+            { ...transfer(101, 2, seller, zeroAddress), tokenId: "2" },
+            { ...transfer(101, 3, zeroAddress, buyer), tokenId: "3" },
+        ];
+        // Realtime can persist and project these while anchored ownership reads are running.
+        persist(events);
+        expect(selectBalanceOwners(1, collectionId, "3")).toEqual([
+            { owner: buyer, amount: "1" },
+        ]);
+        bootstrap.finalizeSnapshot({
+            runId: 1,
+            chainId: 1,
+            collectionId,
+            contract,
+            anchorBlock: anchor.number,
+            anchorHash: anchor.hash,
+            anchorTimestamp: anchor.timestamp,
+        });
+        expect(selectBalanceOwners(1, collectionId, "3")).toEqual([]);
+        expect(selectBalanceOwners(1, collectionId, "2")).toEqual([
+            { owner: seller, amount: "1" },
+        ]);
+        // Catch-up must rebuild ownership even though immutable Transfer rows already exist.
+        for (let replay = 0; replay < 2; replay++) {
+            persist(events);
+            expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+                { owner: buyer, amount: "1" },
+            ]);
+            expect(selectBalanceOwners(1, collectionId, "2")).toEqual([]);
+            expect(selectBalanceOwners(1, collectionId, "3")).toEqual([
+                { owner: buyer, amount: "1" },
+            ]);
+            for (const tokenId of ["1", "2", "3"])
+                expect(selectTransferCount(1, collectionId, tokenId)).toBe(1);
+        }
     });
 
     it.each([

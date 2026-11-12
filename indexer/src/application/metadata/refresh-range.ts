@@ -2,6 +2,7 @@ import { logger } from "@artgod/shared/utils";
 import {
     buildMetadataRangeContinuation,
     chunkMetadataTokenRange,
+    metadataTokenRangeSelection,
 } from "../../domain/metadata-refresh-range.js";
 import {
     METADATA_STATS_RECOMPUTE_REASON,
@@ -22,11 +23,25 @@ import {
     type MetadataImageCachePolicyPort,
 } from "./image-refresh.js";
 
+export type MetadataRefreshRangeTokenSelection = {
+    chainId: number;
+    collectionId: number;
+    fromTokenId: string;
+    toTokenId: string;
+    limit: number;
+};
+
+export interface MetadataRefreshRangeTokenSource {
+    /** Unique known canonical IDs, numerically ordered inside inclusive bounds; no network I/O. */
+    listTokenIds(input: MetadataRefreshRangeTokenSelection): string[];
+}
+
 // Processes one bounded chunk. The full domain envelope retains the fixed root
 // identity and origin across queue continuations.
 export function createMetadataRefreshRangeHandler(input: {
     queue: Pick<QueuePort, "publish">;
     metadata: Pick<MetadataDomainPort, "handleMetadataRefresh">;
+    tokens: MetadataRefreshRangeTokenSource;
     followups: MetadataRefreshFollowupStoragePort;
     extensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     imagePolicy: MetadataImageCachePolicyPort;
@@ -42,10 +57,19 @@ export function createMetadataRefreshRangeHandler(input: {
             throw new Error(
                 "Metadata range envelope and payload scopes differ",
             );
-        const { tokenIds, nextCursorTokenId } = chunkMetadataTokenRange({
+        const selection = metadataTokenRangeSelection({
             fromTokenId: payload.fromTokenId,
             toTokenId: payload.toTokenId,
             cursorTokenId: payload.cursorTokenId,
+            chunkSize: input.chunkSize,
+        });
+        if (!selection) return;
+        const { tokenIds, nextCursorTokenId } = chunkMetadataTokenRange({
+            tokenIds: input.tokens.listTokenIds({
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                ...selection,
+            }),
             chunkSize: input.chunkSize,
         });
         const traceId = job.traceId ?? job.jobId;

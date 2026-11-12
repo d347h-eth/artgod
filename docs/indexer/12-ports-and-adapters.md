@@ -72,7 +72,9 @@ Provides basic in-memory caching for RPC calls with metric hooks.
 - Interface: `indexer/src/ports/domain-handlers.ts`
 - Adapters:
     - Orders: `indexer/src/infra/domain/orders.ts`
-    - Metadata: `indexer/src/infra/domain/metadata.ts`
+    - Metadata use case: `indexer/src/application/metadata/domain.ts`, with
+      `indexer/src/infra/metadata/sqlite-metadata-store.ts` implementing
+      `indexer/src/ports/metadata-store.ts`
     - Activities: `indexer/src/infra/domain/activities.ts`
 
 These ports allow the sync pipeline to remain independent of domain-specific persistence logic.
@@ -184,9 +186,19 @@ These ports keep metadata resolution and HTTP fetching swappable.
 `application/metadata/refresh-range.ts` owns one range chunk and its follow-ups,
 using narrow metadata, queue, extension-install and image-policy contracts. Runtime
 composition passes the full domain envelope. `domain/metadata-refresh-range.ts`
-owns token-range chunking and continuation identity/context, so every cursor
-preserves the root publication and optional event origin. Single-token and range
-refreshes reuse `application/metadata/image-refresh.ts` for image publications.
+owns range validation, known-ID paging and continuation identity/context, so
+every cursor preserves the root publication and optional event origin.
+The use-case-local `MetadataRefreshRangeTokenSource` is implemented by
+`infra/metadata/sqlite-metadata-range-tokens.ts`: an indexed numeric merge of
+canonical catalog IDs and balance IDs, including tokens without metadata yet.
+It deduplicates holder/catalog entries and excludes synthetic catalog records.
+The handler never expands numeric gaps into URI calls.
+
+Sync writes, single-token/range refreshes and pending completion reuse
+`application/metadata/image-refresh.ts` for policy and image-job identity.
+Ordinary sync passes synchronous required image effects into the canonical
+writer, retaining them through the outbox in the same transaction, like pending
+completion. Other existing refresh batching retains its normal publication path.
 
 ## Collection Extension Ports
 

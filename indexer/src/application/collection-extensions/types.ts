@@ -18,6 +18,21 @@ import type {
 } from "../../ports/collection-extensions.js";
 import type { BootstrapCollectionExtensionArtifactTaskSeed } from "../../ports/bootstrap.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
+import type { TokenMetadata } from "../../domain/metadata.js";
+import type {
+    MetadataContentRetryPolicy,
+    MetadataTarget,
+} from "../../domain/metadata-pending.js";
+
+/** Required snapshot inventory, separate from eventual artifact enrichment. */
+export type CollectionExtensionBootstrapEnumerationContext = {
+    rpc: Pick<RpcProviderPort, "getLogs" | "getBlock" | "readContractAtBlock">;
+    install: CollectionExtensionInstall;
+    contract: string;
+    anchor: ChainBlockReference;
+    onProgress(progress: { resolved: number; total: number | null }): void;
+};
 
 export type CollectionExtensionSyncDecodeResult = {
     metadataRefreshEvents: MetadataRefreshEvent[];
@@ -84,6 +99,14 @@ export type CollectionExtensionArtifactRefreshResult = {
 
 export interface IndexerCollectionExtension {
     key: CollectionExtensionKey;
+    /** Canonical identity lets readiness distinguish token kinds without trusting host labels. */
+    isMetadataReady?(target: MetadataTarget, metadata: TokenMetadata): boolean;
+    /** Absolute ages for incomplete-content checks; transport recovery is independent. */
+    metadataContentRetryPolicy?: MetadataContentRetryPolicy;
+    /** Return confirmed present IDs at the exact anchor, never a replacement scope. */
+    enumerateBootstrapTokenIds?(
+        context: CollectionExtensionBootstrapEnumerationContext,
+    ): Promise<string[]>;
     resolveImageCachePolicyConfig?(
         install: CollectionExtensionInstall,
     ): ImageCachePolicyConfig | null;

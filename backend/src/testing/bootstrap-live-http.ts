@@ -71,7 +71,12 @@ export async function createBootstrapLiveHttp(input: {
     app.get(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         new ProbeCollectionContractHttpAdapter(
-            new ProbeCollectionContractUseCase(chain.id, chainResolver, probe),
+            new ProbeCollectionContractUseCase(
+                chain.id,
+                chainResolver,
+                probe,
+                new BuiltInCollectionExtensionResolver(),
+            ),
         ).handle,
     );
     app.post(

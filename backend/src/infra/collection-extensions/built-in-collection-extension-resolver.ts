@@ -5,7 +5,9 @@ import type {
 import {
     resolveEmbeddedCollectionExtensionInstall,
     resolveEmbeddedCollectionExtensionInstallByKey,
+    resolveEmbeddedCollectionBootstrapPreset,
 } from "@artgod/shared/extensions/built-ins";
+import type { BootstrapPresetResolverPort } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
 import {
     normalizeImageCachePolicyConfig,
     type ImageCachePolicyConfig,
@@ -20,8 +22,17 @@ import type {
 const IMAGE_CACHE_POLICY_PREVIEW_COLLECTION_ID = 0;
 
 export class BuiltInCollectionExtensionResolver
-    implements EmbeddedCollectionExtensionResolverPort
+    implements
+        EmbeddedCollectionExtensionResolverPort,
+        BootstrapPresetResolverPort
 {
+    resolveBootstrapPreset(input: {
+        chainId: number;
+        contractAddress: string;
+    }) {
+        return resolveEmbeddedCollectionBootstrapPreset(input);
+    }
+
     resolveExtensionKey(
         input: EmbeddedCollectionExtensionResolveInput,
     ): CollectionExtensionKey | null {

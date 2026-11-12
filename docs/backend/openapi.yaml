@@ -6601,6 +6601,7 @@ components:
                     totalSupply,
                     sharedContract,
                     discovery,
+                    embeddedCollectionPreset,
                 ]
             additionalProperties: false
             properties:
@@ -6651,6 +6652,17 @@ components:
                             nullable: true
                 discovery:
                     $ref: "#/components/schemas/BootstrapTokenDiscovery"
+                embeddedCollectionPreset:
+                    type: object
+                    nullable: true
+                    description: Embedded identity-based scope recommendation. Does not establish ERC721Enumerable support or authorize installation for another scope.
+                    required: [extensionKey, scope]
+                    additionalProperties: false
+                    properties:
+                        extensionKey:
+                            type: string
+                        scope:
+                            $ref: "#/components/schemas/BootstrapScope"
 
         BootstrapRunStatus:
             type: string

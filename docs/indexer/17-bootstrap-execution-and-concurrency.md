@@ -179,7 +179,17 @@ Typed runtime config: no.
 
 Current model:
 
-- Enumerable runs call `totalSupply`, then call `tokenByIndex` sequentially from index `0` to `totalSupply - 1`.
+- Entire-contract runs first bind an optional inventory hook from the requested,
+  enabled install for that run's chain and collection. The hook receives the
+  exact anchor hash and returns present IDs into the existing executor. Missing
+  or mismatched requested installs and hook failures are terminal errors, with
+  no fallback. Extensions without a hook and generic Enumerable runs call
+  `totalSupply`, then `tokenByIndex` sequentially from index `0` to `totalSupply - 1`.
+- The exact Ethereum mainnet 111K extension scans bounded mint-log pages and filters
+  candidate IDs through anchored batches of at most 150. Progress counts checked
+  candidates, not live supply or blocks. It verifies fresh headers and anchored
+  total supply before returning; retries rescan history. See the
+  [111K contract](../extensions/03-111k-bootstrap.md).
 - Manual token-id and manual-range runs iterate the configured candidates and
   read ownerOf at the anchor through Ethereum JSON-RPC. Only confirmed present
   tokens enter the snapshot; recognized absence reverts are skipped, while
