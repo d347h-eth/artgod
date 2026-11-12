@@ -42,6 +42,7 @@ export class MetadataDomain implements MetadataDomainPort {
 
     async handleDomainSync(
         context: DomainSyncContext,
+        afterWrite?: (updated: MetadataUpdatedToken) => void,
     ): Promise<MetadataDomainSyncResult> {
         const contracts = new Set<string>();
         const updatedTokens: MetadataUpdatedToken[] = [];
@@ -63,7 +64,12 @@ export class MetadataDomain implements MetadataDomainPort {
                 candidate.attribution,
             );
             if (!attempt) continue;
-            const updated = await this.fetch(attempt);
+            const updated = await this.fetch(
+                attempt,
+                undefined,
+                undefined,
+                afterWrite,
+            );
             if (updated) updatedTokens.push(updated);
         }
         logger.debug("Metadata domain sync applied", {

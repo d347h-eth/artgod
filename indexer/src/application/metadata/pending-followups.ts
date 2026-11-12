@@ -14,7 +14,7 @@ import {
     type MetadataRefreshFollowupStoragePort,
 } from "./refresh-followups.js";
 import {
-    buildMetadataImageRefreshes,
+    retainMetadataImageRefreshes,
     type MetadataImageCachePolicyPort,
 } from "./image-refresh.js";
 
@@ -40,14 +40,14 @@ export function createMetadataPendingFollowups(input: {
             workClass: SYNC_WORK_CLASS.GapRepair,
             source: METADATA_REFRESH_SOURCE.Onchain,
         });
-        for (const job of buildMetadataImageRefreshes({
+        retainMetadataImageRefreshes({
+            outbox: input.outbox,
             policy: input.imagePolicy,
             chainId: input.chainId,
             updatedTokens: [updated],
             traceId: attempt.owner,
             workClass: SYNC_WORK_CLASS.GapRepair,
             source: METADATA_REFRESH_SOURCE.Onchain,
-        }))
-            input.outbox.enqueueJob(job);
+        });
     };
 }

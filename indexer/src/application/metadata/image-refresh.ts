@@ -21,7 +21,7 @@ export interface MetadataImageCachePolicyPort {
     }): ImageCachePolicyConfig;
 }
 
-// Reused by single-token and range refreshes after their canonical metadata write.
+// Shared policy and identity for sync writes, refreshes and pending completion.
 export function buildMetadataImageRefreshes(input: {
     policy: MetadataImageCachePolicyPort;
     chainId: number;
@@ -73,7 +73,17 @@ export function buildMetadataImageRefreshes(input: {
     return jobs;
 }
 
-// Queue handlers and transactional pending completion share the same policy/job builder.
+/** Called synchronously inside the metadata writer; publication can recover from the outbox. */
+export function retainMetadataImageRefreshes(
+    input: Parameters<typeof buildMetadataImageRefreshes>[0] & {
+        outbox: { enqueueJob<T>(job: JobEnvelope<T>): number };
+    },
+): void {
+    for (const job of buildMetadataImageRefreshes(input))
+        input.outbox.enqueueJob(job);
+}
+
+// Transport handlers share the same policy/job builder as retained write effects.
 export async function publishMetadataImageRefreshes(
     input: Parameters<typeof buildMetadataImageRefreshes>[0] & {
         queue: Pick<QueuePort, "publish">;

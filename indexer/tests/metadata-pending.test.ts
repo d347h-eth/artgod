@@ -11,7 +11,10 @@ import { logger } from "@artgod/shared/utils";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
-import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import {
+    IMAGE_CACHE_MODE,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
 import { TOKEN_IMAGE_CACHE_JOB_KIND } from "@artgod/shared/media/token-image-cache-jobs";
 import {
     NFT111K_MAINNET_CHAIN_ID,
@@ -23,6 +26,7 @@ import { MetadataDomain } from "../src/application/metadata/domain.js";
 import { ERC4906_ABI } from "../src/abi/index.js";
 import { decodeMetadataRefreshLog } from "../src/application/metadata/refresh-triggers.js";
 import { createMetadataPendingFollowups } from "../src/application/metadata/pending-followups.js";
+import { retainMetadataImageRefreshes } from "../src/application/metadata/image-refresh.js";
 import { CollectionExtensionMetadataReadiness } from "../src/application/collection-extensions/metadata-readiness.js";
 import {
     NFT111K_METADATA,
@@ -1056,6 +1060,121 @@ describe("durable metadata pending backlog", () => {
             COLLECTION_STANDARD.Erc1155,
         );
     });
+
+    function ordinarySync(
+        f: ReturnType<typeof fixture>,
+        mode: ImageCacheMode = IMAGE_CACHE_MODE.RefreshOnMetadata,
+    ) {
+        db.prepare(
+            "INSERT INTO nft_transfer_events(chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind) VALUES(?,?,?,?,?,'1','1',101,?,1,?,0,?)",
+        ).run(
+            CHAIN,
+            COLLECTION,
+            CONTRACT,
+            zeroAddress,
+            NFT111K_TEST_OWNER,
+            HASH,
+            HASH,
+            COLLECTION_STANDARD.Erc721,
+        );
+        const outbox = new SqliteQueueOutbox();
+        const run = () =>
+            f.domain.handleDomainSync(
+                {
+                    chainId: CHAIN,
+                    collectionId: COLLECTION,
+                    fromBlock: 101,
+                    toBlock: 101,
+                    mode: "realtime",
+                    projection: DOMAIN_SYNC_PROJECTION.CurrentState,
+                    sourceJobId: "first-mint",
+                    sourceKind: DOMAIN_JOB_KIND.MetadataSync,
+                },
+                (updated) =>
+                    retainMetadataImageRefreshes({
+                        outbox,
+                        policy: {
+                            getImageCachePolicyConfig: () => ({
+                                imageCacheMode: mode,
+                                maxDimension: 2400,
+                            }),
+                        },
+                        chainId: CHAIN,
+                        updatedTokens: [updated],
+                        traceId: "first-mint",
+                    }),
+            );
+        return { run, outbox };
+    }
+
+    it.each([document(), documentWithoutRoot(NFT111K_METADATA.Egg)])(
+        "retains image-cache work when ordinary mint sync is ready on its first attempt ($name)",
+        async (metadata) => {
+            const f = fixture();
+            f.state.metadata = metadata;
+            const sync = ordinarySync(f);
+            await sync.run();
+            expect(f.row()).toBeUndefined();
+            const jobs = db
+                .prepare("SELECT job_json FROM queue_outbox")
+                .all() as { job_json: string }[];
+            expect(jobs).toHaveLength(1);
+            expect(JSON.parse(jobs[0].job_json)).toMatchObject({
+                kind: TOKEN_IMAGE_CACHE_JOB_KIND.RefreshToken,
+                chainId: CHAIN,
+                collectionId: COLLECTION,
+                payload: {
+                    tokenId: TARGET.tokenId,
+                    sourceImageUrl: IMAGE,
+                    imageCacheMode: IMAGE_CACHE_MODE.RefreshOnMetadata,
+                    requestedMaxDimension: 2400,
+                },
+            });
+            await sync.run();
+            expect(f.fetcher.fetchMetadata).toHaveBeenCalledOnce();
+            expect(
+                db.prepare("SELECT count(*) n FROM queue_outbox").get(),
+            ).toEqual({ n: 1 });
+        },
+    );
+
+    it("rolls back a first-sync metadata observation when retaining its image job fails, then recovers on replay", async () => {
+        const f = fixture();
+        f.state.metadata = document();
+        const sync = ordinarySync(f);
+        const failure = vi
+            .spyOn(sync.outbox, "enqueueJob")
+            .mockImplementationOnce(() => {
+                throw new Error("image intent unavailable");
+            });
+        await expect(sync.run()).rejects.toThrow("image intent unavailable");
+        expect(f.image()).toBeUndefined();
+        expect(f.row()?.reason).toBe(REASON.Interrupted);
+        expect(db.prepare("SELECT count(*) n FROM queue_outbox").get()).toEqual(
+            { n: 0 },
+        );
+        failure.mockRestore();
+        await sync.run();
+        expect(f.row()).toBeUndefined();
+        expect(f.image()).toBe(IMAGE);
+        expect(db.prepare("SELECT count(*) n FROM queue_outbox").get()).toEqual(
+            { n: 1 },
+        );
+    });
+
+    it.each([IMAGE_CACHE_MODE.Off, IMAGE_CACHE_MODE.CacheOnce])(
+        "honors explicit %s policy on an ordinary metadata write",
+        async (mode) => {
+            const f = fixture();
+            f.state.metadata = document();
+            await ordinarySync(f, mode).run();
+            expect(f.image()).toBe(IMAGE);
+            expect(f.row()).toBeUndefined();
+            expect(
+                db.prepare("SELECT count(*) n FROM queue_outbox").get(),
+            ).toEqual({ n: 0 });
+        },
+    );
 
     it("streams transfer candidates across multiple closed reader pages without skipping or duplicating tokens", async () => {
         const f = fixture(false);

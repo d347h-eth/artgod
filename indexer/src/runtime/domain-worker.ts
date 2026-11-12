@@ -38,7 +38,10 @@ import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
 import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
 import { createMetadataRefreshRangeHandler } from "../application/metadata/refresh-range.js";
-import { publishMetadataImageRefreshes } from "../application/metadata/image-refresh.js";
+import {
+    publishMetadataImageRefreshes,
+    retainMetadataImageRefreshes,
+} from "../application/metadata/image-refresh.js";
 import { startMetadataPendingPoller } from "../application/metadata/pending-poller.js";
 import { createMetadataPendingFollowups } from "../application/metadata/pending-followups.js";
 import { startQueueOutboxDrainer } from "../application/queue-outbox/drainer.js";
@@ -487,6 +490,16 @@ async function main() {
                 if (job.kind !== DOMAIN_JOB_KIND.MetadataSync) return;
                 const result = await metadataDomain.handleDomainSync(
                     toDomainContext(job),
+                    (updated) =>
+                        retainMetadataImageRefreshes({
+                            outbox: queueOutbox,
+                            policy: imageCachePolicyResolver,
+                            chainId: job.chainId,
+                            updatedTokens: [updated],
+                            traceId: job.traceId ?? job.jobId,
+                            workClass: job.workClass,
+                            source: METADATA_REFRESH_SOURCE.Onchain,
+                        }),
                 );
                 const statsReason = deriveMetadataStatsReason(
                     job.payload.sourceJobId,
