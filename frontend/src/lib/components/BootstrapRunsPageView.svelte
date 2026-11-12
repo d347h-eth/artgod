@@ -13,7 +13,11 @@
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
 	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
-	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
+	import {
+		IMAGE_CACHE_MODE,
+		defaultImageCachePolicyConfig,
+		imageCacheModeLabel
+	} from '@artgod/shared/media/token-image-cache';
 	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
@@ -206,7 +210,7 @@
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
-	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
+	let imageCacheMode = $state<ApiImageCacheMode>(defaultImageCachePolicyConfig().imageCacheMode);
 	let imageCacheMaxDimensionDraft = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
@@ -759,7 +763,7 @@
 		) {
 			return value;
 		}
-		return IMAGE_CACHE_MODE.CacheOnce;
+		return defaultImageCachePolicyConfig().imageCacheMode;
 	}
 
 	function onImageCacheModeChange(event: Event): void {

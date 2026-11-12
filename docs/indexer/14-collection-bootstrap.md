@@ -428,6 +428,10 @@ the sample remains inside the scope. Caching can remain enabled when an estimate
 never run. Estimate failures do not change the submitted cache policy. Switching
 **Image cache mode** to **off** disables local image caching.
 
+New bootstrap forms and generic probe suggestions default to
+`refresh_on_metadata`. Explicit `off` and `cache_once` selections remain
+available and are preserved when probing or submitting the form.
+
 For IPFS download failures, check `COMMON_IPFS_GATEWAY_ORIGIN` in Admin config,
 restart infra after changing it, and repeat **inspect**/**estimate**. Metadata and image
 objects may have different availability even through the same gateway. Use a

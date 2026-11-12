@@ -89,6 +89,13 @@ test.describe('bootstrap setup', () => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?chain=ethereum&opensea=disabled`);
 		await contractAddressSafetyAcknowledgement(page).check();
+		await expect(rowControl(page, 'Image cache mode')).toHaveValue(
+			IMAGE_CACHE_MODE.RefreshOnMetadata
+		);
+		await formRow(page, 'Image cache mode').screenshot({
+			path: info.outputPath('default-image-cache-mode.png')
+		});
+		await page.screenshot({ path: info.outputPath('default-bootstrap-form.png'), fullPage: true });
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NFT111K);
 		await page.locator('#bootstrap-sample').fill('1');
 		await page.locator('#bootstrap-range-start').fill('1');
@@ -144,7 +151,8 @@ test.describe('bootstrap setup', () => {
 			path: '/api/ethereum/collections/bootstrap',
 			body: {
 				address: BOOTSTRAP_PROBE_CONTRACTS.NFT111K,
-				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
+				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
+				imageCache: { imageCacheMode: IMAGE_CACHE_MODE.Off }
 			}
 		});
 		expect(api.mutations[0].body).not.toHaveProperty('requestExtensionKey');
