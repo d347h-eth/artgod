@@ -38,6 +38,7 @@ import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
 import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
 import { createMetadataRefreshRangeHandler } from "../application/metadata/refresh-range.js";
+import { SqliteMetadataRangeTokens } from "../infra/metadata/sqlite-metadata-range-tokens.js";
 import {
     publishMetadataImageRefreshes,
     retainMetadataImageRefreshes,
@@ -529,6 +530,7 @@ async function main() {
         const handleMetadataRefreshRange = createMetadataRefreshRangeHandler({
             queue,
             metadata: metadataDomain,
+            tokens: new SqliteMetadataRangeTokens(),
             followups: metadataRefreshFollowups,
             extensions: collectionExtensions,
             imagePolicy: imageCachePolicyResolver,
