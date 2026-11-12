@@ -82,6 +82,11 @@ warehouses and relics, and artwork metadata explicitly categorized as an egg,
 are ready without `collection block`. Other responses still require that root;
 a declared reveal flag does not replace it. Accepted eggs rely on later metadata
 events or explicit refreshes for replacement. No trait restructuring is included.
+The extension schedules incomplete-content checks at absolute ages of 5m, 15m,
+1h, 3h, 5h, 8h, 13h, 21h and 24h after the first incomplete response. A final
+unsuccessful check leaves an exhausted obligation outside automatic work;
+later metadata events or explicit refreshes can reopen it. Transport outages
+have no age cutoff, and downtime postpones the final check.
 
 ## Setup and admission
 
@@ -279,9 +284,10 @@ by these checks.
    explicit; this extension does not change their policy.
 
 6. Inspect the permanent metadata backlog and its readiness logs/metrics during
-   reveals. Verify a missing `collection block` remains pending, then clears
-   after complete metadata arrives. Check pause/resume and restart without
-   manually editing data or holding delayed metadata jobs in NATS.
+   reveals. Verify a missing `collection block` retries until ready or until
+   a final unsuccessful content check exhausts it at or after 24 hours. Confirm
+   that a later metadata event reopens exhausted work. Check pause/resume and
+   restart without manually editing data or holding delayed metadata jobs in NATS.
 
 Durable enumeration/seeding remain separate deferred work. Permanent metadata
 recovery is implemented as described in the [backlog contract](../indexer/20-metadata-pending-backlog.md);

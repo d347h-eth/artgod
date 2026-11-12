@@ -2,9 +2,10 @@
 
 Domain-worker owns the durable metadata obligation and its background executor.
 A token whose URI, HTTP payload or extension-defined content is unavailable
-stays pending in SQLite until a later attempt succeeds or the token/collection
-is removed. There is no retry-count or age deadline. Pending tokens do not
-become delayed NATS messages.
+retains an obligation in SQLite until a later attempt succeeds or the
+token/collection is removed. Transport recovery has no age deadline. An extension
+can bound incomplete-content retries; exhausted obligations remain stored but
+leave automatic work. Pending tokens do not become delayed NATS messages.
 
 ## Decision and alternatives
 
@@ -34,7 +35,9 @@ normal initial notifications and retained successful-write follow-ups.
 - `CollectionExtensionMetadataReadiness` delegates successful-response
   assessment to an enabled extension's optional `isMetadataReady` hook.
   The hook receives canonical token identity alongside fetched metadata.
-  Ordinary parsed metadata is ready when no hook applies.
+  Ordinary parsed metadata is ready when no hook applies. Its optional
+  `metadataContentRetryPolicy` supplies absolute attempt ages for incomplete
+  content; core calculates and persists the next due time or exhaustion.
 - Domain-worker's pending poller invokes the same use case directly. Scheduler
   retains chain-head scheduling; collection-extension-worker retains artifact
   work. No runtime or retry queue is added.
@@ -63,10 +66,24 @@ rescan or a broker publication.
 
 Migration `075_metadata_pending_failures.sql` separates admission attempts from
 hosting failures. Only unavailable URI/fetch and incomplete-response outcomes
-advance `failures`, which controls backoff. RPC-allocation, ownership and
+advance `failures`, which controls exponential recovery backoff. RPC-allocation, ownership and
 pause/disable deferrals do not advance it, including superseded requests.
 Resuming allocation therefore does not inherit a long server backoff solely
 from time spent paused.
+
+Migration `076_metadata_content_retry_exhaustion.sql` adds nullable
+`content_pending_at` and `exhausted_at`. The content clock starts only at the
+first incomplete response under a bounded extension policy, independently of
+earlier transport failures. Existing rows start that clock on their next
+incomplete response; historical age does not exhaust them on upgrade.
+An exhausted row retains its original reason, counts and observation times,
+with no lease. A partial due index excludes it from automatic claims.
+
+Fresh metadata events or explicit refreshes rearm exhausted work and reset its
+content clock and hosting-failure backoff. They preserve lifetime attempt count
+and `first_pending_at`. Coalescing an already active request preserves its
+content clock. Paused/disabled admissions retain this renewed intent without
+network work, ready for execution after resume.
 
 Successful complete metadata replaces canonical metadata and clears the row.
 An incomplete response can initialize a token's first metadata, but never
@@ -96,9 +113,11 @@ Policy constants belong to `indexer/src/domain/metadata-pending.ts`:
   requests, per domain-worker process;
 - existing background (`gap_repair`) RPC allocation applies, keeping this work
   separate from normal foreground metadata requests;
-- exponential retry ceilings start at fifteen seconds and cap at one hour,
-  with deterministic per-token jitter between 75% and 100% of that ceiling;
-- no terminal attempt limit, expiry or automatic abandonment due to host age.
+- URI/fetch failures and incomplete responses without a bounded extension policy
+  use exponential retry ceilings from fifteen seconds to one hour, with
+  deterministic per-token jitter between 75% and 100% of that ceiling;
+- bounded content retries use the extension's absolute ages, without jitter;
+  transport failures remain recoverable without a terminal age or attempt limit.
 
 These limits govern availability and resource use, not a freshness guarantee.
 A large overdue backlog can take longer than the backoff ceiling to drain.
@@ -109,9 +128,10 @@ Live collections rotate in collection-ID order, including passes that clean
 obsolete work. Within a collection, selection uses the indexed due time and
 token ID. A pass reconciles at most sixteen ownerless rows, removing confirmed
 ERC721 burns and deferring other ownership waits. Due lookup
-uses `(chain_id, collection_id, due_at, token_id)`; inactive collections are
-excluded before reading their pending rows. Transfer candidate discovery uses
-bounded keyset pages, closing each reader before network work and writes.
+uses `(chain_id, collection_id, due_at, token_id)` for non-exhausted rows;
+inactive collections are excluded before reading their pending rows. Transfer
+candidate discovery uses bounded keyset pages, closing each reader before
+network work and writes.
 
 Paused and disabled collections retain obligations without background fetches.
 Bootstrap obligations become eligible when their collection becomes live and
@@ -151,22 +171,40 @@ and containers as well.
 Accepted eggs leave the pending backlog. A later metadata event or explicit
 refresh fetches their replacement and reassesses it using the same rule. There
 is no periodic reveal polling for an already accepted egg. Existing pending
-container/egg rows settle through ordinary due attempts after this policy is
-loaded; the correction needs no migration or collection purge.
+container/egg rows settle through ordinary due attempts after this readiness
+rule is loaded.
 
 Some previously captured artwork responses declared revealed while lacking the
-required root and without an explicit egg category. Those remain pending.
-Retries cannot invent the field or guarantee the host will eventually supply it. Trait
-hierarchy/restructuring, manual Userland controls and another trait report are
-outside this change.
+required root and without an explicit egg category. Retries cannot invent the
+field or guarantee the host will eventually supply it.
+
+The extension bounds unsuccessful content checks at these absolute ages from
+the first incomplete response:
+
+`initial → 5m → 15m → 1h → 3h → 5h → 8h → 13h → 21h → 24h`
+
+Late execution skips missed milestones and schedules the next future age,
+rather than issuing a burst of catch-up requests. At or after 24 hours, only
+a fresh incomplete response exhausts the obligation. Ready metadata still
+commits and clears it. Downtime, RPC/HTTP/URI outages, ownership waits and
+pause/disable never stand in for that final content check: they postpone it.
+Transport failures retain their existing recovery schedule even beyond the
+content deadline. There is no age-only sweep or delayed NATS retry delivery.
+
+Later metadata events or explicit refreshes can reopen an exhausted row and
+start a new content window if the response is still incomplete. Accepted eggs
+and containers leave no pending obligation. Trait hierarchy/restructuring,
+manual Userland controls and another trait report are outside this change.
 
 ## Operations and verification
 
 The existing runtime metrics exporter exposes `metadata.pending.attempts`,
-`metadata.pending.backlog` and `metadata.pending.oldest_age_ms`, under its usual
-indexer prefix/normalization. Attempts count background attempts, not readiness
-successes. Backlog/age include paused obligations and are sampled every thirty
-seconds. `MetadataPending` logs response readiness and whether a canonical
+`metadata.pending.backlog`, `metadata.pending.oldest_age_ms` and
+`metadata.pending.exhausted`, under its usual indexer prefix/normalization.
+Attempts count background attempts, not readiness successes. Backlog/age cover
+active obligations, including paused ones; exhausted count covers retained
+exhausted obligations separately. They are sampled every thirty seconds.
+`MetadataPending` logs response readiness and whether a canonical
 write applied; a successful HTTP counter alone does not establish readiness.
 
 Every extension readiness rejection also emits an `info` log with message
@@ -178,7 +216,9 @@ fetched metadata in memory, so it remains available in logs when raw/URI debug
 persistence is disabled. Ready responses do not emit this rejection log.
 
 Pending rows expose `attempts`, `failures`, `reason`, `first_pending_at`, `last_attempt_at`,
-`due_at` and `lease_owner`. Times are epoch milliseconds. There is no new manual
+`due_at`, `lease_owner`, `content_pending_at` and `exhausted_at`. A non-null
+`exhausted_at` excludes the row from automatic work; `reason` still identifies
+the unsuccessful outcome. Times are epoch milliseconds. There is no new manual
 refresh API or retry-administration UI. Existing rows are enrolled when the
 normal metadata path attempts them; migration does not silently rescrape
 already stored collections. A fresh bootstrap enrolls its first attempts.
@@ -187,7 +227,11 @@ Coverage includes HTTP-success/pending-to-ready transitions, generic URI/fetch
 failures, repeated pending results beyond ordinary queue limits, coalescing,
 lease recovery, stale requests, pause/disable, purge/burn/rollback during I/O,
 retained media options, transactional follow-up failure, pacing/shutdown and
-indexed/fair selection. See `indexer/tests/metadata-pending.test.ts` and
+indexed/fair selection. Bounded-content coverage includes exact ages, missed
+milestones, restart after the deadline, long transport outages, event-driven
+reactivation, stale exhaustion, migration and exclusion from active scans/metrics.
+See `indexer/tests/metadata-pending.test.ts`,
+`indexer/tests/metadata-content-retry.test.ts` and
 `indexer/tests/metadata-pending-poller.test.ts`.
 
 Local adapter/use-case tests do not qualify a rebuilt installed desktop or a

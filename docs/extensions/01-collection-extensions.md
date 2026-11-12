@@ -259,7 +259,10 @@ contract-identified containers and explicitly categorized eggs without an artwor
 root, and requires `collection block` on other responses. It runs independently
 of the eventual artifact hook. Core's [permanent metadata backlog](../indexer/20-metadata-pending-backlog.md)
 retains unavailable or incomplete responses and domain-worker retries them
-directly from SQLite.
+directly from SQLite. The extension supplies `metadataContentRetryPolicy` with
+absolute ages through a final 24-hour content check. An unsuccessful final
+check retains exhausted intent outside automatic work; transport outages have
+no age cutoff. Later metadata events or explicit refreshes can reopen it.
 
 The [111K implementation contract and pilot checklist](03-111k-bootstrap.md)
 record the deployment, tests and remaining user-run mainnet validation.

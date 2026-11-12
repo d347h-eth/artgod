@@ -37,6 +37,10 @@ remain in the [permanent pending backlog](20-metadata-pending-backlog.md).
 Domain-worker polls and executes that work directly; pending tokens do not
 become delayed broker messages. Ordinary successful JSON is ready by default;
 an enabled extension can provide a stricter content-readiness rule.
+It can also bound incomplete-content retries by absolute ages. Exhausted rows
+remain stored, outside automatic work, and later metadata events or explicit
+refreshes reassess them. URI/HTTP/RPC failures retain recovery without an age
+cutoff.
 
 Canonical refresh work enters through current-state metadata sync ranges,
 ERC-4906 token/range events, collection-extension watch specs, OpenSea metadata
