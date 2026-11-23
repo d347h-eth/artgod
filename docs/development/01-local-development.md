@@ -405,6 +405,9 @@ and [local settings selection](../desktop/04-settings-manifest-process.md#local-
 # Run deterministic browser tests for bidding automation flows with fixture-backed UI routes.
 yarn test:bidding:automation
 
+# Run fixture-backed 111K view selection, bidding, rebuild and structured token journeys.
+yarn test:collection:views
+
 # Run deterministic public single-collection guardrails; verifies bid books stay visible while local bidding writes stay hidden.
 yarn test:bidding:automation:public
 

@@ -169,3 +169,70 @@ async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
 }
+
+test('public collection entry waits for a view and exposes read-only browsing', async ({
+	page
+}) => {
+	const path = '/api/ethereum/e2e-bidding';
+	const { buildBiddingE2eCollectionDetailData } =
+		await import('../src/lib/e2e/bidding-automation-fixtures');
+	const { TRAIT_CATALOG_QUERY } = await import('@artgod/shared/types/trait-catalog');
+	const view = {
+		id: 'egg',
+		label: 'Eggs',
+		parent: null,
+		pinnedTraits: [{ key: 'type', value: 'egg' }],
+		generation: 1,
+		activeMapperVersion: 'test',
+		availableMapperVersion: 'test',
+		ready: 0,
+		classified: 0
+	};
+	const reads: string[] = [];
+	await page.route('**/api/**', (route) =>
+		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
+	);
+	await page.route('**/collection-views*', (route) =>
+		route.fulfill({
+			json: {
+				required: true,
+				selectedViewId: new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View),
+				views: [view]
+			}
+		})
+	);
+	await page.route('**/api/runtime/config', (route) => route.fulfill({ json: {} }));
+	await page.route(
+		(url) => url.pathname === path,
+		(route) => {
+			const query = new URL(route.request().url()).searchParams;
+			reads.push(query.get(TRAIT_CATALOG_QUERY.View) ?? '');
+			const fixture = buildBiddingE2eCollectionDetailData(query);
+			return route.fulfill({
+				json: {
+					...fixture,
+					collection: { ...fixture.collection, extensions: [], activityEventFeeds: [] },
+					traits: { facets: [], selected: [], selectedRanges: [] }
+				}
+			});
+		}
+	);
+	await page.goto(COLLECTION_PATH);
+	await expect(page.locator('html')).toHaveAttribute('data-artgod-hydrated', '1');
+	await page.evaluate(() => {
+		const link = document.createElement('a');
+		link.href = '/';
+		document.body.append(link);
+		link.click();
+		link.remove();
+	});
+	await expect(page.getByLabel('Token kind')).toBeVisible();
+	expect(reads).toEqual([]);
+	await page.getByLabel('Token kind').selectOption({ label: 'Eggs' });
+	await expect(page.getByText('type = egg', { exact: true })).toBeVisible();
+	expect(new URL(page.url()).pathname).toBe('/');
+	expect(reads).toEqual(['egg']);
+	await expect(page.getByRole('link', { name: 'customization', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Rebuild traits' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'bid on traits' })).toHaveCount(0);
+});
