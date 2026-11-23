@@ -51,6 +51,9 @@ import {
     BIDDING_BID_BOOK_REPOSITORY_SPAN,
     SqliteBiddingBidBookRepository,
 } from "./sqlite-bidding-bid-book-repository.js";
+import { SqliteNativeTokenRead } from "./sqlite-native-token-read.js";
+import { SqliteCollectionsReadModel } from "@artgod/shared/read-models/collections";
+import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
 
 // Bid-book repository tests use fixture market identity, not the preset collection.
@@ -223,7 +226,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 return gen;
             };
             const generation = seedView(viewId);
-            seedView(other);
+            const otherGeneration = seedView(other);
             const levelKey = Number(
                 db
                     .prepare(
@@ -442,6 +445,75 @@ describe("SqliteBiddingBidBookRepository", () => {
                     ?.scopeTraits[0].type,
                 "Level",
             );
+
+            const native = new SqliteNativeTokenRead(
+                new SqliteCollectionsReadModel([WETH_ADDRESS]),
+            );
+            const facts = (view = input.traitContext) =>
+                native
+                    .getCanonicalTokenTraits(chainId, collectionId, "1", view)
+                    .traits.map(({ key, value }) => ({ type: key, value }));
+            const token = {
+                chainId,
+                collectionId,
+                tokenId: "1",
+                includeOwnJobContext: false,
+            };
+            const writer = new Database(db.raw.name);
+            try {
+                // The metadata worker changes membership/facts while the market worker
+                // removes an order. Both snapshot sources must still match the prior facts.
+                const during = repo.listTokenBidBook({
+                    ...token,
+                    readCanonicalTraits: () => {
+                        const traits = facts();
+                        writer.transaction(() => {
+                            writer
+                                .prepare(
+                                    "UPDATE trait_catalog_members SET view_id=?,revision=revision+1 WHERE collection_id=? AND token_id='1'",
+                                )
+                                .run(other, collectionId);
+                            writer
+                                .prepare(
+                                    "UPDATE token_attributes SET attribute_id=(SELECT attribute_id FROM token_attributes WHERE collection_id=? AND token_id='2') WHERE collection_id=? AND token_id='1'",
+                                )
+                                .run(collectionId, collectionId);
+                            writer
+                                .prepare(
+                                    source ===
+                                        TRADING_BIDDING_BID_BOOK_SOURCE.Orders
+                                        ? "DELETE FROM orders WHERE collection_id=? AND id='native'"
+                                        : "DELETE FROM trading_bidding_bid_book_rows WHERE collection_id=? AND order_id='native'",
+                                )
+                                .run(collectionId);
+                        })();
+                        return traits;
+                    },
+                });
+                assert.ok(during.bids.some((row) => row.orderId === "native"));
+                assert.ok(!during.bids.some((row) => row.orderId === "other"));
+                assert.throws(
+                    () =>
+                        repo.listTokenBidBook({
+                            ...token,
+                            readCanonicalTraits: () => facts(),
+                        }),
+                    ReadModelNotFoundError,
+                );
+                const after = repo.listTokenBidBook({
+                    ...token,
+                    readCanonicalTraits: () =>
+                        facts({
+                            ...input.traitContext,
+                            viewId: other,
+                            generation: otherGeneration,
+                        }),
+                });
+                assert.ok(after.bids.some((row) => row.orderId === "other"));
+                assert.ok(!after.bids.some((row) => row.orderId === "native"));
+            } finally {
+                writer.close();
+            }
         });
 
         it(`preserves complete numeric scopes and token membership from ${source}`, () => {
@@ -560,7 +632,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                     collectionId,
                     includeOwnJobContext: false,
                     tokenId,
-                    tokenTraits: [
+                    readCanonicalTraits: () => [
                         { type: "Mode", value: "Terrain" },
                         { type: "Level", value: level },
                     ],
@@ -763,7 +835,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "1",
-            tokenTraits: [],
+            readCanonicalTraits: () => [],
             includeOwnJobContext: true,
         });
         assert.deepEqual(
@@ -1032,7 +1104,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "5",
-            tokenTraits: [{ type: "Mode", value: "Terrain" }],
+            readCanonicalTraits: () => [{ type: "Mode", value: "Terrain" }],
             includeOwnJobContext: true,
         });
 
@@ -1508,7 +1580,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 chainId: 1,
                 collectionId,
                 tokenId: "1",
-                tokenTraits: [],
+                readCanonicalTraits: () => [],
                 includeOwnJobContext: true,
             });
             assert.equal(
@@ -1576,7 +1648,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                         chainId: 1,
                         collectionId,
                         tokenId: "1",
-                        tokenTraits: [],
+                        readCanonicalTraits: () => [],
                         includeOwnJobContext: true,
                     })
                     .bids.find((bid) => bid.orderId === activeOrderId)
@@ -1937,7 +2009,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "42",
-            tokenTraits: targetTraits,
+            readCanonicalTraits: () => targetTraits,
             includeOwnJobContext: true,
         });
         const tokenOwnRows = tokenBidBook.bids.filter((bid) => bid.isOwn);
@@ -2264,7 +2336,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                     chainId: 1,
                     collectionId,
                     tokenId: "42",
-                    tokenTraits: targetTraits,
+                    readCanonicalTraits: () => targetTraits,
                     includeOwnJobContext: true,
                 }),
             ];
@@ -2472,7 +2544,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "5",
-            tokenTraits: [{ type: "Mode", value: "Terrain" }],
+            readCanonicalTraits: () => [{ type: "Mode", value: "Terrain" }],
             includeOwnJobContext: true,
         });
         assert.deepEqual(
@@ -2522,7 +2594,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "6236",
-            tokenTraits: [],
+            readCanonicalTraits: () => [],
             includeOwnJobContext: true,
         });
         const ownTokenBid = tokenBook.bids.find(
@@ -2835,7 +2907,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "777",
-            tokenTraits: [],
+            readCanonicalTraits: () => [],
             includeOwnJobContext: true,
         });
         assert.deepEqual(
@@ -2877,7 +2949,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "777",
-            tokenTraits: [],
+            readCanonicalTraits: () => [],
             includeOwnJobContext: true,
         });
         const oldOwnBid = afterReapply.bids.find(
@@ -2953,7 +3025,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "777",
-            tokenTraits: [],
+            readCanonicalTraits: () => [],
             includeOwnJobContext: true,
         });
         const freshOwnBid = afterFreshRuntime.bids.find(
@@ -3201,7 +3273,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             chainId: 1,
             collectionId,
             tokenId: "100",
-            tokenTraits: [{ type: "Biome", value: "42" }],
+            readCanonicalTraits: () => [{ type: "Biome", value: "42" }],
             includeOwnJobContext: false,
         });
 
