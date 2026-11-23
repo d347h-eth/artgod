@@ -11,6 +11,7 @@ collection-specific rules into generic indexer, backend, or UI code.
 3. [111K mainnet bootstrap contract](03-111k-bootstrap.md)
    — mainnet deployment, anchored inventory hook, verification, explicit
    deferrals and runtime validation checklist.
+4. [111K collection views and trait catalogs](04-111k-trait-catalogs.md) — scoped browsing, structured artwork traits, native bidding and offline rebuild.
 
 The generic extension contract owns shared hook shapes. An extension module owns
 its own keys, event names, trait vocabulary, and presentation rules. Topic docs

@@ -90,6 +90,10 @@ Collection extensions already participate in this path in v1, but through sync-w
 - extension-specific logs are normalized into the same collection-scoped metadata refresh job shapes
 - domain-worker consumes those jobs exactly like any other metadata refresh trigger
 
+## Extension trait catalogs
+
+An installed extension can classify accepted observations and project saved normalized traits into a versioned catalog. Source replacement retains local work in the same transaction. The collection-extension worker processes leased projections and rebuilds. See the [111K catalog lifecycle](../extensions/04-111k-trait-catalogs.md#source-and-projection).
+
 ## Trait Stats Recompute
 
 Trait counts are recomputed into `collection_trait_stats` through `domain.metadata.stats-recompute` jobs on the dedicated `metadata-stats` queue.
