@@ -1,4 +1,10 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test';
+import {
+	NFT111K_METADATA,
+	NFT111K_STRUCTURED_BLOCK,
+	nft111kTraitCatalog
+} from '@artgod/shared/extensions/111k';
+import type { TraitProjection } from '@artgod/shared/types/trait-catalog';
 import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/config/bidding';
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
@@ -69,6 +75,38 @@ test.beforeEach(async ({ page }, info) => {
 });
 
 test.afterEach(async ({}, info) => attachDiagnosticsForTestFailure(diagnosticsByTest, info));
+
+test('links flat room properties and keeps painting instances searchable inside the preview', async ({
+	page
+}, info) => {
+	const facts = [
+		{ key: NFT111K_METADATA.CollectionBlock, value: NFT111K_STRUCTURED_BLOCK.Backrooms },
+		{ key: 'Ceiling', value: 'High' },
+		...Array.from({ length: 40 }, (_, i) => [
+			{ key: `Painting ${i + 1}`, value: 'Untitled' },
+			{ key: `Painting ${i + 1} Artist`, value: `Artist ${i + 1}` }
+		]).flat()
+	];
+	const view = nft111kTraitCatalog.classify(facts);
+	const projection = nft111kTraitCatalog.project(
+		view,
+		nft111kTraitCatalog.availableVersion(view),
+		facts
+	);
+	await installPreviewMock(page, undefined, projection);
+	await openPreview(page, TOKEN.Many);
+	await traitsButton(page).click();
+	await output(page).getByText('Room', { exact: true }).click();
+	const link = output(page).getByRole('link', { name: 'Ceiling: High' });
+	await expect(link).toHaveAttribute('href', /Ceiling.+High/);
+	await output(page).getByText('Paintings', { exact: true }).click();
+	await output(page).getByRole('textbox', { name: 'Search traits' }).fill('Artist 40');
+	await output(page).getByText('Painting 40', { exact: true }).click();
+	await expect(output(page).getByText('Artist 40', { exact: true })).toBeVisible();
+	await expect(output(page).getByRole('link', { name: /Artist 40/ })).toHaveCount(0);
+	await assertBounded(page);
+	await surface(page, info, 'structured-preview');
+});
 
 test('cycles summary, three bounded pages, empty and summary without moving media', async ({
 	page,
@@ -347,7 +385,11 @@ async function readPreference(page: Page) {
 	);
 }
 
-async function installPreviewMock(page: Page, summaryTemplate?: () => string): Promise<void> {
+async function installPreviewMock(
+	page: Page,
+	summaryTemplate?: () => string,
+	projection?: TraitProjection
+): Promise<void> {
 	await page.route(`**${apiPath}/*/preview?*`, async (route) => {
 		const url = new URL(route.request().url());
 		const tokenId = url.pathname.split('/').at(-2)!;
@@ -364,7 +406,9 @@ async function installPreviewMock(page: Page, summaryTemplate?: () => string): P
 						? null
 						: card.traitSummary,
 				attributes:
-					tokenId === TOKEN.Many ? MANY_TRAITS : tokenId === TOKEN.None ? [] : card.attributes
+					projection?.values.map(({ fieldId: key, value }) => ({ key, value })) ??
+					(tokenId === TOKEN.Many ? MANY_TRAITS : tokenId === TOKEN.None ? [] : card.attributes),
+				traitTree: projection?.tree
 			}
 		};
 		await route.fulfill({ json: response });

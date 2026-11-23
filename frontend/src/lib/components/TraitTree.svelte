@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { TRAIT_NODE_KIND, type TraitNode } from '@artgod/shared/types/trait-catalog';
+	import type { Snippet } from 'svelte';
+	import type { TraitLeaf } from '$lib/trait-tree';
 	import TraitTree from './TraitTree.svelte';
 
 	const PAGE_SIZE = 24;
 
-	let { nodes }: { nodes: TraitNode[] } = $props();
+	let { nodes, leafValue }: { nodes: TraitNode[]; leafValue?: Snippet<[TraitLeaf]> } = $props();
 	let offset = $state(0);
 	let search = $state('');
 	let open = $state<Record<string, boolean>>({});
@@ -39,12 +41,19 @@
 	{#each matches.slice(offset, offset + PAGE_SIZE) as node (node.id)}
 		<li>
 			{#if node.kind === TRAIT_NODE_KIND.Leaf}
-				{node.label} <span class="mono">{node.value}</span>
+				{node.label}
+				<span class="mono">
+					{#if leafValue}
+						{@render leafValue(node)}
+					{:else}
+						{node.value}
+					{/if}
+				</span>
 			{:else}
 				<details ontoggle={(event) => (open[node.id] = event.currentTarget.open)}>
 					<summary>{node.label}</summary>
 					{#if open[node.id]}
-						<TraitTree nodes={node.children} />
+						<TraitTree nodes={node.children} {leafValue} />
 					{/if}
 				</details>
 			{/if}
@@ -77,6 +86,10 @@
 {/if}
 
 <style>
+	input {
+		max-width: 100%;
+	}
+
 	.trait-tree {
 		list-style: none;
 		padding-inline-start: 1em;

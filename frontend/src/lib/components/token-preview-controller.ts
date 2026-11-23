@@ -1,4 +1,4 @@
-import {TRAIT_NODE_KIND} from '@artgod/shared/types/trait-catalog';
+import { TRAIT_NODE_KIND } from '@artgod/shared/types/trait-catalog';
 import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { browser } from '$app/env';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
