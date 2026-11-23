@@ -22,12 +22,15 @@ describe('bid book criteria navigation', () => {
 		{ type: 'Trait,Kind', value: 'Rare' },
 		{ type: 'Level,Height', min: 1, max: 2 },
 		{ type: 'Level:Height', min: 1, max: 2 }
-	])('omits navigation when accepted source text cannot round-trip: %j', (criterion) => {
-		const scope = parseBiddingTraitCriteria([criterion, { type: 'Other Level', min: 1, max: 2 }]);
-		expect(scope).toEqual([criterion, { type: 'Other Level', min: 1, max: 2 }]);
-		expect(bidBookCriteriaToBrowseFilters(scope)).toBeNull();
-		expect(bidBookCriteriaToBrowseFilters([...scope].reverse())).toBeNull();
-	});
+	])(
+		'preserves the complete native scope through punctuation-aware navigation: %j',
+		(criterion) => {
+			const scope = parseBiddingTraitCriteria([criterion, { type: 'Other Level', min: 1, max: 2 }]);
+			expect(scope).toEqual([criterion, { type: 'Other Level', min: 1, max: 2 }]);
+			expect(bidBookCriteriaToBrowseFilters(scope)).not.toBeNull();
+			expect(bidBookCriteriaToBrowseFilters([...scope].reverse())).not.toBeNull();
+		}
+	);
 	it('round-trips safe punctuation without substituting a different trait bucket', () => {
 		const scope = [
 			{ type: 'Palette', value: 'Red:Blue' },

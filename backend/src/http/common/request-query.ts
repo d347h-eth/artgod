@@ -1,3 +1,7 @@
+import {
+    traitQuerySegments,
+    decodeTraitQuerySegment,
+} from "@artgod/shared/http/trait-query";
 import type { FastifyRequest } from "fastify";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import {
@@ -289,19 +293,11 @@ export function parseTraitFiltersFromValues(values: string[]): TraitFilter[] {
 
     const parsed: TraitFilter[] = [];
     for (const value of values) {
-        for (const segment of value.split(",")) {
-            const trimmed = segment.trim();
-            if (!trimmed) continue;
-            const delimiter = trimmed.indexOf(":");
-            if (delimiter <= 0 || delimiter === trimmed.length - 1) {
+        for (const segment of traitQuerySegments(value)) {
+            const pair = decodeTraitQuerySegment(segment);
+            if (!pair)
                 throw new ReadModelBadRequestError("Invalid trait filter");
-            }
-            const key = trimmed.slice(0, delimiter).trim();
-            const traitValue = trimmed.slice(delimiter + 1).trim();
-            if (!key || !traitValue) {
-                throw new ReadModelBadRequestError("Invalid trait filter");
-            }
-            parsed.push({ key, value: traitValue });
+            parsed.push(pair);
         }
     }
     return parsed;
@@ -320,19 +316,13 @@ export function parseTraitRanges(
     const seen = new Set<string>();
 
     for (const value of values) {
-        for (const segment of value.split(",")) {
-            const trimmed = segment.trim();
-            if (!trimmed) continue;
-
-            const delimiter = trimmed.indexOf(":");
-            if (delimiter <= 0 || delimiter === trimmed.length - 1) {
+        for (const segment of traitQuerySegments(value)) {
+            const pair = decodeTraitQuerySegment(segment);
+            if (!pair)
                 throw new ReadModelBadRequestError(
                     "Invalid trait range filter",
                 );
-            }
-
-            const key = trimmed.slice(0, delimiter).trim();
-            const bounds = trimmed.slice(delimiter + 1).trim();
+            const { key, value: bounds } = pair;
             const rangeDelimiter = bounds.indexOf("..");
             if (rangeDelimiter < 0) {
                 throw new ReadModelBadRequestError(

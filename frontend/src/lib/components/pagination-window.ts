@@ -38,7 +38,7 @@ const paginationWindowCache = new Map<string, PaginationWindowState<unknown>>();
 export function buildPaginationWindowSignature(
 	parts: Array<string | number | boolean | null | undefined>
 ): string {
-	return parts.map((part) => String(part ?? '')).join('|');
+	return JSON.stringify(parts);
 }
 
 // Builds stable signature parts for selected trait filters and numeric ranges.
@@ -47,12 +47,12 @@ export function traitFilterPaginationSignatureParts(params: {
 	ranges: Array<{ key: string; fromValue: string | null; toValue: string | null }>;
 }): string[] {
 	const normalizedTraits = params.traits
-		.map((item) => `${item.key}:${item.value}`)
+		.map((item) => JSON.stringify([item.key, item.value]))
 		.sort((a, b) => a.localeCompare(b));
 	const normalizedRanges = params.ranges
-		.map((item) => `${item.key}:${item.fromValue ?? ''}..${item.toValue ?? ''}`)
+		.map((item) => JSON.stringify([item.key, item.fromValue, item.toValue]))
 		.sort((a, b) => a.localeCompare(b));
-	return [normalizedTraits.join(','), normalizedRanges.join(',')];
+	return [JSON.stringify(normalizedTraits), JSON.stringify(normalizedRanges)];
 }
 
 // Reads the currently accumulated page window for a stable result-set signature.
@@ -100,8 +100,7 @@ export function describePaginationWindow(params: {
 		hasNextPage: params.tailNextCursor !== null,
 		visibleStartPage:
 			params.rangeStart === 0 ? 0 : Math.floor((params.rangeStart - 1) / params.limit) + 1,
-		visibleEndPage:
-			params.rangeEnd === 0 ? 0 : Math.floor((params.rangeEnd - 1) / params.limit) + 1
+		visibleEndPage: params.rangeEnd === 0 ? 0 : Math.floor((params.rangeEnd - 1) / params.limit) + 1
 	};
 }
 
