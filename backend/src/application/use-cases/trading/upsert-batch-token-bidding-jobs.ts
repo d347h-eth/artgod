@@ -1,3 +1,9 @@
+import { resolveBatchTraitScope } from "./batch-token-bidding-job-selection.js";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+} from "../collections/collection-views.js";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -29,7 +35,7 @@ import { type BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
 import { resolveBatchTokenBiddingJobSelectionTokenIds } from "./batch-token-bidding-job-selection.js";
 export type { UpsertBatchTokenBiddingJobsOutput } from "./types.js";
 
-export type UpsertBatchTokenBiddingJobsInput = {
+export type UpsertBatchTokenBiddingJobsInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     includeOwnJobContext: boolean;
@@ -50,12 +56,13 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
             listCollectionTokens(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenStatus: TokenBrowserStatus;
@@ -66,6 +73,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 owner?: string;
             }): TokenCursorPage;
             listCollectionTokenCardsByIds(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
@@ -96,6 +104,11 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, selection } = resolveBatchTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+        );
 
         // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
         const pricing = resolveBiddingJobPricing({
@@ -106,10 +119,11 @@ export class UpsertBatchTokenBiddingJobsUseCase {
         });
 
         const tokenIds = resolveBatchTokenBiddingJobSelectionTokenIds({
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             includeOwnJobContext: input.includeOwnJobContext,
-            selection: input.selection,
+            selection,
             collectionReadPort: this.collectionReadPort,
             bidBookRepositoryPort: this.bidBookRepositoryPort,
         });

@@ -26,7 +26,7 @@ export class GetTokenBiddingJobUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getNativeTokenIdentity(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -52,7 +52,7 @@ export class GetTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before returning its job.
-        const token = await this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getNativeTokenIdentity({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

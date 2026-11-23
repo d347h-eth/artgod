@@ -1,10 +1,10 @@
+import { normalizeNativeJobTarget } from "./trait-bidding-target.js";
 import {
     TRADING_JOB_TARGET_KIND,
     type ChainRecord,
     type CollectionListItem,
     type TradingBiddingJobTargetDescriptor,
     type TradingTraitCriterion,
-    normalizeTradingTraitCriteria,
 } from "@artgod/shared/types";
 import type { BiddingJobsRepositoryPort } from "./ports.js";
 import type { BiddingJobView } from "./types.js";
@@ -57,7 +57,7 @@ export class BiddingJobTargetLookupUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getNativeTokenIdentity(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -108,9 +108,12 @@ export class BiddingJobTargetLookupUseCase {
         target: BiddingJobTargetLookupRequestTarget,
     ): Promise<TradingBiddingJobTargetDescriptor> {
         if (target.type === "token") {
-            const tokenId = parseRequiredString(target.tokenId, "target.tokenId");
+            const tokenId = parseRequiredString(
+                target.tokenId,
+                "target.tokenId",
+            );
             // Verify the token exists before resolving its declared job target.
-            const token = await this.collectionReadPort.getCollectionTokenDetail({
+            const token = await this.collectionReadPort.getNativeTokenIdentity({
                 chainId,
                 collectionId,
                 tokenId,
@@ -132,7 +135,7 @@ export class BiddingJobTargetLookupUseCase {
         return {
             targetKind: TRADING_JOB_TARGET_KIND.Collection,
             quantity: parseQuantity(target.quantity),
-            targetTraits: parseTargetTraits(target.targetTraits),
+            targetTraits: normalizeNativeJobTarget(target.targetTraits),
         };
     }
 }
@@ -142,34 +145,11 @@ function parseQuantity(value: number | undefined): number {
         return 1;
     }
     if (!Number.isInteger(value) || value <= 0) {
-        throw new TradingValidationError("target.quantity must be an integer > 0");
+        throw new TradingValidationError(
+            "target.quantity must be an integer > 0",
+        );
     }
     return value;
-}
-
-function parseTargetTraits(
-    value: TradingTraitCriterion[],
-): TradingTraitCriterion[] {
-    if (value.length === 0) {
-        throw new TradingValidationError("target.targetTraits is required");
-    }
-
-    const seen = new Set<string>();
-    return normalizeTradingTraitCriteria(value).map((trait) => {
-        if (!trait.type || !trait.value) {
-            throw new TradingValidationError(
-                "target.targetTraits entries require type and value",
-            );
-        }
-        const key = `${trait.type}\u0000${trait.value}`;
-        if (seen.has(key)) {
-            throw new TradingValidationError(
-                `duplicate target trait ${trait.type}=${trait.value}`,
-            );
-        }
-        seen.add(key);
-        return trait;
-    });
 }
 
 function parseRequiredString(value: string, field: string): string {

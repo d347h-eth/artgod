@@ -28,7 +28,7 @@ export class ArchiveTokenBiddingJobUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getNativeTokenIdentity(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -55,7 +55,7 @@ export class ArchiveTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before archiving its job.
-        const token = await this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getNativeTokenIdentity({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

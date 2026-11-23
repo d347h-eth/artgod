@@ -36,6 +36,7 @@ export type TokenPreviewWarmupPort = {
 };
 
 type CachedGetTokenPreviewOptions = {
+    requiresView?: () => boolean;
     freshMs: number;
     staleMs: number;
     warmupConcurrency: number;
@@ -53,7 +54,7 @@ export class CachedGetTokenPreview
     constructor(
         private readonly cache: QueryCachePort,
         private readonly inner: GetTokenPreviewPort,
-        options: CachedGetTokenPreviewOptions,
+        private readonly options: CachedGetTokenPreviewOptions,
     ) {
         this.freshMs = Math.max(1, options.freshMs);
         this.staleMs = Math.max(this.freshMs, options.staleMs);
@@ -63,6 +64,13 @@ export class CachedGetTokenPreview
     getTokenPreview(
         input: GetTokenPreviewInput,
     ): MaybePromise<GetTokenPreviewOutput> {
+        if (
+            this.options.requiresView?.() ||
+            input.view ||
+            input.traitCatalog ||
+            input.generation !== undefined
+        )
+            return this.inner.getTokenPreview(input);
         const key = buildTokenPreviewDefaultQueryCacheKey(input);
         const cached = this.cache.getEntry<GetTokenPreviewOutput>(
             QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
@@ -264,7 +272,10 @@ function isTokenPreviewDefaultCacheEntryEligible(
     input: GetTokenPreviewInput,
     output: GetTokenPreviewOutput,
 ): boolean {
-    if (!isTokenPreviewDefaultCacheEligible(output)) {
+    if (
+        output.token.traitTree !== undefined ||
+        !isTokenPreviewDefaultCacheEligible(output)
+    ) {
         return false;
     }
     const requestedMode = normalizeMediaModeCacheKey(input.mediaMode);

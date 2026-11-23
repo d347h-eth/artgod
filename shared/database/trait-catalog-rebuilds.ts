@@ -1,3 +1,4 @@
+import { ReadModelBadRequestError } from "../read-models/errors.js";
 import { db } from "./db.js";
 import {
     TRAIT_CATALOG_REBUILD_STATUS as STATUS,
@@ -53,7 +54,10 @@ export function requestTraitCatalogRebuild(
         `,
             )
             .get(...scope) as { active_generation: number } | undefined;
-        if (!view) throw new Error("Unknown or disabled collection view");
+        if (!view)
+            throw new ReadModelBadRequestError(
+                "Unknown or disabled collection view",
+            );
         const latest = db
             .prepare(
                 `
@@ -71,10 +75,14 @@ export function requestTraitCatalogRebuild(
                 current.mapperVersion !== mapperVersion ||
                 current.status === STATUS.Completed)
         )
-            throw new Error("Rebuild retry does not match the current run");
+            throw new ReadModelBadRequestError(
+                "Rebuild retry does not match the current run",
+            );
         if (current?.status === STATUS.Running) {
             if (current.mapperVersion !== mapperVersion)
-                throw new Error("A different mapper rebuild is running");
+                throw new ReadModelBadRequestError(
+                    "A different mapper rebuild is running",
+                );
             return current;
         }
         let generation: number;

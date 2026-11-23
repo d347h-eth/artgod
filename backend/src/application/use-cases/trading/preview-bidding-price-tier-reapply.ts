@@ -1,3 +1,8 @@
+import {
+    resolveTraitScope,
+    type CatalogScopeReadPort,
+    type CatalogRequest,
+} from "../collections/collection-views.js";
 import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { BiddingPriceTiersRepositoryPort } from "./bidding-price-tier-ports.js";
@@ -9,7 +14,7 @@ import {
 } from "./bidding-price-tier-reapply.js";
 import type { BiddingPriceTierView } from "./bidding-price-tiers.js";
 
-export type PreviewBiddingPriceTierReapplyInput = {
+export type PreviewBiddingPriceTierReapplyInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tierId: string;
@@ -31,7 +36,7 @@ export class PreviewBiddingPriceTierReapplyUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
@@ -61,15 +66,21 @@ export class PreviewBiddingPriceTierReapplyUseCase {
             input.collectionRef,
         );
         // Load current active tiers for backend-owned graph resolution.
-        const tiers = this.biddingPriceTiersRepositoryPort.listCollectionPriceTiers({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-        });
+        const tiers =
+            this.biddingPriceTiersRepositoryPort.listCollectionPriceTiers({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
         if (!tiers.some((tier) => tier.tierId === input.tierId)) {
             throw new ReadModelNotFoundError("Unknown bidding price tier");
         }
         // Load declared jobs so the preview is based on authoritative DB state.
+        const traitContext = input.view
+            ? resolveTraitScope(this.collectionReadPort, collection, input)
+                  .traitContext
+            : undefined;
         const jobs = this.biddingJobsRepositoryPort.listCollectionJobs({
+            ...(traitContext ? { traitContext } : {}),
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
         });

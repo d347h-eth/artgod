@@ -1,3 +1,15 @@
+import {
+    resolveEffectiveNativeTraits,
+    type TraitReadContext,
+} from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    ordinaryViewTraits,
+    wrapCatalogPage,
+    unwrapCatalogCursor,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionMediaState,
@@ -14,7 +26,7 @@ import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models
 import { renderTraitSummaryTemplate } from "@artgod/shared/types";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
-export type GetCollectionDetailInput = {
+export type GetCollectionDetailInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenStatus: TokenBrowserStatus;
@@ -30,6 +42,10 @@ export type GetCollectionDetailInput = {
 export type GetCollectionDetailOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    catalogContext?: TraitReadContext & {
+        pinnedTraits: TraitFilter[];
+        nativeSelection: TraitFilter[] | null;
+    };
     traits: {
         selected: TraitFilter[];
         selectedRanges: TraitRangeFilter[];
@@ -54,12 +70,13 @@ export class GetCollectionDetailUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionDetailReadPort: {
+        readonly collectionDetailReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
             listCollectionTokens(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenStatus: TokenBrowserStatus;
@@ -76,6 +93,7 @@ export class GetCollectionDetailUseCase {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
             ): TraitFacet[];
@@ -88,6 +106,7 @@ export class GetCollectionDetailUseCase {
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 availableTraitKeys?: string[];
@@ -97,6 +116,7 @@ export class GetCollectionDetailUseCase {
                 };
             };
             getTokenCardTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): {
@@ -131,6 +151,15 @@ export class GetCollectionDetailUseCase {
                     chain.publicChainId,
                     input.collectionRef,
                 ),
+        );
+        const { traitContext, view: selectedView } = resolveTraitScope(
+            this.collectionDetailReadPort,
+            collection,
+            input,
+        );
+        const ordinaryTraits = ordinaryViewTraits(
+            selectedView?.pinnedTraits ?? [],
+            input.traits,
         );
         const attributes = {
             [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
@@ -169,12 +198,13 @@ export class GetCollectionDetailUseCase {
             },
             () =>
                 this.collectionDetailReadPort.listCollectionTokens({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     tokenStatus: input.tokenStatus,
                     limit: input.limit,
-                    cursor: input.cursor,
-                    traitFilters: input.traits,
+                    cursor: unwrapCatalogCursor(input.cursor, traitContext),
+                    traitFilters: ordinaryTraits,
                     traitRangeFilters: input.traitRanges,
                     owner: input.owner,
                     mediaMode: media.selectedMode,
@@ -186,6 +216,7 @@ export class GetCollectionDetailUseCase {
             attributes,
             () =>
                 this.customizationReadPort.getTraitFilterPresentationState({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                 }),
@@ -206,6 +237,7 @@ export class GetCollectionDetailUseCase {
                     collection.collectionId,
                     input.owner,
                     {
+                        traitContext,
                         rangeOnlyKeys:
                             traitFilterPresentation.effectiveConfig.rangeKeys,
                     },
@@ -221,6 +253,7 @@ export class GetCollectionDetailUseCase {
             () =>
                 this.customizationReadPort.getTokenCardTraitSummaryTemplateState(
                     {
+                        traitContext,
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
                     },
@@ -242,13 +275,31 @@ export class GetCollectionDetailUseCase {
         return {
             chain,
             collection,
+            ...(traitContext
+                ? {
+                      catalogContext: {
+                          ...traitContext,
+                          pinnedTraits: selectedView?.pinnedTraits ?? [],
+                          nativeSelection: input.traitRanges.length
+                              ? null
+                              : selectedView
+                                ? resolveEffectiveNativeTraits({
+                                      catalog: traitContext.catalog,
+                                      pinned: selectedView.pinnedTraits,
+                                      traits: input.traits,
+                                      facets,
+                                  })
+                                : input.traits,
+                      },
+                  }
+                : {}),
             traits: {
-                selected: input.traits,
+                selected: ordinaryTraits,
                 selectedRanges: input.traitRanges,
                 facets,
             },
             media,
-            tokens: tokensWithTraitSummary,
+            tokens: wrapCatalogPage(tokensWithTraitSummary, traitContext),
         };
     }
 }

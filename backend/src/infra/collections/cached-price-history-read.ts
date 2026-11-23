@@ -22,7 +22,11 @@ export class CachedPriceHistoryRead implements PriceHistoryReadPort {
     ): Iterable<PriceHistoryObservation> {
         // Reuse the token browser's current-attribute query for filtered reads.
         // Do not cache filtered snapshots or let a metadata change outlive a request.
-        if (input.traits?.length || input.traitRanges?.length) {
+        if (
+            input.traitContext ||
+            input.traits?.length ||
+            input.traitRanges?.length
+        ) {
             yield* this.source.iterateObservations(input);
             return;
         }
