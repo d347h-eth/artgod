@@ -192,6 +192,7 @@ export const TRAIT_FILTER_QUERY_PARAMS = {
 
 // Names trait-catalog query parameters shared by backend and frontend adapters.
 export const TRAIT_CATALOG_QUERY_PARAMS = {
+    ExactKey: "exact_key",
     Key: "key",
     Keys: "keys",
     ScopeTrait: "scope_trait",

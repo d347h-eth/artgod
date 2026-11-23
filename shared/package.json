@@ -42,6 +42,7 @@
         "./config/tcp-port": "./config/tcp-port.ts",
         "./config/block-explorer": "./config/block-explorer.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
+        "./http/trait-query": "./http/trait-query.ts",
         "./http/api-security": "./http/api-security.ts",
         "./http/runtime-routes": "./http/runtime-routes.ts",
         "./http/bootstrap-routes": "./http/bootstrap-routes.ts",
