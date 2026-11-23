@@ -1,5 +1,6 @@
 import { parseAbi, zeroAddress } from "viem";
 import {
+    NFT111K_METADATA,
     NFT111K_EXTENSION_KEY,
     NFT111K_MAINNET_CHAIN_ID,
     NFT111K_MAINNET_CONTRACT_ADDRESS,
@@ -59,14 +60,7 @@ const CONTAINER_TOKEN_RANGES = [
     NFT111K_TOKEN_RANGES.Relic,
 ];
 
-export const NFT111K_METADATA = {
-    Category: "category",
-    CollectionBlock: "collection block",
-    Egg: "egg",
-    PlaceholderImage: "https://cdn.lil.org/nft/111k/placeholder.png",
-    RevealStatus: "revealStatus",
-    Revealed: "revealed",
-} as const;
+export { NFT111K_METADATA } from "@artgod/shared/extensions/111k";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
