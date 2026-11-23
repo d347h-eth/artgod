@@ -69,6 +69,7 @@ export type TraitNode =
           id: string;
           label: string;
           value: string;
+          fieldId?: string;
           source: TraitFilter;
       };
 /** Only flat, filterable leaves appear here. Native targeting requires an exact binding. */
@@ -110,4 +111,76 @@ export function resolveNativeTraitSelection(
         unique.set(JSON.stringify([binding.key, binding.value]), binding);
     }
     return [...unique.values()];
+}
+
+/** Local evidence for a marketplace offer's applicability to a selected collection view. */
+export const VIEW_OFFER_APPLICABILITY = {
+    Matched: "matched",
+    Unresolved: "unresolved",
+} as const;
+export type ViewOfferApplicability =
+    (typeof VIEW_OFFER_APPLICABILITY)[keyof typeof VIEW_OFFER_APPLICABILITY];
+
+/** Reverse only one-to-one declared bindings. A shared display label cannot establish eligibility. */
+export function createNativeTraitPresentation(
+    fields: readonly {
+        key: string;
+        nativeKey?: string | null;
+        values: readonly { value: string; native?: TraitFilter | null }[];
+    }[],
+) {
+    const keys = new Map<string, string | null>();
+    const values = new Map<string, TraitFilter | null>();
+    for (const field of fields) {
+        if (field.nativeKey) {
+            const prior = keys.get(field.nativeKey);
+            keys.set(
+                field.nativeKey,
+                prior === undefined || prior === field.key ? field.key : null,
+            );
+        }
+        for (const { value, native } of field.values) {
+            if (!native) continue;
+            const signature = JSON.stringify([native.key, native.value]);
+            const prior = values.get(signature);
+            const unambiguous =
+                prior === undefined ||
+                (prior?.key === field.key && prior.value === value);
+            values.set(
+                signature,
+                unambiguous ? { key: field.key, value } : null,
+            );
+        }
+    }
+    return {
+        key: (nativeKey: string) => keys.get(nativeKey) ?? null,
+        value: (native: TraitFilter) =>
+            values.get(JSON.stringify([native.key, native.value])) ?? null,
+    };
+}
+
+/** Translate a view's pinned criteria and ordinary facet choices as a single native target. */
+export function resolveEffectiveNativeTraits(input: {
+    catalog: TraitCatalogKind;
+    pinned: readonly TraitFilter[];
+    traits: readonly TraitFilter[];
+    facets: readonly {
+        key: string;
+        values: readonly { value: string; native?: TraitFilter | null }[];
+    }[];
+}): TraitFilter[] | null {
+    if (input.pinned.length === 0) return null;
+    const facets = new Map(input.facets.map((facet) => [facet.key, facet]));
+    const bindings = input.traits.map((trait) => {
+        const pin = input.pinned.find((scope) => scope.key === trait.key);
+        if (pin) return pin.value === trait.value ? pin : null;
+        if (input.catalog === TRAIT_CATALOG.Canonical) return trait;
+        return (
+            facets
+                .get(trait.key)
+                ?.values.find((item) => item.value === trait.value)?.native ??
+            null
+        );
+    });
+    return resolveNativeTraitSelection([...input.pinned, ...bindings]);
 }

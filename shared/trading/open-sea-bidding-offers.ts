@@ -80,18 +80,28 @@ export function openSeaEncodedTokenIdsContain(
 ): boolean {
     if (!/^\d+$/.test(tokenId)) return false;
     if (encodedTokenIds === "*") return true;
-    if (!encodedTokenIds) return false;
+    const ranges = parseOpenSeaTokenIdRanges(encodedTokenIds);
     const target = BigInt(tokenId);
-    let contains = false;
-    for (const segment of encodedTokenIds.split(",")) {
-        if (!/^\d+(?::\d+)?$/.test(segment)) return false;
+    return (
+        ranges?.some(({ start, end }) => target >= start && target <= end) ??
+        false
+    );
+}
+
+/** Decode finite OpenSea membership without expanding ranges of uint256 identifiers. */
+export function parseOpenSeaTokenIdRanges(
+    encoded: string,
+): Array<{ start: bigint; end: bigint }> | null {
+    const ranges: Array<{ start: bigint; end: bigint }> = [];
+    for (const segment of encoded.split(",")) {
+        if (!/^\d+(?::\d+)?$/.test(segment)) return null;
         const [startText, endText = startText] = segment.split(":");
         const start = BigInt(startText);
         const end = BigInt(endText);
-        if (start > end) return false;
-        if (target >= start && target <= end) contains = true;
+        if (start > end) return null;
+        ranges.push({ start, end });
     }
-    return contains;
+    return ranges;
 }
 
 // Parses an OpenSea offer with the same price and scope semantics used by the bidder runtime.

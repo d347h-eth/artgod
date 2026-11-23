@@ -1,3 +1,11 @@
+import {
+    TRAIT_CATALOG,
+    VIEW_OFFER_APPLICABILITY as APPLIES,
+} from "@artgod/shared/types/trait-catalog";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,6 +199,251 @@ describe("SqliteBiddingBidBookRepository", () => {
         TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
         TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
     ]) {
+        it(`scopes native and own offers to the current view with partial coverage from ${source}`, () => {
+            const viewId = "view-a";
+            const other = "view-b";
+            const chainId = 1;
+            db.prepare(
+                "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,'fixture','{}')",
+            ).run(collectionId);
+            const seedView = (id: string) => {
+                db.prepare(
+                    "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,'{}')",
+                ).run(collectionId, id);
+                const gen = Number(
+                    db
+                        .prepare(
+                            "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,'identity')",
+                        )
+                        .run(collectionId, id).lastInsertRowid,
+                );
+                db.prepare(
+                    "UPDATE trait_catalog_views SET active_generation=? WHERE collection_id=? AND view_id=?",
+                ).run(gen, collectionId, id);
+                return gen;
+            };
+            const generation = seedView(viewId);
+            seedView(other);
+            const levelKey = Number(
+                db
+                    .prepare(
+                        "INSERT INTO attribute_keys(chain_id,collection_id,contract_address,key) VALUES(1,?,?,'Level')",
+                    )
+                    .run(collectionId, COLLECTION_ADDRESS).lastInsertRowid,
+            );
+            for (const [id, view, level] of [
+                ["1", viewId, "3"],
+                ["2", other, "9"],
+            ]) {
+                db.prepare(
+                    "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
+                ).run(collectionId, COLLECTION_ADDRESS, id);
+                db.prepare(
+                    "INSERT INTO token_metadata(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
+                ).run(collectionId, COLLECTION_ADDRESS, id);
+                db.prepare(
+                    "INSERT INTO trait_catalog_members(chain_id,collection_id,token_id,view_id,scope_key,revision) VALUES(1,?,?,?,'block',1)",
+                ).run(collectionId, id, view);
+                const attr = Number(
+                    db
+                        .prepare(
+                            "INSERT INTO attributes(chain_id,collection_id,contract_address,attribute_key_id,value) VALUES(1,?,?,?,?)",
+                        )
+                        .run(collectionId, COLLECTION_ADDRESS, levelKey, level)
+                        .lastInsertRowid,
+                );
+                db.prepare(
+                    "INSERT INTO token_attributes(chain_id,collection_id,contract_address,token_id,attribute_id,source_kind,source_key) VALUES(1,?,?,?,?,?,?)",
+                ).run(
+                    collectionId,
+                    COLLECTION_ADDRESS,
+                    id,
+                    attr,
+                    TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                );
+            }
+            if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
+                seedBiddingRuntime(collectionId);
+                insertProjectedState(collectionId, Date.now());
+            }
+            for (const [orderId, min, max, encoded] of [
+                ["native", 2, 4, null],
+                ["other", 8, 10, null],
+                ["finite-in", 8, 10, "1"],
+                ["finite-out", 2, 4, "2"],
+                ["finite-pending", 2, 4, "3:300000000000000000000"],
+            ] as const) {
+                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders) {
+                    insertIndexedOrder({
+                        collectionId,
+                        id: orderId,
+                        scopeKind: "attribute",
+                        sourceEncodedTokenIds: encoded,
+                        sourceSchema: {
+                            kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                            data: {
+                                collection: COLLECTION_ADDRESS,
+                                attributes: [{ key: "Level", min, max }],
+                            },
+                        },
+                        updatedAt: INDEXED_ORDER_PLACED_AT,
+                    });
+                } else
+                    insertProjectedBid({
+                        collectionId,
+                        orderId,
+                        scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                        scopeLabel: "Level",
+                        scopeTraits: [{ type: "Level", min, max }],
+                        encodedTokenIds: encoded,
+                        priceWei: "100",
+                    });
+            }
+            const repo = new SqliteBiddingBidBookRepository();
+            const input = {
+                chainId,
+                collectionId,
+                traitContext: {
+                    viewId,
+                    catalog: TRAIT_CATALOG.Derived,
+                    generation,
+                },
+                includeOwnJobContext: true,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+                traitFilterJoinMode:
+                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                selectedTraits: [],
+                selectedTraitRanges: [],
+            };
+            for (const [orderId, scopeKind, encoded] of [
+                [
+                    "contract-wide",
+                    TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+                    null,
+                ],
+                ["id-list", TRADING_BIDDING_BID_SCOPE_KIND.TokenSet, "1"],
+                ["other-list", TRADING_BIDDING_BID_SCOPE_KIND.TokenSet, "2"],
+            ] as const) {
+                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders) {
+                    insertIndexedOrder({
+                        collectionId,
+                        id: orderId,
+                        scopeKind,
+                        sourceEncodedTokenIds: encoded,
+                        updatedAt: INDEXED_ORDER_PLACED_AT,
+                    });
+                } else
+                    insertProjectedBid({
+                        collectionId,
+                        orderId,
+                        scopeKind,
+                        scopeLabel: scopeKind,
+                        encodedTokenIds: encoded,
+                        priceWei: "100",
+                    });
+            }
+            const contractRows = repo.listCollectionBidBook({
+                ...input,
+                includeOwnJobContext: false,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            }).bids;
+            assert.deepEqual(
+                contractRows
+                    .map((row) => [
+                        row.orderId,
+                        row.scopeKind,
+                        row.viewApplicability,
+                    ])
+                    .sort(),
+                [
+                    [
+                        "contract-wide",
+                        TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+                        APPLIES.Matched,
+                    ],
+                    [
+                        "id-list",
+                        TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+                        APPLIES.Matched,
+                    ],
+                ],
+            );
+            const book = () => repo.listCollectionBidBook(input);
+            const status = () =>
+                Object.fromEntries(
+                    book().bids.map((row) => [
+                        row.orderId,
+                        row.viewApplicability,
+                    ]),
+                );
+            assert.equal(book().state.source, source);
+            assert.deepEqual(status(), {
+                native: APPLIES.Matched,
+                "finite-in": APPLIES.Matched,
+                "finite-pending": APPLIES.Unresolved,
+            });
+            db.prepare(
+                "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,'3')",
+            ).run(collectionId, COLLECTION_ADDRESS);
+            assert.deepEqual(status(), {
+                native: APPLIES.Matched,
+                other: APPLIES.Unresolved,
+                "finite-in": APPLIES.Matched,
+                "finite-pending": APPLIES.Unresolved,
+            });
+            const jobs = new SqliteBiddingJobsRepository();
+            const own = ["1", "2"].map(
+                (tokenId) =>
+                    jobs.upsertTokenJob({
+                        chainId,
+                        collectionId,
+                        tokenId,
+                        status: TRADING_JOB_STATUS.Enabled,
+                        floorWei: "100",
+                        ceilingWei: "200",
+                        deltaWei: "1",
+                        pricingSource: null,
+                        priceTierId: null,
+                    }).job.jobId,
+            );
+            assert.deepEqual(
+                jobs
+                    .listCollectionJobs({
+                        ...input,
+                        traitContext: input.traitContext,
+                    })
+                    .filter((job) => job.tokenId !== null)
+                    .map((job) => job.jobId),
+                [own[0]],
+            );
+            assert.deepEqual(
+                new Set(
+                    jobs
+                        .listCollectionJobs({ chainId, collectionId })
+                        .filter((job) => job.tokenId !== null)
+                        .map((job) => job.jobId),
+                ),
+                new Set(own),
+            );
+            const tokenBook = repo.listCollectionBidBook({
+                ...input,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            });
+            assert.deepEqual(
+                tokenBook.bids.map((row) => [
+                    row.ownJob?.jobId,
+                    row.viewApplicability,
+                ]),
+                [[own[0], APPLIES.Matched]],
+            );
+            assert.equal(
+                book().bids.find((row) => row.orderId === "finite-in")
+                    ?.scopeTraits[0].type,
+                "Level",
+            );
+        });
+
         it(`preserves complete numeric scopes and token membership from ${source}`, () => {
             if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
                 seedBiddingRuntime(collectionId);

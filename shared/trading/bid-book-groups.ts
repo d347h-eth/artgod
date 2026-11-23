@@ -10,6 +10,7 @@ import { biddingTraitCriteriaKey } from "./offer-trait-criteria.js";
 export type BiddingBidBookGroupScope = {
     kind: TradingBiddingBidScopeKind;
     label: string;
+    encodedTokenIds?: string | null;
     tokenId: string | null;
     traits: readonly TradingBiddingTraitCriterion[];
 };
@@ -38,6 +39,11 @@ export function biddingBidBookGroupKey(
     ) {
         return JSON.stringify([scope.kind, scope.tokenId]);
     }
+    if (
+        scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet &&
+        scope.encodedTokenIds
+    )
+        return JSON.stringify([scope.kind, scope.encodedTokenIds]);
     if (scope.traits.length > 0) {
         return biddingTraitCriteriaKey(scope.traits);
     }

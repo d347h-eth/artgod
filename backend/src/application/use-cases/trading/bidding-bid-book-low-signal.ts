@@ -1,3 +1,4 @@
+import { TRADING_BIDDING_BID_SCOPE_KIND } from "@artgod/shared/types";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
 import { persistedBidBookRowEffectiveWei } from "./bidding-bid-book.js";
 
@@ -42,6 +43,11 @@ export function topBidBookRowPriceWei(
 ): bigint | null {
     let top: bigint | null = null;
     for (const bid of bids) {
+        if (
+            bid.scopeKind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection ||
+            (bid.encodedTokenIds !== null && bid.encodedTokenIds !== "*")
+        )
+            continue;
         const price = BigInt(persistedBidBookRowEffectiveWei(bid));
         if (top === null || price > top) {
             top = price;
