@@ -575,21 +575,22 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         chainId: number;
         collectionId: number;
         tokenId: string;
-        tokenTraits: TradingTraitCriterion[];
+        readCanonicalTraits(): TradingTraitCriterion[];
         includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook {
-        return this.apm.withSyncSpan(
-            "backend.bidding.repository.token_bid_book",
-            {
-                [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
-                [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
-                [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
-                    params.tokenTraits.length,
-            },
-            // Token detail must observe the same lifecycle consistency as collection offers.
-            () =>
-                db.raw.transaction(() => this.listTokenBidBookInner(params))(),
-        );
+        return db.raw.transaction(() => {
+            const tokenTraits = params.readCanonicalTraits();
+            return this.apm.withSyncSpan(
+                "backend.bidding.repository.token_bid_book",
+                {
+                    [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                    [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
+                        tokenTraits.length,
+                },
+                () => this.listTokenBidBookInner({ ...params, tokenTraits }),
+            );
+        })();
     }
 
     private listCollectionBidBookInner(params: {

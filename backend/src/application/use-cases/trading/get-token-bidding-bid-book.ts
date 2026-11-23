@@ -57,35 +57,33 @@ export class GetTokenBiddingBidBookUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const tokenId = input.tokenRef.trim();
         const { traitContext } = resolveTraitScope(
             this.collectionReadPort,
             collection,
             input,
-            input.tokenRef,
+            tokenId,
         );
-        // Verify the token and reuse its normalized traits for applicability checks.
-        const token = this.collectionReadPort.getCanonicalTokenTraits(
-            chain.publicChainId,
-            collection.collectionId,
-            input.tokenRef,
-            traitContext,
-        );
-        // Read bids that apply to this token across token, collection, trait, and token-set scopes.
         const bidBook = this.bidBookRepositoryPort.listTokenBidBook({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
-            tokenId: token.tokenId,
-            tokenTraits: token.traits.map((trait) => ({
-                type: trait.key,
-                value: trait.value,
-            })),
+            tokenId,
+            readCanonicalTraits: () =>
+                this.collectionReadPort
+                    .getCanonicalTokenTraits(
+                        chain.publicChainId,
+                        collection.collectionId,
+                        tokenId,
+                        traitContext,
+                    )
+                    .traits.map(({ key, value }) => ({ type: key, value })),
             includeOwnJobContext: input.includeOwnJobContext,
         });
 
         return {
             chain,
             collection,
-            tokenId: token.tokenId,
+            tokenId,
             bidBook: mapPersistedBidBookToView(bidBook),
         };
     }

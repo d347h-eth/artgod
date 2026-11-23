@@ -182,7 +182,8 @@ export interface BiddingBidBookRepositoryPort {
         chainId: number;
         collectionId: number;
         tokenId: string;
-        tokenTraits: TradingTraitCriterion[];
+        /** Resolve token membership and source facts inside the same snapshot as the offers. */
+        readCanonicalTraits(): TradingTraitCriterion[];
         includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook;
 }
