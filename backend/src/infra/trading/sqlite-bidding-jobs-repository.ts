@@ -1,3 +1,5 @@
+import { readJobsForView } from "./sqlite-view-bid-applicability.js";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import { randomUUID } from "node:crypto";
 import {
     assertCompetitionPresetSelection,
@@ -496,51 +498,59 @@ export class SqliteBiddingJobsRepository
     }
 
     listCollectionJobs(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeArchived?: boolean;
     }): PersistedBiddingJobRecord[] {
-        const rows = this.selectCollectionJobs.all({
-            botKind: TRADING_BOT_KIND.Bidding,
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            includeArchived: params.includeArchived ? 1 : 0,
-        }) as BiddingJobRow[];
-        return rows.map((row) => this.mapBiddingJobRow(row));
+        return readJobsForView(params, () => {
+            const rows = this.selectCollectionJobs.all({
+                botKind: TRADING_BOT_KIND.Bidding,
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                includeArchived: params.includeArchived ? 1 : 0,
+            }) as BiddingJobRow[];
+            return rows.map((row) => this.mapBiddingJobRow(row));
+        });
     }
 
     listCompetitionPresetJobs(input: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         presetId: string;
     }): PersistedCollectionBiddingJobRecord[] {
-        const rows = db
-            .prepare<{
-                botKind: string;
-                chainId: number;
-                collectionId: number;
-                presetId: string;
-                targetKind: string;
-                archived: string;
-            }>(
-                BIDDING_JOB_SELECT +
-                    "AND j.chain_id = @chainId AND j.collection_id = @collectionId AND j.target_kind = @targetKind AND j.status <> @archived " +
-                    "AND s.competition_preset_version_id IN (SELECT version_id FROM trading_bidding_competition_preset_versions WHERE preset_id = @presetId) " +
-                    "ORDER BY j.updated_at DESC, j.job_id ASC",
-            )
-            .all({
-                ...input,
-                botKind: TRADING_BOT_KIND.Bidding,
-                targetKind: TRADING_JOB_TARGET_KIND.Collection,
-                archived: TRADING_JOB_STATUS.Archived,
-            }) as BiddingJobRow[];
-        return rows.map((row) => {
-            const job = this.mapBiddingJobRow(row);
-            if (job.targetKind !== TRADING_JOB_TARGET_KIND.Collection)
-                throw new Error(
-                    "Expected a collection job linked to the preset",
-                );
-            return job;
+        return readJobsForView(input, () => {
+            const rows = db
+                .prepare<{
+                    botKind: string;
+                    chainId: number;
+                    collectionId: number;
+                    presetId: string;
+                    targetKind: string;
+                    archived: string;
+                }>(
+                    BIDDING_JOB_SELECT +
+                        "AND j.chain_id = @chainId AND j.collection_id = @collectionId AND j.target_kind = @targetKind AND j.status <> @archived " +
+                        "AND s.competition_preset_version_id IN (SELECT version_id FROM trading_bidding_competition_preset_versions WHERE preset_id = @presetId) " +
+                        "ORDER BY j.updated_at DESC, j.job_id ASC",
+                )
+                .all({
+                    chainId: input.chainId,
+                    collectionId: input.collectionId,
+                    presetId: input.presetId,
+                    botKind: TRADING_BOT_KIND.Bidding,
+                    targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                    archived: TRADING_JOB_STATUS.Archived,
+                }) as BiddingJobRow[];
+            return rows.map((row) => {
+                const job = this.mapBiddingJobRow(row);
+                if (job.targetKind !== TRADING_JOB_TARGET_KIND.Collection)
+                    throw new Error(
+                        "Expected a collection job linked to the preset",
+                    );
+                return job;
+            });
         });
     }
 

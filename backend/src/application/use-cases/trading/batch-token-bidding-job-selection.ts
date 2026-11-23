@@ -1,3 +1,11 @@
+import {
+    ordinaryViewTraits,
+    resolveTraitScope,
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+} from "../collections/collection-views.js";
+import type { CollectionListItem } from "@artgod/shared/types/browse";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import type {
     TokenCard,
@@ -30,6 +38,7 @@ import { assertBiddingBidBookFiltersAllowed } from "./bidding-bid-book-filter-va
 
 export type BatchTokenBiddingJobSelectionTokenReadPort = {
     listCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenStatus: TokenBrowserStatus;
@@ -40,6 +49,7 @@ export type BatchTokenBiddingJobSelectionTokenReadPort = {
         owner?: string;
     }): TokenCursorPage;
     listCollectionTokenCardsByIds(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenIds: string[];
@@ -51,8 +61,40 @@ export type BatchTokenBiddingJobSelectionBidBookReadPort = Pick<
     "listCollectionBidBook"
 >;
 
+export function resolveBatchTraitScope(
+    port: CatalogScopeReadPort,
+    collection: CollectionListItem,
+    input: CatalogRequest & { selection: BatchTokenBiddingJobSelection },
+) {
+    const selection = input.selection;
+    // An explicitly named list of token IDs can also be submitted outside the browser.
+    if (
+        selection.type ===
+            TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds &&
+        input.view === undefined &&
+        input.traitCatalog === undefined &&
+        input.generation === undefined
+    )
+        return { traitContext: undefined, selection };
+    const { traitContext, view } = resolveTraitScope(port, collection, input);
+    if (
+        !view ||
+        selection.type ===
+            TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds
+    )
+        return { traitContext, selection };
+    return {
+        traitContext,
+        selection: {
+            ...selection,
+            traits: ordinaryViewTraits(view.pinnedTraits, selection.traits),
+        },
+    };
+}
+
 // Resolves a user-facing batch token target into concrete biddable token IDs.
 export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     includeOwnJobContext: boolean;
@@ -65,6 +107,7 @@ export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
         TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds
     ) {
         return resolveExplicitTokenIds({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             selection: params.selection,
@@ -76,6 +119,7 @@ export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
         TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter
     ) {
         return resolveTokenOfferFilterTokenIds({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             includeOwnJobContext: params.includeOwnJobContext,
@@ -85,6 +129,7 @@ export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
         });
     }
     return resolveFilteredTokenIds({
+        traitContext: params.traitContext,
         chainId: params.chainId,
         collectionId: params.collectionId,
         selection: params.selection,
@@ -93,6 +138,7 @@ export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
 }
 
 function resolveExplicitTokenIds(params: {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     selection: Extract<
@@ -107,6 +153,7 @@ function resolveExplicitTokenIds(params: {
     }
     // Verify explicit token IDs belong to this collection before any job operation.
     const cards = params.collectionReadPort.listCollectionTokenCardsByIds({
+        traitContext: params.traitContext,
         chainId: params.chainId,
         collectionId: params.collectionId,
         tokenIds,
@@ -120,6 +167,7 @@ function resolveExplicitTokenIds(params: {
 }
 
 function resolveFilteredTokenIds(params: {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     selection: Extract<
@@ -135,6 +183,7 @@ function resolveFilteredTokenIds(params: {
     do {
         // Read one token-browser page at a time so large filtered selections do not preallocate.
         const page = params.collectionReadPort.listCollectionTokens({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             tokenStatus: params.selection.tokenStatus,
@@ -155,6 +204,7 @@ function resolveFilteredTokenIds(params: {
 }
 
 function resolveTokenOfferFilterTokenIds(params: {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     includeOwnJobContext: boolean;
@@ -178,6 +228,7 @@ function resolveTokenOfferFilterTokenIds(params: {
 
     // Read token-scoped bids from the same source-selection path used by the offers page.
     const tokenBidBook = params.bidBookRepositoryPort.listCollectionBidBook({
+        traitContext: params.traitContext,
         chainId: params.chainId,
         collectionId: params.collectionId,
         includeOwnJobContext: params.includeOwnJobContext,
@@ -191,6 +242,7 @@ function resolveTokenOfferFilterTokenIds(params: {
     // Read collection bids so low-signal token offers are filtered exactly like the token-offer cards.
     const collectionBidBook =
         params.bidBookRepositoryPort.listCollectionBidBook({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             includeOwnJobContext: params.includeOwnJobContext,
@@ -214,6 +266,7 @@ function resolveTokenOfferFilterTokenIds(params: {
     }
     // Hydrate matched token IDs so trait filters apply to token metadata, not bid payloads.
     const cards = params.collectionReadPort.listCollectionTokenCardsByIds({
+        traitContext: params.traitContext,
         chainId: params.chainId,
         collectionId: params.collectionId,
         tokenIds,

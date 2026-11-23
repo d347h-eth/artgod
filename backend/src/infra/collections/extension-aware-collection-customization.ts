@@ -1,3 +1,4 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
@@ -57,6 +58,7 @@ export class ExtensionAwareCollectionCustomization {
     ) {}
 
     getTraitFilterPresentationState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         availableTraitKeys?: string[];
@@ -70,12 +72,27 @@ export class ExtensionAwareCollectionCustomization {
         const record = this.customizationRecords.getFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
+                params.traitContext,
+            ),
         });
-        const userConfig = parseTraitFilterPresentationConfigJson(
+        const savedConfig = parseTraitFilterPresentationConfigJson(
             record?.userConfigJson ?? null,
         );
+        // A rebuilt catalog may stop exposing a formerly flat field. The picker
+        // and active range keys reflect the currently published fields of this view.
+        const available =
+            params.traitContext && params.availableTraitKeys
+                ? new Set(params.availableTraitKeys)
+                : null;
+        const userConfig = available
+            ? {
+                  rangeKeys: savedConfig.rangeKeys.filter((key) =>
+                      available.has(key),
+                  ),
+              }
+            : savedConfig;
         const selectedSource = resolveCollectionCustomizationSelectedSource({
             requestedSource: record?.selectedSource ?? null,
             hasExtensionConfig: extensionConfig !== null,
@@ -91,15 +108,18 @@ export class ExtensionAwareCollectionCustomization {
             userConfig,
             extensionConfig,
             effectiveConfig,
-            availableTraitKeys: normalizeTraitKeyList([
-                ...(params.availableTraitKeys ?? []),
-                ...userConfig.rangeKeys,
-                ...(extensionConfig?.rangeKeys ?? []),
-            ]),
+            availableTraitKeys: available
+                ? normalizeTraitKeyList([...available])
+                : normalizeTraitKeyList([
+                      ...(params.availableTraitKeys ?? []),
+                      ...userConfig.rangeKeys,
+                      ...(extensionConfig?.rangeKeys ?? []),
+                  ]),
         };
     }
 
     updateTraitFilterPresentationState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         selectedSource: CollectionCustomizationSourceKind;
@@ -109,7 +129,18 @@ export class ExtensionAwareCollectionCustomization {
         const normalizedUserConfig = normalizeTraitFilterPresentationConfig(
             params.userConfig,
         );
+        if (
+            params.traitContext &&
+            params.availableTraitKeys &&
+            normalizedUserConfig.rangeKeys.some(
+                (key) => !params.availableTraitKeys!.includes(key),
+            )
+        )
+            throw new ReadModelBadRequestError(
+                "Choose a range key from the selected catalog.",
+            );
         const currentState = this.getTraitFilterPresentationState({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             availableTraitKeys: params.availableTraitKeys,
@@ -127,13 +158,16 @@ export class ExtensionAwareCollectionCustomization {
         this.customizationRecords.upsertFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
+                params.traitContext,
+            ),
             selectedSource: params.selectedSource,
             userConfigJson: JSON.stringify(normalizedUserConfig),
         });
 
         return this.getTraitFilterPresentationState({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             availableTraitKeys: params.availableTraitKeys,
@@ -141,14 +175,17 @@ export class ExtensionAwareCollectionCustomization {
     }
 
     getTokenCardTraitSummaryTemplateState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
     }): TraitSummaryTemplateFeatureState {
         return resolveTraitSummaryTemplateFeatureState({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.TokenCardTraitSummaryTemplate,
+                params.traitContext,
+            ),
             extensionRecords: this.extensionRecords,
             customizationRecords: this.customizationRecords,
             extensionConfigResolver: (extension, install) =>
@@ -157,6 +194,7 @@ export class ExtensionAwareCollectionCustomization {
     }
 
     updateTokenCardTraitSummaryTemplateState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         selectedSource: CollectionCustomizationSourceKind;
@@ -175,8 +213,10 @@ export class ExtensionAwareCollectionCustomization {
         this.customizationRecords.upsertFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.TokenCardTraitSummaryTemplate,
+                params.traitContext,
+            ),
             selectedSource: params.selectedSource,
             userConfigJson: JSON.stringify(normalizedUserConfig),
         });
@@ -185,14 +225,17 @@ export class ExtensionAwareCollectionCustomization {
     }
 
     getActivityRowTraitSummaryTemplateState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
     }): TraitSummaryTemplateFeatureState {
         return resolveTraitSummaryTemplateFeatureState({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.ActivityRowTraitSummaryTemplate,
+                params.traitContext,
+            ),
             extensionRecords: this.extensionRecords,
             customizationRecords: this.customizationRecords,
             extensionConfigResolver: (extension, install) =>
@@ -243,7 +286,8 @@ export class ExtensionAwareCollectionCustomization {
             params.chainId,
             params.collectionId,
         );
-        const extensionConfig = resolveExtensionMediaPurposePolicyConfig(install);
+        const extensionConfig =
+            resolveExtensionMediaPurposePolicyConfig(install);
         const record = this.customizationRecords.getFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -271,6 +315,7 @@ export class ExtensionAwareCollectionCustomization {
     }
 
     updateActivityRowTraitSummaryTemplateState(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         selectedSource: CollectionCustomizationSourceKind;
@@ -279,7 +324,8 @@ export class ExtensionAwareCollectionCustomization {
         const normalizedUserConfig = normalizeTraitSummaryTemplateConfig(
             params.userConfig,
         );
-        const currentState = this.getActivityRowTraitSummaryTemplateState(params);
+        const currentState =
+            this.getActivityRowTraitSummaryTemplateState(params);
         assertExtensionConfigAvailable(
             params.selectedSource,
             currentState.extensionConfig,
@@ -289,8 +335,10 @@ export class ExtensionAwareCollectionCustomization {
         this.customizationRecords.upsertFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
+            featureKey: scopedFeatureKey(
                 COLLECTION_CUSTOMIZATION_FEATURE_KEY.ActivityRowTraitSummaryTemplate,
+                params.traitContext,
+            ),
             selectedSource: params.selectedSource,
             userConfigJson: JSON.stringify(normalizedUserConfig),
         });
@@ -564,4 +612,11 @@ function assertExtensionConfigAvailable(
     ) {
         throw new ReadModelBadRequestError(message);
     }
+}
+
+/** Preserve a view's settings across generation rebuilds. */
+function scopedFeatureKey(key: string, context?: TraitReadContext): string {
+    return context
+        ? JSON.stringify([key, context.catalog, context.viewId])
+        : key;
 }

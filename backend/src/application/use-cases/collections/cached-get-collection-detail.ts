@@ -21,6 +21,7 @@ export type PublicCollectionDetailCacheOptions = {
 };
 
 type PublicCollectionDefaultMediaModePort = {
+    requiresView?(): boolean;
     getDefaultMediaMode():
         | CollectionMediaState["defaultMode"]
         | Promise<CollectionMediaState["defaultMode"]>;
@@ -76,6 +77,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         input: GetCollectionDetailInput,
     ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput> {
         if (
+            this.defaultMediaModePort.requiresView?.() ||
             !isPublicCollectionDetailCacheShapeEligible(
                 input,
                 this.defaultInput,
@@ -117,15 +119,21 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     }
 
     private scheduleBackgroundRefresh(): void {
-        void this.refreshDefaultCollectionDetail().catch((error) => {
-            logger.error("Public collection detail cache refresh failed", {
-                component: "PublicCollectionDetailCache",
-                action: "refresh",
-                chainRef: this.defaultInput.chainRef,
-                collectionRef: this.defaultInput.collectionRef,
-                error: String(error),
+        void Promise.resolve()
+            .then(() =>
+                this.defaultMediaModePort.requiresView?.()
+                    ? undefined
+                    : this.refreshDefaultCollectionDetail(),
+            )
+            .catch((error) => {
+                logger.error("Public collection detail cache refresh failed", {
+                    component: "PublicCollectionDetailCache",
+                    action: "refresh",
+                    chainRef: this.defaultInput.chainRef,
+                    collectionRef: this.defaultInput.collectionRef,
+                    error: String(error),
+                });
             });
-        });
     }
 
     private refreshDefaultCollectionDetail(): Promise<GetCollectionDetailOutput> {
@@ -180,7 +188,12 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     private resolveRequestMode(
         input: GetCollectionDetailInput,
     ): PublicCollectionRequestMode | Promise<PublicCollectionRequestMode> {
-        if (input.mediaPreference) {
+        if (
+            input.view ||
+            input.traitCatalog ||
+            input.generation !== undefined ||
+            input.mediaPreference
+        ) {
             return PUBLIC_COLLECTION_REQUEST_MODES.Bypass;
         }
         if (!input.mediaMode) {

@@ -1,3 +1,11 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    wrapCatalogPage,
+    unwrapCatalogCursor,
+} from "../collections/collection-views.js";
 import type {
     ActivityFeedIncludes,
     ActivityFeedPage,
@@ -16,7 +24,7 @@ import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
 type MaybePromise<T> = T | Promise<T>;
 
-export type GetTokenActivityInput = {
+export type GetTokenActivityInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
@@ -45,12 +53,13 @@ export class GetTokenActivityUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
             getCollectionTokenDetailPresentation(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -63,6 +72,7 @@ export class GetTokenActivityUseCase {
         },
         readonly activityReadPort: {
             listTokenActivities(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -73,6 +83,7 @@ export class GetTokenActivityUseCase {
         },
         readonly tokenPresentationReadPort: {
             listCollectionTokenCardsByIds(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
@@ -83,6 +94,7 @@ export class GetTokenActivityUseCase {
         },
         readonly customizationReadPort: {
             getActivityRowTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): {
@@ -104,9 +116,16 @@ export class GetTokenActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext } = resolveTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+            input.tokenRef,
+        );
         // Resolve media selection and token presentation against one extension-read context.
         const { media, token } =
             await this.collectionReadPort.getCollectionTokenDetailPresentation({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 tokenId: input.tokenRef,
@@ -114,20 +133,23 @@ export class GetTokenActivityUseCase {
                 mediaPreference: input.mediaPreference,
             });
         const activities = this.activityReadPort.listTokenActivities({
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: token.tokenId,
             limit: input.limit,
-            cursor: input.cursor,
+            cursor: unwrapCatalogCursor(input.cursor, traitContext),
             kind: input.kind,
         });
         const activityRowTraitSummaryTemplate =
             this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             });
         const included = buildActivityFeedIncludes(
             this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 tokenIds: collectActivityTokenIds(activities.items),
@@ -142,7 +164,7 @@ export class GetTokenActivityUseCase {
             collection,
             media,
             token,
-            activities,
+            activities: wrapCatalogPage(activities, traitContext),
             included,
         };
     }

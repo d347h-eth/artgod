@@ -3,10 +3,6 @@ import type {
     CollectionListItem,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
-import {
-    normalizeTraitBiddingTarget,
-    TraitCompetitionValidationError,
-} from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingJobsRepositoryPort,
     UpsertCollectionBiddingJobInput as PersistedUpsertCollectionBiddingJobInput,
@@ -25,6 +21,7 @@ import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-p
 export type { UpsertTraitBiddingJobOutput } from "./types.js";
 
 import {
+    normalizeNativeJobTarget,
     assertMarketplaceBiddingSupportedTargetTraits,
     type TraitBiddingTargetSupportReadPort,
 } from "./trait-bidding-target.js";
@@ -80,15 +77,7 @@ export class UpsertTraitBiddingJobUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        let targetTraits: TradingTraitCriterion[];
-        try {
-            targetTraits = normalizeTraitBiddingTarget(input.targetTraits);
-        } catch (error) {
-            if (error instanceof TraitCompetitionValidationError) {
-                throw new TradingValidationError(error.message);
-            }
-            throw error;
-        }
+        const targetTraits = normalizeNativeJobTarget(input.targetTraits);
         assertMarketplaceBiddingSupportedTargetTraits({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,

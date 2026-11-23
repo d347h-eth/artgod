@@ -1,3 +1,10 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    ordinaryViewTraits,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -17,7 +24,7 @@ import {
     PriceHistoryInputError,
 } from "../../../domain/realized-price-history.js";
 
-export type GetPriceHistoryInput = {
+export type GetPriceHistoryInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenId?: string;
@@ -36,6 +43,7 @@ export type PriceHistoryReadPort = {
     // Trait predicates use current token attributes and apply before the limit.
     // The adapter must include one extra row so limits never silently truncate.
     iterateObservations(input: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId?: string;
@@ -53,7 +61,7 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
         private readonly chains: {
             resolveChainRef(ref: string, defaultChainId: number): ChainRecord;
         },
-        private readonly collections: {
+        private readonly collections: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 ref: string,
@@ -90,13 +98,23 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, view } = resolveTraitScope(
+            this.collections,
+            collection,
+            input,
+            input.tokenId,
+        );
         const to = this.now() + 1;
         const days = PRICE_HISTORY_RANGE_DAYS[request.range];
         const fills = this.prices.iterateObservations({
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: request.tokenId,
-            traits: input.traits,
+            traits: ordinaryViewTraits(
+                view?.pinnedTraits ?? [],
+                input.traits ?? [],
+            ),
             traitRanges: input.traitRanges,
             from: days === null ? 0 : to - days * 86400,
             to,

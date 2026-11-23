@@ -37,7 +37,7 @@ describe("UpsertTokenBiddingJobUseCase", () => {
             },
             {
                 resolveCollectionRef: () => COLLECTION,
-                getCollectionTokenDetail: () => ({
+                getNativeTokenIdentity: () => ({
                     tokenId: "unminted-tile-921",
                     marketplaceBiddingSupported: false,
                 }),

@@ -1,3 +1,4 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import type {
     PersistedBiddingJobRecord,
     PersistedCollectionBiddingJobRecord,
@@ -50,6 +51,7 @@ export type UpdateBiddingJobPricingByIdInput = {
 
 export interface BiddingJobsRepositoryPort {
     listCollectionJobs(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeArchived?: boolean;
