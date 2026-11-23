@@ -10,6 +10,8 @@ current system.
   gives the bounded implementation contract for `BKL-073`. It lives with the
   owning extension documentation and retains the implementation specification and
   user-run pilot checklist. The extension-system reference describes current behavior.
+- [111K collection views and trait catalogs](../extensions/04-111k-trait-catalogs.md)
+  covers the shipped mappings, rebuild behavior and local verification for `BKL-075`.
 
 Technical context, current limitations, and invariants stay in the owning
 domain document. Backlog entries link there instead of embedding design plans
