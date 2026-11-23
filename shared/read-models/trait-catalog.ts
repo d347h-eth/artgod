@@ -48,26 +48,33 @@ export function readViewStatus(
     chainId: number,
     collectionId: number,
     mapper: TraitCatalogMapper,
+    viewId?: string,
 ): CollectionViewStatus[] {
+    const bindScope =
+        viewId === undefined
+            ? [chainId, collectionId]
+            : [chainId, collectionId, viewId];
     return db.raw.transaction(() => {
         const rows = db.raw
             .prepare(
                 `SELECT descriptor_json,active_generation,mapper_version,
             COALESCE(m.classified,0) classified,m.scope_key,
+            COALESCE(m.errors,0)+(SELECT COUNT(*) FROM trait_catalog_work w WHERE w.generation=v.active_generation AND w.error IS NOT NULL) failed,
             (SELECT COUNT(*) FROM trait_catalog_projections p WHERE p.chain_id=v.chain_id AND p.collection_id=v.collection_id AND p.view_id=v.view_id AND p.generation=v.active_generation) ready,
             (SELECT MAX(generation) FROM trait_catalog_rebuilds r WHERE r.chain_id=v.chain_id AND r.collection_id=v.collection_id AND r.view_id=v.view_id) latest
             FROM trait_catalog_views v JOIN trait_catalog_generations g ON g.generation=v.active_generation
-            LEFT JOIN (SELECT view_id,COUNT(*) classified,
+            LEFT JOIN (SELECT view_id,COUNT(*) classified,COUNT(classification_error) errors,
                     CASE WHEN COUNT(scope_key)=COUNT(*) AND MIN(scope_key)=MAX(scope_key) THEN MIN(scope_key) END scope_key
-                    FROM trait_catalog_members WHERE chain_id=? AND collection_id=? GROUP BY view_id) m USING (view_id)
-            WHERE v.chain_id=? AND v.collection_id=? ORDER BY v.view_id`,
+                    FROM trait_catalog_members WHERE chain_id=? AND collection_id=? ${viewId === undefined ? "" : "AND view_id=?"} GROUP BY view_id) m ON m.view_id=v.view_id
+            WHERE v.chain_id=? AND v.collection_id=? ${viewId === undefined ? "" : "AND v.view_id=?"} ORDER BY v.view_id`,
             )
-            .all(chainId, collectionId, chainId, collectionId) as {
+            .all(...bindScope, ...bindScope) as {
             scope_key: string | null;
             descriptor_json: string;
             active_generation: number;
             mapper_version: string;
             ready: number;
+            failed: number;
             classified: number;
             latest: number | null;
         }[];
@@ -86,6 +93,7 @@ export function readViewStatus(
 
                 classified: row.classified,
                 ready: row.ready,
+                failed: row.failed,
                 generation: row.active_generation,
                 activeMapperVersion: row.mapper_version,
                 structure: mapper.structure?.(descriptor, row.mapper_version),

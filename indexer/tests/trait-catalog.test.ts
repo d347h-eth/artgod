@@ -1,3 +1,20 @@
+import { readViewStatus } from "@artgod/shared/read-models/trait-catalog";
+import { zeroAddress, zeroHash } from "viem";
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { createMetadataDomain } from "../src/runtime/create-metadata-domain.js";
+import { HttpMetadataFetcher } from "../src/infra/metadata/http-fetcher.js";
+import {
+    DOMAIN_SYNC_PROJECTION,
+    METADATA_REFRESH_REASON,
+    METADATA_REFRESH_SOURCE,
+} from "../src/domain/domain-jobs.js";
+import { createMetadataPendingFollowups } from "../src/application/metadata/pending-followups.js";
+import { SqliteMetadataRefreshFollowups } from "../src/infra/metadata/sqlite-refresh-followups.js";
+import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
+import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
+import { SqliteStorage } from "../src/infra/storage/sqlite.js";
+import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeAll, beforeEach, describe, it, expect } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -28,7 +45,10 @@ import { SqliteMetadataStore } from "../src/infra/metadata/sqlite-metadata-store
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
 import { SqliteTokenAttributeWriter } from "../src/infra/attributes/sqlite-token-attributes.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
-import { nft111kTestInstall } from "./fixtures/111k-bootstrap.js";
+import {
+    NFT111K_TEST_OWNER,
+    nft111kTestInstall,
+} from "./fixtures/111k-bootstrap.js";
 
 const install = nft111kTestInstall();
 const { chainId, collectionId } = install;
@@ -197,6 +217,57 @@ describe("local trait catalog lifecycle", () => {
                 .get(),
         ).toEqual({ uri: null, attributes_json: null, raw_json: null });
     });
+    it.each([
+        ["plane of existence", "Character 1 - Mini drif / 1body", "Characters"],
+        ["backrooms 2", "Painting 1 Artist", "Paintings"],
+    ])(
+        "publishes the structured %s mapper over an existing identity generation",
+        (block, key, group) => {
+            const facts = [
+                { key: NFT111K_METADATA.CollectionBlock, value: block },
+                { key, value: "First" },
+            ];
+            const selected = nft111kTraitCatalog.classify(facts);
+            // Simulate the earlier application version which knew only the universal identity mapping.
+            resolve = () => ({
+                ...nft111kTraitCatalog,
+                availableVersion: () => mapperVersion,
+            });
+            observe("1", facts);
+            drain();
+            const before = db
+                .prepare(
+                    "SELECT active_generation AS generation FROM trait_catalog_views WHERE view_id=?",
+                )
+                .get(selected.id) as { generation: number };
+            expect(values(before.generation, "1")).toContainEqual(facts[1]);
+            resolve = () => nft111kTraitCatalog;
+            const run = requestTraitCatalogRebuild({
+                chainId,
+                collectionId,
+                viewId: selected.id,
+                mapperVersion: nft111kTraitCatalog.availableVersion(selected),
+            });
+            drain();
+            expect(
+                getTraitCatalogRebuild(chainId, collectionId, run.runId)
+                    ?.status,
+            ).toBe(STATUS.Completed);
+            const traits = readCanonicalTokenTraits(chainId, collectionId, "1");
+            expect(traits).toHaveLength(2);
+            expect(traits).toEqual(expect.arrayContaining(facts));
+            expect(values(run.generation, "1")).toEqual([facts[0]]);
+            const raw = db
+                .prepare(
+                    "SELECT tree_json FROM trait_catalog_projections WHERE generation=? AND token_id=?",
+                )
+                .get(run.generation, "1") as { tree_json: string };
+            expect(JSON.parse(raw.tree_json)).toContainEqual(
+                expect.objectContaining({ label: group }),
+            );
+        },
+    );
+
     it("resumes generation enumeration and atomically publishes current members, including entries behind its cursor", () => {
         for (let i = 1; i <= 130; i++) observe(String(i), driMi);
         drain();
@@ -248,6 +319,14 @@ describe("local trait catalog lifecycle", () => {
                 "classifier unavailable",
             ),
         });
+        expect(
+            readViewStatus(
+                chainId,
+                collectionId,
+                nft111kTraitCatalog,
+                nft111kTraitCatalog.unclassified.id,
+            )[0],
+        ).toMatchObject({ classified: 1, ready: 0, failed: 1 });
         resolve = () => nft111kTraitCatalog;
         expect(catalog.retryClassification(chainId, Date.now() + 60_000)).toBe(
             true,
@@ -268,6 +347,20 @@ describe("local trait catalog lifecycle", () => {
         expect(published()).toBe(old);
         // The failed run had already enumerated token 1. Token 0 enters behind that cursor.
         observe("0", driMi);
+        drain();
+        expect(
+            readViewStatus(
+                chainId,
+                collectionId,
+                nft111kTraitCatalog,
+                view.id,
+            )[0],
+        ).toMatchObject({
+            classified: 2,
+            ready: 1,
+            failed: 1,
+            latestRun: { status: STATUS.Failed },
+        });
         resolve = () => nft111kTraitCatalog;
         requestTraitCatalogRebuild({ ...request, retryRunId: run.runId });
         drain();
@@ -275,10 +368,35 @@ describe("local trait catalog lifecycle", () => {
         expect(values(run.generation, "1")).toEqual(driMi);
         expect(values(run.generation, "0")).toEqual(driMi);
     });
+    it("does not publish a rebuild over missing normalized links", () => {
+        observe("1", driMi);
+        drain();
+        const active = published();
+        const run = requestTraitCatalogRebuild(request);
+        db.prepare(
+            "DELETE FROM token_attributes WHERE chain_id=? AND collection_id=? AND token_id=?",
+        ).run(chainId, collectionId, "1");
+        drain();
+        expect(
+            getTraitCatalogRebuild(chainId, collectionId, run.runId),
+        ).toMatchObject({
+            status: STATUS.Failed,
+            error: expect.stringContaining("canonical trait links"),
+        });
+        expect(published()).toBe(active);
+    });
     it("fences removed observations on rollback and a reused collection ID after purge", () => {
         observe("1", driMi);
         const first = catalog.claim(chainId, 10)!;
-        db.prepare("DELETE FROM token_metadata WHERE token_id=?").run("1");
+        db.prepare(
+            "UPDATE token_metadata SET block_number=? WHERE token_id=?",
+        ).run(102, "1");
+        commitRollbackFixture({
+            storage: new SqliteStorage(),
+            chainId,
+            fromBlock: 102,
+            owners: [],
+        });
         expect(readCanonicalTokenTraits(chainId, collectionId, "1")).toEqual(
             [],
         );
@@ -304,5 +422,214 @@ describe("local trait catalog lifecycle", () => {
         drain();
         expect(published()).toBeGreaterThan(second.generation);
         expect(values(published(), "1")).toEqual(driMi);
+    });
+    it("projects bootstrap eggs, a pending hatch and a later mint through the runtime factory without refreshing source during rebuild", async () => {
+        db.prepare(
+            "UPDATE collections SET bootstrap_anchor_block=100 WHERE collection_id=?",
+        ).run(collectionId);
+        const documents = new Map<string, Record<string, unknown>>();
+        let reads = 0;
+        const domain = createMetadataDomain(
+            {
+                resolveTokenUri: async (_contract, tokenId) => {
+                    reads++;
+                    const doc = documents.get(tokenId);
+                    return doc
+                        ? "data:application/json," +
+                              encodeURIComponent(JSON.stringify(doc))
+                        : null;
+                },
+            },
+            new HttpMetadataFetcher(),
+            debug,
+        );
+        const bootstrap = {
+            chainId,
+            collectionId,
+            tokenId: "81",
+            blockNumber: 100,
+            blockHash: zeroHash,
+            reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
+            source: METADATA_REFRESH_SOURCE.Bootstrap,
+        };
+        documents.set("81", {
+            image: "ipfs://fixture-egg",
+            category: "egg",
+            attributes: [{ trait_type: NFT111K_METADATA.Type, value: "egg" }],
+        });
+        expect(await domain.handleMetadataRefresh(bootstrap)).toMatchObject({
+            tokenId: "81",
+        });
+        drain();
+        const membership = (tokenId: string) =>
+            db
+                .prepare(
+                    "SELECT m.view_id AS viewId,m.revision,v.active_generation AS generation FROM trait_catalog_members m JOIN trait_catalog_views v USING(chain_id,collection_id,view_id) WHERE m.chain_id=? AND m.collection_id=? AND m.token_id=?",
+                )
+                .get(chainId, collectionId, tokenId) as {
+                viewId: string;
+                revision: number;
+                generation: number;
+            };
+        const egg = membership("81");
+        expect(values(egg.generation, "81")).toEqual([
+            { key: NFT111K_METADATA.Type, value: "egg" },
+        ]);
+
+        db.prepare(
+            "INSERT INTO nft_balances(chain_id,collection_id,contract_address,token_id,owner,amount,last_block_number,last_block_hash,last_block_timestamp,last_tx_hash,last_log_index) VALUES(?,?,?,'81',?,'1',101,?,1,?,0)",
+        ).run(
+            chainId,
+            collectionId,
+            contract,
+            NFT111K_TEST_OWNER,
+            zeroHash,
+            zeroHash,
+        );
+        documents.delete("81");
+        expect(
+            await domain.handleMetadataRefresh({
+                ...bootstrap,
+                reason: METADATA_REFRESH_REASON.Pending,
+                source: METADATA_REFRESH_SOURCE.Onchain,
+            }),
+        ).toBeNull();
+        expect(membership("81")).toEqual(egg);
+        db.prepare(
+            "UPDATE metadata_pending SET due_at=0 WHERE collection_id=? AND token_id='81'",
+        ).run(collectionId);
+        documents.set("81", {
+            image: "ipfs://fixture-reveal",
+            attributes: [
+                {
+                    trait_type: NFT111K_METADATA.CollectionBlock,
+                    value: "backrooms 2",
+                },
+                { trait_type: "Painting 1", value: "Example" },
+                { trait_type: "Painting 1 Artist", value: "Example artist" },
+            ],
+        });
+        const outbox = new SqliteQueueOutbox();
+        const retain = createMetadataPendingFollowups({
+            chainId,
+            followups: new SqliteMetadataRefreshFollowups(outbox),
+            extensions: new SqliteCollectionExtensions(debug),
+            imagePolicy: {
+                getImageCachePolicyConfig: () => ({
+                    imageCacheMode: IMAGE_CACHE_MODE.RefreshOnMetadata,
+                    maxDimension: null,
+                }),
+            },
+            outbox,
+        });
+        expect(await domain.retryPending(chainId, retain)).toBeTruthy();
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) n FROM metadata_refresh_extension_artifact_tasks WHERE collection_id=? AND token_id='81'",
+                )
+                .get(collectionId),
+        ).toEqual({ n: 1 });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) n FROM queue_outbox WHERE chain_id=? AND collection_id=?",
+                )
+                .get(chainId, collectionId),
+        ).toEqual({ n: 2 });
+        const hatched = membership("81");
+        expect(hatched.viewId).not.toBe(egg.viewId);
+        expect(hatched.revision).toBeGreaterThan(egg.revision);
+        expect(values(egg.generation, "81")).toEqual([]);
+        expect(values(hatched.generation, "81")).toEqual([]);
+        drain();
+        expect(values(hatched.generation, "81")).not.toContainEqual({
+            key: "Painting 1 Artist",
+            value: "Example artist",
+        });
+        const sets = new SqliteTokenSetRegistry();
+        const by = (key: string, value: string) =>
+            sets.ensureTokenSet({
+                chainId,
+                collectionId,
+                schema: {
+                    kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                    data: {
+                        collection: contract,
+                        attributes: [{ key, value }],
+                    },
+                },
+            });
+        const native = by("Painting 1 Artist", "Example artist");
+        expect(native?.tokenCount).toBe(1);
+        expect(by("Artist", "Example artist")).toBeNull();
+
+        documents.set("82", {
+            image: "ipfs://fixture-new-block",
+            attributes: [
+                {
+                    trait_type: NFT111K_METADATA.CollectionBlock,
+                    value: "Future artwork",
+                },
+            ],
+        });
+        db.prepare(
+            "INSERT INTO nft_transfer_events(chain_id,collection_id,contract_address,from_address,to_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index,kind) VALUES(?,?,?,?,?,'82','1',102,?,1,?,0,'erc721')",
+        ).run(
+            chainId,
+            collectionId,
+            contract,
+            zeroAddress,
+            NFT111K_TEST_OWNER,
+            zeroHash,
+            zeroHash,
+        );
+        const mint = await domain.handleDomainSync({
+            chainId,
+            collectionId,
+            fromBlock: 102,
+            toBlock: 102,
+            mode: "realtime",
+            projection: DOMAIN_SYNC_PROJECTION.CurrentState,
+            sourceKind: "fixture",
+            sourceJobId: "mint",
+        });
+        expect(mint.updatedTokens.map((token) => token.tokenId)).toEqual([
+            "82",
+        ]);
+        const readsAfterMint = reads;
+        const newView = membership("82");
+        drain();
+        expect(values(newView.generation, "82")).toEqual([
+            { key: NFT111K_METADATA.CollectionBlock, value: "Future artwork" },
+        ]);
+        const descriptor = nft111kTraitCatalog.classify(
+            readCanonicalTokenTraits(chainId, collectionId, "81"),
+        );
+        const run = requestTraitCatalogRebuild({
+            chainId,
+            collectionId,
+            viewId: descriptor.id,
+            mapperVersion: nft111kTraitCatalog.availableVersion(descriptor),
+        });
+        drain();
+        expect(
+            getTraitCatalogRebuild(chainId, collectionId, run.runId)?.status,
+        ).toBe(STATUS.Completed);
+        expect(reads).toBe(readsAfterMint);
+        expect(by("Painting 1 Artist", "Example artist")?.merkleRoot).toBe(
+            native?.merkleRoot,
+        );
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) n FROM token_metadata WHERE chain_id=? AND collection_id=? AND (uri IS NOT NULL OR raw_json IS NOT NULL OR attributes_json IS NOT NULL)",
+                )
+                .get(chainId, collectionId),
+        ).toEqual({ n: 0 });
+        new SqliteCollectionPurgeRepository().purgeCollectionData({
+            chainId,
+            collectionId,
+        });
     });
 });

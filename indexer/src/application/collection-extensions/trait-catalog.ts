@@ -28,6 +28,9 @@ export function installedCatalogMapper(
     };
 }
 
+export const CANONICAL_TRAITS_INCOMPLETE =
+    "Saved canonical trait links are incomplete";
+
 export type ProjectionClaim = CatalogToken & {
     revision: number;
     generation: number;
@@ -35,6 +38,7 @@ export type ProjectionClaim = CatalogToken & {
     mapperVersion: string;
     owner: string;
     traits: TraitFilter[];
+    expectedTraits: number;
 };
 
 /** Receives the exact pairs just persisted, within the canonical observation transaction. */
@@ -66,6 +70,8 @@ export function advanceTraitCatalog(
     const mapper = resolve(chainId, claim.collectionId);
     if (!mapper) return true;
     try {
+        if (claim.traits.length !== claim.expectedTraits)
+            throw new Error(CANONICAL_TRAITS_INCOMPLETE);
         const projection = mapper.project(
             claim.view,
             claim.mapperVersion,
