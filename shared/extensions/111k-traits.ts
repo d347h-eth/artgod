@@ -1,14 +1,25 @@
+import {
+    STRUCTURED_BLOCK,
+    identityValue,
+    sourceLeaf,
+    projectPlane,
+    projectBackrooms,
+    structuredSchema,
+} from "./111k-structured-traits.js";
 import type { TraitFilter } from "../types/browse.js";
 import type {
     CollectionViewDescriptor,
     TraitCatalogMapper,
     TraitProjection,
 } from "../types/trait-catalog.js";
-import { NFT111K_METADATA as META } from "./111k-metadata.js";
+import {
+    NFT111K_METADATA as META,
+    isNft111kBlockKey,
+} from "./111k-metadata.js";
 
 const ARTWORKS = { id: "artworks", label: "Artworks" };
 const TYPE_LABELS = new Map([
-    ["egg", "Eggs"],
+    [META.Egg, "Eggs"],
     ["crate", "Crates"],
     ["warehouse", "Warehouses"],
     ["relic", "Relics"],
@@ -26,11 +37,7 @@ function classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor {
     const blocks = new Set<string>();
     for (const pair of pairs) {
         if (pair.key === META.Type) types.add(pair.value);
-        if (
-            pair.key === META.CollectionBlock ||
-            pair.key === META.CollectionBlockAlias
-        )
-            blocks.add(pair.value);
+        if (isNft111kBlockKey(pair.key)) blocks.add(pair.value);
     }
     if (types.size > 1 || blocks.size > 1) return UNCLASSIFIED;
     const type = [...types][0];
@@ -58,30 +65,46 @@ function classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor {
 
 function identity(pairs: readonly TraitFilter[]): TraitProjection {
     return {
-        tree: pairs.map((source) => ({
-            kind: "leaf",
-            id: JSON.stringify([source.key, source.value]),
-            label: source.key,
-            value: source.value,
-            source,
-        })),
-        values: pairs.map((native) => ({
-            fieldId: native.key,
-            label: native.key,
-            value: native.value,
-            native,
-            nativeFieldKey: native.key,
-        })),
+        tree: pairs.map((pair) => sourceLeaf(pair)),
+        values: pairs.map(identityValue),
     };
 }
+
+const structuredBlocks = new Map([
+    [
+        JSON.stringify(["block", STRUCTURED_BLOCK.Plane]),
+        {
+            block: STRUCTURED_BLOCK.Plane,
+            version: "plane-1",
+            project: projectPlane,
+        },
+    ],
+    [
+        JSON.stringify(["block", STRUCTURED_BLOCK.Backrooms]),
+        {
+            block: STRUCTURED_BLOCK.Backrooms,
+            version: "backrooms-1",
+            project: projectBackrooms,
+        },
+    ],
+]);
 
 export const nft111kTraitCatalog: TraitCatalogMapper = {
     unclassified: UNCLASSIFIED,
     classify,
-    availableVersion: () => IDENTITY_VERSION,
-    project(_view, version, pairs) {
-        if (version !== IDENTITY_VERSION)
-            throw new Error("Unknown 111K mapper version");
-        return identity(pairs);
+    availableVersion: (view) =>
+        structuredBlocks.get(view.id)?.version ?? IDENTITY_VERSION,
+    structure(view, version) {
+        const mapping = structuredBlocks.get(view.id);
+        return mapping?.version === version
+            ? structuredSchema(mapping.block)
+            : [];
+    },
+    project(view, version, pairs) {
+        // Existing identity generations keep receiving their own version until publication.
+        if (version === IDENTITY_VERSION) return identity(pairs);
+        const mapping = structuredBlocks.get(view.id);
+        if (mapping?.version === version) return mapping.project(pairs);
+        throw new Error("Unknown 111K mapper version");
     },
 };

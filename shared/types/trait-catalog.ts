@@ -32,6 +32,8 @@ export type CollectionViewStatus = CollectionViewDescriptor & {
     availableMapperVersion: string;
     classified: number;
     ready: number;
+    /** Current members with a classifier or active projection error. */
+    failed?: number;
     structure?: TraitStructureGroup[];
     latestRun?: TraitCatalogRebuild | null;
 };
@@ -57,15 +59,20 @@ export type TraitCatalogRebuild = {
     error: string | null;
 };
 
+export const TRAIT_NODE_KIND = {
+    Group: "group",
+    Entity: "entity",
+    Leaf: "leaf",
+} as const;
 export type TraitNode =
     | {
-          kind: "group" | "entity";
+          kind: typeof TRAIT_NODE_KIND.Group | typeof TRAIT_NODE_KIND.Entity;
           id: string;
           label: string;
           children: TraitNode[];
       }
     | {
-          kind: "leaf";
+          kind: typeof TRAIT_NODE_KIND.Leaf;
           id: string;
           label: string;
           value: string;

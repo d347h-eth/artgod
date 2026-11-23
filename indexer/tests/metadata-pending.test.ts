@@ -1372,6 +1372,9 @@ describe("111k metadata readiness", () => {
         expect(isNft111kMetadataReady(TARGET, document())).toBe(true);
     });
     it("requires usable root content and respects an explicitly unrevealed server state", () => {
+        const alias = document();
+        alias.attributes[0].traitType = NFT111K_METADATA.CollectionBlockAlias;
+        expect(isNft111kMetadataReady(TARGET, alias)).toBe(true);
         const empty = document();
         empty.attributes[0].value = "  ";
         expect(isNft111kMetadataReady(TARGET, empty)).toBe(false);

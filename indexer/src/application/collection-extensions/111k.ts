@@ -1,6 +1,7 @@
 import { parseAbi, zeroAddress } from "viem";
 import {
     NFT111K_METADATA,
+    isNft111kBlockKey,
     nft111kTraitCatalog,
     NFT111K_EXTENSION_KEY,
     NFT111K_MAINNET_CHAIN_ID,
@@ -117,7 +118,7 @@ export function isNft111kMetadataReady(
         return false;
     return metadata.attributes.some(
         (attribute) =>
-            attribute.traitType === NFT111K_METADATA.CollectionBlock &&
+            isNft111kBlockKey(attribute.traitType) &&
             typeof attribute.value === "string" &&
             attribute.value.trim().length > 0,
     );
