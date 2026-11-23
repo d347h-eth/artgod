@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { ACTIVITY_KIND } from '@artgod/shared/types';
@@ -65,6 +67,9 @@
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
 	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
+
+	const collectionViewPage = useCollectionView();
+	const viewContext = $derived(collectionViewPage());
 
 	let {
 		chain,
@@ -223,6 +228,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,
@@ -253,6 +259,7 @@
 		filters: ActivityExtensionFilterValues = activityFilters
 	): string {
 		return buildCollectionActivityHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath,
 			limit: activities.limit,
 			kind: nextKind,
@@ -275,6 +282,7 @@
 
 	function holderHref(address: string): string {
 		return buildOwnerTokensHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: joinPath(basePath, `holders/${encodeURIComponent(address)}`),
 			selectedTraits: [],
 			selectedTraitRanges: [],
@@ -285,6 +293,7 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		return buildTokenDetailHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: normalizeBasePath(basePath),
 			tokenId,
 			mediaMode: media.selectedMode,

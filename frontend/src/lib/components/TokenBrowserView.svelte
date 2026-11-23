@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import type {
@@ -47,6 +49,8 @@
 	} from '$lib/components/pagination-window';
 	import { buildAskMarketPrice, type MarketPriceItem } from '$lib/market-price';
 	import { appendCollectionMediaParams, nextMediaMode } from '$lib/media-mode';
+
+	const collectionViewPage = useCollectionView();
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -197,6 +201,7 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		return buildTokenDetailHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: collectionBasePath,
 			tokenId,
 			mediaMode: media.selectedMode,
@@ -207,7 +212,10 @@
 	}
 
 	function buildReturnQuery(): string {
-		const query = new URLSearchParams();
+		const query = appendCatalogScope(
+			new URLSearchParams(),
+			selectedCollectionView(collectionViewPage())
+		);
 		query.set('limit', String(tokens.limit));
 		query.set('mode', displayMode);
 		query.set('token_status', tokenStatus);
@@ -268,6 +276,7 @@
 		nextTokenStatus: 'listed' | 'all' | 'listed_then_unlisted' = tokenStatus
 	): string {
 		return buildTokenBrowserHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode: mode,
@@ -290,6 +299,10 @@
 		activeMediaPreference: boolean | null
 	): string {
 		return buildPaginationWindowSignature([
+			appendCatalogScope(
+				new URLSearchParams(),
+				selectedCollectionView(collectionViewPage())
+			).toString(),
 			browserBasePath,
 			limit,
 			mode,
@@ -353,6 +366,7 @@
 
 	function mediaModeHref(nextMediaMode: string): string {
 		return buildTokenBrowserHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
@@ -368,6 +382,7 @@
 	function mediaPreferenceHref(): string | null {
 		if (!media.preference) return null;
 		return buildTokenBrowserHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
@@ -502,7 +517,6 @@
 			onReset: onResetTraits
 		});
 	}
-
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, pushState, replaceState } from '$app/navigation';
@@ -41,6 +43,8 @@
 	import type { PriceChartController } from '$lib/price-chart/renderer';
 	import SaleHistorySidebar from './SaleHistorySidebar.svelte';
 	import SaleCardPreview from './SaleCardPreview.svelte';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chain,
@@ -184,11 +188,14 @@
 		if (!ready) return;
 		const chain = chainRef,
 			collection = collectionRef;
-		const query = buildTokenMediaQuery({
-			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
-			mediaPreference: media.preference,
-			mediaVariant: null
-		});
+		const query = appendCatalogScope(
+			buildTokenMediaQuery({
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				mediaPreference: media.preference,
+				mediaVariant: null
+			}),
+			selectedCollectionView(collectionViewPage())
+		);
 		revision; // Refresh the current ask and card presentation with the history.
 		const instance = createSaleMediaLoader(
 			async (id, signal) => (await getTokenCard(fetch, chain, collection, id, query, signal)).token
@@ -229,7 +236,8 @@
 				traits: scope.traits,
 				traitRanges: scope.traitRanges
 			},
-			abort.signal
+			abort.signal,
+			selectedCollectionView(collectionViewPage())
 		)
 			.then((result) => {
 				if (!abort.signal.aborted) history = result;

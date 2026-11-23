@@ -975,7 +975,7 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body).toContain(
+		expect(body.replace(/<!--[\s\S]*?-->/g, '')).toContain(
 			'<span class="secondary-tab-active" aria-current="true">Mode [1]</span>'
 		);
 		expect(body.indexOf('bid-book-demand-trait-key">Mode')).toBeLessThan(

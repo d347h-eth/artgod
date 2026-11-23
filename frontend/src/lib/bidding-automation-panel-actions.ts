@@ -391,6 +391,9 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
 		return {
 			type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+			...(draft.source.filter.catalogScope
+				? { catalogScope: draft.source.filter.catalogScope }
+				: {}),
 			traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 			traitRanges: draft.source.filter.selectedTraitRanges,
 			traitJoinMode: draft.source.filter.traitJoinMode,
@@ -406,6 +409,7 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	}
 	return {
 		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+		...(draft.source.filter.catalogScope ? { catalogScope: draft.source.filter.catalogScope } : {}),
 		tokenStatus,
 		traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 		traitRanges: draft.source.filter.selectedTraitRanges,

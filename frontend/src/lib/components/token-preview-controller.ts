@@ -1,3 +1,5 @@
+import {TRAIT_NODE_KIND} from '@artgod/shared/types/trait-catalog';
+import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { browser } from '$app/env';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
@@ -61,6 +63,7 @@ let fallbackTokenPreviewController: TokenPreviewController | null = null;
 export type TokenPreviewStatus = (typeof TOKEN_PREVIEW_STATUS)[keyof typeof TOKEN_PREVIEW_STATUS];
 
 type TokenPreviewRequest = {
+	catalogScope: CatalogScope | null;
 	chainRef: string;
 	collectionRef: string;
 	tokenId: string;
@@ -100,6 +103,7 @@ export type TokenPreviewState = {
 	requestedMediaVariant: string | null;
 	previewContext: TokenPreviewContext | null;
 	scalePercent: number;
+	traitTree?: import('@artgod/shared/types/trait-catalog').TraitNode[] | null;
 	attributes: ApiTokenAttribute[];
 	traitSummary: string | null;
 	traitDisplay: TokenPreviewTraitDisplay;
@@ -136,7 +140,9 @@ export type TokenPreviewController = {
 	tokenPreviewAriaLabel(tokenId: string): string;
 };
 
-export function createTokenPreviewController(): TokenPreviewController {
+export function createTokenPreviewController(
+	scope: () => CatalogScope | null = () => null
+): TokenPreviewController {
 	const state = writable<TokenPreviewState>({
 		open: false,
 		status: TOKEN_PREVIEW_STATUS.Closed,
@@ -153,6 +159,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		requestedMediaVariant: null,
 		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
+		traitTree: null,
 		attributes: [],
 		traitSummary: null,
 		traitDisplay: readTokenPreviewTraitDisplay(),
@@ -197,6 +204,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		const mediaPreference = previewContext ? null : (params.mediaPreference ?? null);
 		const mediaVariant = previewContext ? null : (params.mediaVariant ?? null);
 		const request: TokenPreviewRequest = {
+			catalogScope: scope(),
 			chainRef,
 			collectionRef,
 			tokenId,
@@ -220,6 +228,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 				traitDisplay: current.open
 					? current.traitDisplay
 					: readTokenPreviewTraitDisplay(current.traitDisplay),
+				traitTree: keepDisplayedMedia ? current.traitTree : null,
 				attributes: keepDisplayedMedia ? current.attributes : [],
 				traitSummary: keepDisplayedMedia ? current.traitSummary : null,
 				tokenId: keepDisplayedMedia ? current.tokenId : tokenId,
@@ -257,11 +266,15 @@ export function createTokenPreviewController(): TokenPreviewController {
 
 			const token = preview.response.token;
 			const attributes = 'attributes' in token ? token.attributes : [];
+			const traitTree =
+				'traitTree' in token && token.traitTree?.some((n) => n.kind !== TRAIT_NODE_KIND.Leaf)
+					? token.traitTree
+					: null;
 			const traitSummary = 'traitSummary' in token ? token.traitSummary : null;
 			state.update((current) => {
 				const traitDisplay = previewContext
 					? current.traitDisplay
-					: clampTokenPreviewTraitDisplay(current.traitDisplay, attributes.length);
+					: clampTokenPreviewTraitDisplay(current.traitDisplay, traitTree ? 1 : attributes.length);
 				if (traitDisplay !== current.traitDisplay) persistTokenPreviewTraitDisplay(traitDisplay);
 				return {
 					...current,
@@ -277,6 +290,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 					availableMediaVariants: tokenMedia?.availableVariants ?? [],
 					requestedMediaVariant: mediaVariant,
 					previewContext,
+					traitTree,
 					attributes,
 					traitSummary,
 					traitDisplay,
@@ -418,6 +432,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			availableMediaVariants: [],
 			requestedMediaVariant: null,
 			previewContext: null,
+			traitTree: null,
 			attributes: [],
 			traitSummary: null,
 			aspectRatio: null,
@@ -484,6 +499,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			open: true,
 			status: TOKEN_PREVIEW_STATUS.Error,
 			iframeSource: null,
+			traitTree: null,
 			attributes: [],
 			traitSummary: null,
 			errorMessage: message
@@ -534,7 +550,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			return;
 		const traitDisplay = nextTokenPreviewTraitDisplay(
 			current.traitDisplay,
-			current.attributes.length
+			current.traitTree ? 1 : current.attributes.length
 		);
 		persistTokenPreviewTraitDisplay(traitDisplay);
 		state.update((value) => ({ ...value, traitDisplay }));
@@ -657,7 +673,7 @@ function loadPreviewResponse(
 			request.chainRef,
 			request.collectionRef,
 			request.previewContext.activityId,
-			buildRenderModeQuery(request.mediaMode)
+			appendCatalogScope(buildRenderModeQuery(request.mediaMode), request.catalogScope)
 		);
 	}
 	return getTokenPreview(
@@ -665,11 +681,14 @@ function loadPreviewResponse(
 		request.chainRef,
 		request.collectionRef,
 		request.tokenId,
-		buildTokenMediaQuery({
-			mediaMode: request.mediaMode,
-			mediaPreference: request.mediaPreference,
-			mediaVariant: request.mediaVariant
-		})
+		appendCatalogScope(
+			buildTokenMediaQuery({
+				mediaMode: request.mediaMode,
+				mediaPreference: request.mediaPreference,
+				mediaVariant: request.mediaVariant
+			}),
+			request.catalogScope
+		)
 	);
 }
 
@@ -742,7 +761,9 @@ function buildRenderModeQuery(renderMode: string): URLSearchParams {
 }
 
 function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
-	return [
+	return JSON.stringify([
+		request.catalogScope?.id,
+		request.catalogScope?.generation,
 		request.chainRef.trim().toLowerCase(),
 		request.collectionRef.trim().toLowerCase(),
 		request.tokenId.trim(),
@@ -754,5 +775,5 @@ function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 		request.previewContext
 			? `${request.previewContext.kind}:${request.previewContext.activityId}`
 			: TOKEN_PREVIEW_CACHE_CONTEXT_KIND.Token
-	].join('|');
+	]);
 }

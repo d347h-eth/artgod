@@ -187,7 +187,7 @@ export function describeBiddingAutomationSelection(
 	if (!selection) return null;
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
 		if (selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob) {
-			const count = selection.filter.selectedTraits.length;
+			const count = (selection.filter.nativeSelection ?? selection.filter.selectedTraits).length;
 			return count === 1 ? '1 trait selected' : `${count} traits selected`;
 		}
 		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {

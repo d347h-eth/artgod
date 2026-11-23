@@ -13,7 +13,8 @@ import {
 	publicCollectionExtensionPagePath
 } from '$lib/runtime/public-deployment';
 
-export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, setHeaders, url }) => {
+	await parent();
 	const page = {
 		extensionKey: params.extension_key,
 		pageRef: params.page_ref
@@ -28,7 +29,10 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 		}
 		throw redirect(
 			307,
-			withQuery(publicCollectionExtensionPagePath(page.extensionKey, page.pageRef), url.searchParams)
+			withQuery(
+				publicCollectionExtensionPagePath(page.extensionKey, page.pageRef),
+				url.searchParams
+			)
 		);
 	}
 

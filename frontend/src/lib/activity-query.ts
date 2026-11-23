@@ -1,3 +1,4 @@
+import { appendCatalogScope, copyCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import {
 	ACTIVITY_FEED_FILTER_KIND,
@@ -46,7 +47,7 @@ export function normalizeCollectionActivityParams(
 	raw: URLSearchParams,
 	selection: CollectionActivitySelection
 ): URLSearchParams {
-	const params = new URLSearchParams();
+	const params = copyCatalogScope(new URLSearchParams(), raw);
 
 	const limit = raw.get('limit');
 	params.set('limit', limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT));
@@ -98,6 +99,7 @@ export function buildCollectionActivityQuery(params: {
 	extensionEvent?: ApiActivityExtensionEventRef | null;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
@@ -106,7 +108,7 @@ export function buildCollectionActivityQuery(params: {
 	contentHash?: string | null;
 	eventGroup?: string | null;
 }): URLSearchParams {
-	const query = new URLSearchParams();
+	const query = appendCatalogScope(new URLSearchParams(), params.catalogScope);
 	query.set('limit', String(params.limit));
 	if (params.extensionEvent) {
 		query.set(
@@ -139,6 +141,7 @@ export function buildCollectionActivityHref(params: {
 	extensionEvent?: ApiActivityExtensionEventRef | null;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
@@ -153,6 +156,7 @@ export function buildCollectionActivityHref(params: {
 		extensionEvent: params.extensionEvent ?? null,
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
+		catalogScope: params.catalogScope,
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null,
 		cursor: params.cursor ?? null,

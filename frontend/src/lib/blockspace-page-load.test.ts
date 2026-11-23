@@ -22,10 +22,7 @@ describe('public blockspace page load', () => {
 				bucketSize: 1024
 			})
 		];
-		const stateStatuses = [
-			QUERY_CACHE_DEBUG_STATUSES.Hit,
-			QUERY_CACHE_DEBUG_STATUSES.Miss
-		];
+		const stateStatuses = [QUERY_CACHE_DEBUG_STATUSES.Hit, QUERY_CACHE_DEBUG_STATUSES.Miss];
 		vi.doMock('$lib/runtime/public-deployment', () => ({
 			IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT: true,
 			PUBLIC_COLLECTION_SCOPE: {
@@ -54,7 +51,7 @@ describe('public blockspace page load', () => {
 					})
 				};
 			}),
-			getCollectionDetailWithHeaders: vi.fn(async () => ({
+			getCollectionViewsWithHeaders: vi.fn(async () => ({
 				payload: {
 					collection: {
 						slug: 'terraforms'
@@ -105,10 +102,7 @@ describe('standard blockspace page load', () => {
 				bucketSize: 1024
 			})
 		];
-		const stateStatuses = [
-			QUERY_CACHE_DEBUG_STATUSES.Hit,
-			QUERY_CACHE_DEBUG_STATUSES.Miss
-		];
+		const stateStatuses = [QUERY_CACHE_DEBUG_STATUSES.Hit, QUERY_CACHE_DEBUG_STATUSES.Miss];
 		vi.doMock('$lib/runtime/public-deployment', () => ({
 			IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT: false
 		}));
@@ -145,7 +139,9 @@ describe('standard blockspace page load', () => {
 				chain_ref: 'ethereum'
 			},
 			setHeaders,
-			url: new URL('http://artgod.local/ethereum/blockspace?collection=terraforms&stack=24117248:1024')
+			url: new URL(
+				'http://artgod.local/ethereum/blockspace?collection=terraforms&stack=24117248:1024'
+			)
 		} as never);
 
 		expect(result).toMatchObject({

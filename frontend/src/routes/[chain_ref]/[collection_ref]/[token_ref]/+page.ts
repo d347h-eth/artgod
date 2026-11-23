@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
@@ -30,7 +31,8 @@ import {
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, url }) => {
+	await parent();
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
@@ -89,10 +91,19 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				params.chain_ref,
 				params.collection_ref,
 				params.token_ref,
-				buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant })
+				copyCatalogScope(
+					buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant }),
+					url.searchParams
+				)
 			),
 			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref),
-			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref),
+			getTokenBiddingBidBook(
+				fetch,
+				params.chain_ref,
+				params.collection_ref,
+				params.token_ref,
+				copyCatalogScope(new URLSearchParams(), url.searchParams)
+			),
 			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref),
 			getRuntimeConfig(fetch)
 		]);

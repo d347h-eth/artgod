@@ -5,7 +5,8 @@ import {
 	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 import type { PageLoad } from './$types';
-export const load: PageLoad = ({ fetch, url }) => {
+export const load: PageLoad = async ({ parent, fetch, url }) => {
+	await parent();
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE)
 		throw error(404, 'Not found');
 	return loadCollectionChartPage(

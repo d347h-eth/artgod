@@ -1,3 +1,75 @@
+import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
+import type { LayoutLoad } from './$types';
+import { error, redirect } from '@sveltejs/kit';
+import { TRAIT_CATALOG, TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
+import { BackendApiError, getCollectionViews } from '$lib/backend-api';
+import { selectedCollectionView, appendCatalogScope } from '$lib/collection-view';
+import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
+import {
+	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+	PUBLIC_COLLECTION_SCOPE
+} from '$lib/runtime/public-deployment';
+import { joinPath, withQuery } from '$lib/route-paths';
+
 // Keep web mode SSR-enabled by default; admin/userland desktop builds run as static SPAs.
 const target = (import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() ?? 'web';
 export const ssr = target === 'web';
+
+export const load: LayoutLoad = async ({ route, params, url, fetch }) => {
+	const id = route.id ?? '';
+	const publicRoute =
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT &&
+		!id.startsWith('/[chain_ref]') &&
+		!id.startsWith('/e2e-harness') &&
+		id !== '/blockspace';
+	let scope = publicRoute ? PUBLIC_COLLECTION_SCOPE : null;
+	if (
+		!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT &&
+		id.startsWith('/[chain_ref]/[collection_ref]') &&
+		params.chain_ref &&
+		params.collection_ref
+	) {
+		scope = { chainRef: params.chain_ref, collectionRef: params.collection_ref };
+	}
+	if (IS_ADMIN_FRONTEND_TARGET || !scope) return { collectionViewPage: null };
+
+	const query = new URLSearchParams();
+	const view = url.searchParams.get(TRAIT_CATALOG_QUERY.View);
+	if (view) query.set(TRAIT_CATALOG_QUERY.View, view);
+	if (params.token_ref) query.set(PRICE_HISTORY_QUERY.TokenId, params.token_ref);
+	const basePath = publicRoute
+		? '/'
+		: '/' + encodeURIComponent(scope.chainRef) + '/' + encodeURIComponent(scope.collectionRef);
+	try {
+		const discovery = await getCollectionViews(fetch, scope.chainRef, scope.collectionRef, query);
+		if (!discovery.required) {
+			if (id.endsWith('/views')) throw error(404, 'This collection has no views.');
+			return { collectionViewPage: null };
+		}
+		const context = { ...scope, basePath, discovery };
+		const selected = selectedCollectionView(context);
+		if (!id.endsWith('/views')) {
+			if (!selected) {
+				if (view || params.token_ref)
+					throw error(404, 'This token or collection view is unavailable.');
+				throw redirect(
+					307,
+					withQuery(joinPath(basePath, 'views'), new URLSearchParams({ section: url.pathname }))
+				);
+			}
+			if (
+				view !== selected.id ||
+				url.searchParams.get(TRAIT_CATALOG_QUERY.Generation) !== String(selected.generation) ||
+				url.searchParams.get(TRAIT_CATALOG_QUERY.Catalog) !== TRAIT_CATALOG.Derived
+			) {
+				const query = new URLSearchParams(url.searchParams);
+				query.delete('cursor');
+				throw redirect(307, withQuery(url.pathname, appendCatalogScope(query, selected)));
+			}
+		}
+		return { collectionViewPage: context };
+	} catch (cause) {
+		if (cause instanceof BackendApiError) throw error(cause.status, cause.message);
+		throw cause;
+	}
+};

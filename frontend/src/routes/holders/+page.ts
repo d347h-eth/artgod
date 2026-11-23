@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
@@ -15,7 +16,8 @@ import {
 } from '$lib/runtime/public-deployment';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = async ({ fetch, url }) => {
+export const load: PageLoad = async ({ parent, fetch, url }) => {
+	await parent();
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
 	}
@@ -50,7 +52,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 };
 
 function normalizeCollectionHoldersParams(raw: URLSearchParams): URLSearchParams {
-	const params = new URLSearchParams();
+	const params = copyCatalogScope(new URLSearchParams(), raw);
 
 	const limit = raw.get('limit');
 	params.set('limit', limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT));

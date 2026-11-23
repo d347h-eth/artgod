@@ -1,3 +1,4 @@
+import { appendCatalogScope, copyCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { DEFAULT_PAGE_LIMIT, PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import {
@@ -38,7 +39,7 @@ export function normalizeTokenBrowserParams(
 	raw: URLSearchParams,
 	tokenStatus: TokenBrowserStatus
 ): URLSearchParams {
-	const params = new URLSearchParams();
+	const params = copyCatalogScope(new URLSearchParams(), raw);
 
 	const limit = raw.get(PAGINATION_QUERY_PARAMS.Limit);
 	params.set(
@@ -72,11 +73,12 @@ export function buildTokenBrowserQuery(params: {
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
 }): URLSearchParams {
-	const query = new URLSearchParams();
+	const query = appendCatalogScope(new URLSearchParams(), params.catalogScope);
 	query.set(PAGINATION_QUERY_PARAMS.Limit, String(params.limit));
 	query.set('mode', params.displayMode);
 	query.set(TOKEN_STATUS_QUERY_PARAM, params.tokenStatus);
@@ -99,6 +101,7 @@ export function buildTokenBrowserHref(params: {
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
@@ -110,6 +113,7 @@ export function buildOwnerTokensHref(params: {
 	basePath: string;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	limit?: number;
@@ -121,6 +125,7 @@ export function buildOwnerTokensHref(params: {
 	const cursor = params.cursor ?? null;
 
 	if (
+		!params.catalogScope &&
 		limit === DEFAULT_PAGE_LIMIT &&
 		displayMode === TOKEN_BROWSER_DISPLAY_MODES.Grid &&
 		!cursor?.trim() &&
@@ -139,6 +144,7 @@ export function buildOwnerTokensHref(params: {
 		tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
+		catalogScope: params.catalogScope,
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null,
 		cursor
@@ -155,12 +161,13 @@ function mediaPreferenceUsesDefault(preference: CollectionMediaPreferenceInput):
 export function buildTokenDetailHref(params: {
 	basePath: string;
 	tokenId: string;
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	returnPath?: string | null;
 	returnQuery?: string | null;
 }): string {
-	const query = new URLSearchParams();
+	const query = appendCatalogScope(new URLSearchParams(), params.catalogScope);
 	appendCollectionMediaParams(query, {
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null

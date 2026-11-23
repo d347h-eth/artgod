@@ -3,7 +3,7 @@ import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getBlockspaceStateWithHeaders,
-	getCollectionDetailWithHeaders
+	getCollectionViewsWithHeaders
 } from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
@@ -37,16 +37,9 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 				buildBlockspaceStackStateApiParams(
 					publicScope.collectionRef,
 					buildBlockspaceVisibleStackPagesFromEntries(query.stackPages)
-				).map((apiParams) =>
-					getBlockspaceStateWithHeaders(fetch, publicScope.chainRef, apiParams)
-				)
+				).map((apiParams) => getBlockspaceStateWithHeaders(fetch, publicScope.chainRef, apiParams))
 			),
-			getCollectionDetailWithHeaders(
-				fetch,
-				publicScope.chainRef,
-				publicScope.collectionRef,
-				minimalCollectionQuery()
-			)
+			getCollectionViewsWithHeaders(fetch, publicScope.chainRef, publicScope.collectionRef)
 		]);
 		forwardQueryCacheResponseHeaders(setHeaders, [
 			...stateResponses.map((response) => response.headers),
@@ -84,12 +77,6 @@ function normalizePublicBlockspaceParams(raw: URLSearchParams): {
 		stack: stack.map(formatBlockspacePageStackEntry),
 		stackPages: stack
 	};
-}
-
-function minimalCollectionQuery(): URLSearchParams {
-	const params = new URLSearchParams();
-	params.set('limit', '1');
-	return params;
 }
 
 function toKitError(cause: unknown): never {

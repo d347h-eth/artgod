@@ -1,3 +1,4 @@
+import { type CatalogScope } from '$lib/collection-view';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
@@ -12,6 +13,7 @@ export function buildCollectionTokenNavigationQuery(params: {
 	displayMode?: 'grid' | 'table';
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 }): URLSearchParams {
@@ -21,6 +23,7 @@ export function buildCollectionTokenNavigationQuery(params: {
 		tokenStatus: COLLECTION_TOKEN_STATUS_FILTERS[0],
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
+		catalogScope: params.catalogScope,
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null
 	});

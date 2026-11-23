@@ -127,10 +127,11 @@
 						<td colspan={columnCount}>
 							<div class="bid-book-demand-group-header">
 								<span class="bid-book-demand-group-title">
-									<BidBookTraitList
+									{#if group.traits.length === 0}Trait offer{:else}<BidBookTraitList
 										traits={group.traits}
 										traitValueHref={group.traitValueHref}
-									/>
+									/>{/if}
+									{#if group.viewUnresolved}<span class="muted">View match unknown</span>{/if}
 								</span>
 								{#if group.showFilterAction || group.showBidAction}
 									<div class="bid-book-demand-group-controls">
