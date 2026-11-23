@@ -1,4 +1,8 @@
-import { buildCatalogTokenPredicate } from "@artgod/shared/read-models/trait-catalog";
+import {
+    buildCatalogTokenPredicate,
+    ensureCatalogToken,
+    iterateTraitReadSnapshot,
+} from "@artgod/shared/read-models/trait-catalog";
 import { db } from "@artgod/shared/database";
 import {
     allocateFillPayment,
@@ -57,7 +61,20 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         );
     }
 
-    *iterateObservations(
+    iterateObservations(
+        input: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
+    ): Iterable<PriceHistoryObservation> {
+        const traitContext = input.traitContext;
+        if (!traitContext) return this.iterateFills(input);
+        const scope = { ...input, traitContext };
+        return iterateTraitReadSnapshot(scope, () => {
+            if (input.tokenId !== undefined)
+                ensureCatalogToken(scope, input.tokenId);
+            return this.iterateFills(input);
+        });
+    }
+
+    private *iterateFills(
         input: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
     ): Iterable<PriceHistoryObservation> {
         const filters = {

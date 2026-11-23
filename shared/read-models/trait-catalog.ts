@@ -111,31 +111,51 @@ export function readViewStatus(
     })();
 }
 
+function activeGeneration(scope: Scope) {
+    // A scalar subquery also returns a row for a missing view, allowing
+    // synchronous and streaming readers to apply the same generation check.
+    return db.raw
+        .prepare(
+            "SELECT (SELECT active_generation FROM trait_catalog_views WHERE chain_id=? AND collection_id=? AND view_id=?)",
+        )
+        .pluck()
+        .bind(scope.chainId, scope.collectionId, scope.traitContext.viewId);
+}
+
+function requireActiveGeneration(scope: Scope, active: unknown): void {
+    if (
+        active === null ||
+        (scope.traitContext.generation !== null &&
+            active !== scope.traitContext.generation)
+    )
+        throw new ReadModelBadRequestError(
+            "Collection view changed. Reload the view.",
+        );
+}
+
 /** Evaluate page, includes and statistics against the same published generation. */
 export function withTraitReadSnapshot<T>(scope: Scope, read: () => T): T {
     return db.raw.transaction(() => {
-        if (scope.traitContext.viewId !== null) {
-            const active = db.raw
-                .prepare(
-                    "SELECT active_generation FROM trait_catalog_views WHERE chain_id=? AND collection_id=? AND view_id=?",
-                )
-                .pluck()
-                .get(
-                    scope.chainId,
-                    scope.collectionId,
-                    scope.traitContext.viewId,
-                );
-            if (
-                active === undefined ||
-                (scope.traitContext.generation !== null &&
-                    active !== scope.traitContext.generation)
-            )
-                throw new ReadModelBadRequestError(
-                    "Collection view changed. Reload the view.",
-                );
-        }
+        if (scope.traitContext.viewId !== null)
+            requireActiveGeneration(scope, activeGeneration(scope).get());
         return read();
     })();
+}
+
+/** The generation cursor stays open until the streamed read finishes (including early return).
+ * SQLite therefore pins its WAL read snapshot across validation and the dependent statements. */
+export function* iterateTraitReadSnapshot<T>(
+    scope: Scope,
+    read: () => Iterable<T>,
+): IterableIterator<T> {
+    if (scope.traitContext.viewId === null) {
+        yield* read();
+        return;
+    }
+    for (const active of activeGeneration(scope).iterate()) {
+        requireActiveGeneration(scope, active);
+        yield* read();
+    }
 }
 
 function viewMembers(scope: Scope): Sql {
