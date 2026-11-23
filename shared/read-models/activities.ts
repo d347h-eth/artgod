@@ -1,3 +1,8 @@
+import type { TraitReadContext } from "../types/trait-catalog.js";
+import {
+    buildCatalogTokenPredicate,
+    withTraitReadSnapshot,
+} from "./trait-catalog.js";
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { db } from "../database/db.js";
 import { MARKET_DATA_STORAGE_POLICY } from "../market-data/storage-policy.js";
@@ -84,6 +89,7 @@ export class SqliteActivitiesReadModel {
     constructor(private readonly apm: ApmPort = NOOP_APM) {}
 
     listCollectionActivities(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
@@ -99,6 +105,7 @@ export class SqliteActivitiesReadModel {
     }): ActivityFeedPage {
         return this.withHistory(
             this.listActivities({
+                traitContext: params.traitContext,
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 limit: params.limit,
@@ -117,6 +124,7 @@ export class SqliteActivitiesReadModel {
     }
 
     listTokenActivities(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId: string;
@@ -131,6 +139,7 @@ export class SqliteActivitiesReadModel {
 
         return this.withHistory(
             this.listActivities({
+                traitContext: params.traitContext,
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId,
@@ -212,6 +221,7 @@ export class SqliteActivitiesReadModel {
     }
 
     private listActivities(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId?: string;
@@ -256,8 +266,10 @@ export class SqliteActivitiesReadModel {
             chainId: params.chainId,
             collectionId: params.collectionId,
             tokenId: params.tokenId,
-            traitFilterGroups,
-            traitRangeFilterGroups,
+            traitFilterGroups: params.traitContext ? [] : traitFilterGroups,
+            traitRangeFilterGroups: params.traitContext
+                ? []
+                : traitRangeFilterGroups,
         });
         if (traitTokenCandidates.isEmpty) {
             return emptyActivityFeedPage(limit);
@@ -286,20 +298,38 @@ export class SqliteActivitiesReadModel {
                 eventGroup: params.eventGroup,
             });
 
+        if (params.traitContext) {
+            const filter = buildCatalogTokenPredicate({
+                ...params,
+                traitContext: params.traitContext,
+                tokenColumnSql: "a.token_id",
+                traitFilterGroups,
+                traitRangeFilterGroups,
+            });
+            baseWhereClauses.push(filter.sql);
+            baseValues.push(...filter.values);
+        }
         baseWhereClauses.push(
             `(source_kind <> '${ACTIVITY_SOURCE_KIND.Offchain}' OR kind = '${ACTIVITY_KIND.ListingCreated}')`,
             `(kind <> '${ACTIVITY_KIND.ListingCreated}' OR listing_day IS NOT NULL)`,
         );
-        return listActivityPage({
-            apm: this.apm,
-            baseWhereClauses,
-            baseValues,
-            limit,
-            cursor,
-            filterKind,
-            extensionEvent: params.extensionEvent,
-            spanAttributes,
-        });
+        const read = () =>
+            listActivityPage({
+                apm: this.apm,
+                baseWhereClauses,
+                baseValues,
+                limit,
+                cursor,
+                filterKind,
+                extensionEvent: params.extensionEvent,
+                spanAttributes,
+            });
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
     }
 }
 

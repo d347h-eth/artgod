@@ -1,8 +1,5 @@
 import { db } from "../database/db.js";
-import type {
-    ApmPort,
-    SpanAttributes,
-} from "../observability/apm-contract.js";
+import type { ApmPort, SpanAttributes } from "../observability/apm-contract.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {
@@ -38,7 +35,7 @@ export function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
         if (!key || !value) {
             throw new ReadModelBadRequestError("Invalid trait filter");
         }
-        const signature = `${key}:${value}`;
+        const signature = JSON.stringify([key, value]);
         if (seen.has(signature)) continue;
         seen.add(signature);
         deduped.push({ key, value });
@@ -127,7 +124,10 @@ export function buildTokenTraitRangeJoinClauses(params: {
     const joinClauses: string[] = [];
     const values: unknown[] = [];
 
-    for (const [index, filterGroup] of params.traitRangeFilterGroups.entries()) {
+    for (const [
+        index,
+        filterGroup,
+    ] of params.traitRangeFilterGroups.entries()) {
         const alias = `trait_range_tokens_${index}`;
         const numericComparisons: string[] = [
             "a.value <> ''",
@@ -199,18 +199,15 @@ export function resolveTraitFilterTokenCandidatesWithSpan(params: {
         };
     }
 
-    return params.apm.withSyncSpan(
-        params.spanName,
-        params.spanAttributes,
-        () =>
-            resolveTraitFilterTokenCandidates({
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-                tokenId: params.tokenId,
-                seedTokenIds: params.seedTokenIds,
-                traitFilterGroups: params.traitFilterGroups,
-                traitRangeFilterGroups: params.traitRangeFilterGroups,
-            }),
+    return params.apm.withSyncSpan(params.spanName, params.spanAttributes, () =>
+        resolveTraitFilterTokenCandidates({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId: params.tokenId,
+            seedTokenIds: params.seedTokenIds,
+            traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+        }),
     );
 }
 
@@ -282,18 +279,14 @@ function listExactTraitFilterTokenIds(params: {
     const values: unknown[] = [params.chainId, params.collectionId];
     for (const filterGroup of params.traitFilterGroups) {
         const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");
-        traitClauses.push(
-            `(ak.key = ? AND a.value IN (${valuePlaceholders}))`,
-        );
+        traitClauses.push(`(ak.key = ? AND a.value IN (${valuePlaceholders}))`);
         values.push(filterGroup.key, ...filterGroup.values);
     }
-    const {
-        whereClauses: seedTokenWhereClauses,
-        values: seedTokenValues,
-    } = buildTokenCandidateWhereClauses({
-        tokenIds: params.seedTokenIds ?? null,
-        tokenColumnSql: "ta.token_id",
-    });
+    const { whereClauses: seedTokenWhereClauses, values: seedTokenValues } =
+        buildTokenCandidateWhereClauses({
+            tokenIds: params.seedTokenIds ?? null,
+            tokenColumnSql: "ta.token_id",
+        });
     values.push(
         params.chainId,
         params.collectionId,
@@ -375,13 +368,11 @@ function listTraitRangeFilterTokenIds(params: {
             values.push(filterGroup.toValue);
         }
     }
-    const {
-        whereClauses: seedTokenWhereClauses,
-        values: seedTokenValues,
-    } = buildTokenCandidateWhereClauses({
-        tokenIds: params.seedTokenIds ?? null,
-        tokenColumnSql: "ta.token_id",
-    });
+    const { whereClauses: seedTokenWhereClauses, values: seedTokenValues } =
+        buildTokenCandidateWhereClauses({
+            tokenIds: params.seedTokenIds ?? null,
+            tokenColumnSql: "ta.token_id",
+        });
     values.push(
         params.chainId,
         params.collectionId,

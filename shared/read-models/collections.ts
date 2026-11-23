@@ -1,3 +1,13 @@
+import type { TraitReadContext } from "../types/trait-catalog.js";
+import {
+    buildCatalogTokenPredicate,
+    readCatalogAttributes,
+    readCatalogFacets,
+    readCatalogTokenDetailTraits,
+    readTraitTree,
+    ensureCatalogToken,
+    withTraitReadSnapshot,
+} from "./trait-catalog.js";
 import {
     currentAskIdSql,
     normalizedAskPriceSql,
@@ -317,6 +327,7 @@ export type ListCollectionsParams = {
 };
 
 export type ListCollectionTokensParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenStatus: TokenBrowserStatus;
@@ -328,11 +339,13 @@ export type ListCollectionTokensParams = {
 };
 
 export type ListCollectionTraitFacetsOptions = {
+    traitContext?: TraitReadContext;
     excludeKeys?: string[];
     rangeOnlyKeys?: string[];
 };
 
 export type ListCollectionTraitCatalogParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     keys: string[];
@@ -340,12 +353,14 @@ export type ListCollectionTraitCatalogParams = {
 };
 
 export type GetCollectionTokenDetailParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenId: string;
 };
 
 export type ListCollectionTokenCardsByIdsParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenIds: string[];
@@ -353,12 +368,14 @@ export type ListCollectionTokenCardsByIdsParams = {
 };
 
 export type CountMarketplaceBiddingSupportedTokensByIdsParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenIds: string[];
 };
 
 export type ListCollectionHoldersParams = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     limit: number;
@@ -576,6 +593,18 @@ export class SqliteCollectionsReadModel {
     }
 
     listCollectionTokens(params: ListCollectionTokensParams): TokenCursorPage {
+        const read = () => this.listCollectionTokensSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private listCollectionTokensSnapshot(
+        params: ListCollectionTokensParams,
+    ): TokenCursorPage {
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined
@@ -597,6 +626,7 @@ export class SqliteCollectionsReadModel {
                 throw new ReadModelBadRequestError("Invalid cursor");
             }
             return this.listListedCollectionTokens({
+                traitContext: params.traitContext,
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 limit,
@@ -613,6 +643,7 @@ export class SqliteCollectionsReadModel {
                 throw new ReadModelBadRequestError("Invalid cursor");
             }
             return this.listListedThenUnlistedCollectionTokens({
+                traitContext: params.traitContext,
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 limit,
@@ -629,6 +660,7 @@ export class SqliteCollectionsReadModel {
         }
 
         return this.listAllCollectionTokens({
+            traitContext: params.traitContext,
             chainId: params.chainId,
             collectionId: params.collectionId,
             limit,
@@ -641,6 +673,7 @@ export class SqliteCollectionsReadModel {
     }
 
     private listAllCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
@@ -666,6 +699,8 @@ export class SqliteCollectionsReadModel {
             baseWhereClauses,
             baseWhereValues,
         } = buildTokenQueryParts({
+            traitContext: params.traitContext,
+            traitFilterGroups: params.traitFilterGroups,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
@@ -675,7 +710,9 @@ export class SqliteCollectionsReadModel {
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
+            traitFilterGroups: params.traitContext
+                ? []
+                : params.traitFilterGroups,
             owner: params.owner,
         });
         if (filterTokenCandidates.isEmpty) {
@@ -745,6 +782,7 @@ export class SqliteCollectionsReadModel {
                 }),
         );
         const items = hydrateTokenRowsWithNormalizedAttributes({
+            traitContext: params.traitContext,
             rows: hydratedPageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -849,6 +887,7 @@ export class SqliteCollectionsReadModel {
     }
 
     private listListedCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
@@ -874,6 +913,8 @@ export class SqliteCollectionsReadModel {
             baseWhereClauses,
             baseWhereValues,
         } = buildTokenQueryParts({
+            traitContext: params.traitContext,
+            traitFilterGroups: params.traitFilterGroups,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
@@ -883,7 +924,9 @@ export class SqliteCollectionsReadModel {
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
+            traitFilterGroups: params.traitContext
+                ? []
+                : params.traitFilterGroups,
             owner: params.owner,
         });
         if (filterTokenCandidates.isEmpty) {
@@ -956,6 +999,7 @@ export class SqliteCollectionsReadModel {
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = hydrateTokenRowsWithNormalizedAttributes({
+            traitContext: params.traitContext,
             rows: pageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -1072,6 +1116,7 @@ export class SqliteCollectionsReadModel {
     }
 
     private listListedThenUnlistedCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
@@ -1097,6 +1142,8 @@ export class SqliteCollectionsReadModel {
             baseWhereClauses,
             baseWhereValues,
         } = buildTokenQueryParts({
+            traitContext: params.traitContext,
+            traitFilterGroups: params.traitFilterGroups,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
@@ -1106,7 +1153,9 @@ export class SqliteCollectionsReadModel {
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
+            traitFilterGroups: params.traitContext
+                ? []
+                : params.traitFilterGroups,
             owner: params.owner,
         });
         if (filterTokenCandidates.isEmpty) {
@@ -1188,6 +1237,7 @@ export class SqliteCollectionsReadModel {
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = hydrateTokenRowsWithNormalizedAttributes({
+            traitContext: params.traitContext,
             rows: pageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -1307,6 +1357,41 @@ export class SqliteCollectionsReadModel {
         const rangeOnlyKeys = normalizeTraitKeyList(
             options.rangeOnlyKeys,
         ).filter((key) => !excludeKeys.includes(key));
+        if (options.traitContext) {
+            return withTraitReadSnapshot(
+                { chainId, collectionId, traitContext: options.traitContext },
+                () => {
+                    const facets = readCatalogFacets(
+                        {
+                            chainId,
+                            collectionId,
+                            traitContext: options.traitContext!,
+                        },
+                        {
+                            excludeKeys,
+                            owner: owner
+                                ? normalizeAddressRef(owner)
+                                : undefined,
+                        },
+                    );
+                    return facets.flatMap((facet) => {
+                        if (!rangeOnlyKeys.includes(facet.key)) return [facet];
+                        const bounds = resolveNumericTraitBounds(facet);
+                        return bounds.minValue === null
+                            ? []
+                            : [
+                                  {
+                                      ...facet,
+                                      ...bounds,
+                                      displayKind:
+                                          TRAIT_FILTER_DISPLAY_KIND.Range,
+                                      values: [],
+                                  },
+                              ];
+                    });
+                },
+            );
+        }
         const valueExcludeKeys = normalizeTraitKeyList([
             ...excludeKeys,
             ...rangeOnlyKeys,
@@ -1460,6 +1545,18 @@ export class SqliteCollectionsReadModel {
     listCollectionTraitCatalog(
         params: ListCollectionTraitCatalogParams,
     ): TraitCatalogFacet[] {
+        const read = () => this.listCollectionTraitCatalogSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private listCollectionTraitCatalogSnapshot(
+        params: ListCollectionTraitCatalogParams,
+    ): TraitCatalogFacet[] {
         const keys = normalizeTraitKeyList(params.keys);
         if (keys.length === 0) {
             throw new ReadModelBadRequestError(
@@ -1470,6 +1567,18 @@ export class SqliteCollectionsReadModel {
             params.scopeTraitFilters ?? [],
         );
         const traitFilterGroups = groupTraitFilters(scopeTraitFilters);
+        if (params.traitContext) {
+            const facets = readCatalogFacets(
+                { ...params, traitContext: params.traitContext },
+                { keys, traitFilterGroups },
+            );
+            const byKey = new Map(facets.map((facet) => [facet.key, facet]));
+            return keys.map((key) => ({
+                key,
+                nativeKey: byKey.get(key)?.nativeKey ?? null,
+                values: byKey.get(key)?.values ?? [],
+            }));
+        }
         const spanAttributes = {
             [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
             [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
@@ -1786,6 +1895,18 @@ export class SqliteCollectionsReadModel {
     getCollectionTokenDetail(
         params: GetCollectionTokenDetailParams,
     ): TokenDetail {
+        const read = () => this.getCollectionTokenDetailSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private getCollectionTokenDetailSnapshot(
+        params: GetCollectionTokenDetailParams,
+    ): TokenDetail {
         const tokenId = normalizeCollectionTokenId(params.tokenId);
 
         const row = this.selectTokenDetailRow({
@@ -1797,20 +1918,13 @@ export class SqliteCollectionsReadModel {
             throw new ReadModelNotFoundError("Unknown token_ref");
         }
 
-        const totalItems = countCollectionTokens(
-            params.chainId,
-            params.collectionId,
-        );
-        const attributeRows = this.selectTokenDetailTraitRows.all({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            tokenId,
-            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
-            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
-        }) as TokenDetailTraitRow[];
-        const attributes = attributeRows.map((item) =>
-            mapTokenDetailTraitRow(item, totalItems),
-        );
+        const scope = params.traitContext
+            ? { ...params, traitContext: params.traitContext }
+            : null;
+        if (scope) ensureCatalogToken(scope, tokenId);
+        const attributes = scope
+            ? readCatalogTokenDetailTraits(scope, tokenId)
+            : this.readAdditiveTokenTraits(params, tokenId);
 
         return {
             tokenId: row.token_id,
@@ -1830,15 +1944,52 @@ export class SqliteCollectionsReadModel {
                     ) as TokenCurrentHolderRow | undefined
                 )?.owner ?? null,
             attributes,
+            ...(scope ? { traitTree: readTraitTree(scope, tokenId) } : {}),
             hasMetadata: row.metadata_updated_at !== null,
             metadataUpdatedAt: row.metadata_updated_at ?? null,
         };
     }
 
+    private readAdditiveTokenTraits(
+        params: GetCollectionTokenDetailParams,
+        tokenId: string,
+    ) {
+        const totalItems = countCollectionTokens(
+            params.chainId,
+            params.collectionId,
+        );
+        const attributeRows = this.selectTokenDetailTraitRows.all({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+        }) as TokenDetailTraitRow[];
+        return attributeRows.map((item) =>
+            mapTokenDetailTraitRow(item, totalItems),
+        );
+    }
+
     getCollectionTokenPreview(
         params: GetCollectionTokenDetailParams,
     ): TokenPreview {
+        const read = () => this.getCollectionTokenPreviewSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private getCollectionTokenPreviewSnapshot(
+        params: GetCollectionTokenDetailParams,
+    ): TokenPreview {
         const tokenId = normalizeCollectionTokenId(params.tokenId);
+        const scope = params.traitContext
+            ? { ...params, traitContext: params.traitContext }
+            : null;
+        if (scope) ensureCatalogToken(scope, tokenId);
         const row = this.selectTokenPreviewRow.get({
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -1854,10 +2005,12 @@ export class SqliteCollectionsReadModel {
             animationUrl: this.resolveMediaPresentation(row.animation_url),
             attributes:
                 readNormalizedTokenAttributes({
+                    traitContext: params.traitContext,
                     chainId: params.chainId,
                     collectionId: params.collectionId,
                     tokenIds: [tokenId],
                 }).get(tokenId) ?? [],
+            ...(scope ? { traitTree: readTraitTree(scope, tokenId) } : {}),
             traitSummary: null,
         };
     }
@@ -1904,6 +2057,18 @@ export class SqliteCollectionsReadModel {
     listCollectionTokenCardsByIds(
         params: ListCollectionTokenCardsByIdsParams,
     ): TokenCard[] {
+        const read = () => this.listCollectionTokenCardsByIdsSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private listCollectionTokenCardsByIdsSnapshot(
+        params: ListCollectionTokenCardsByIdsParams,
+    ): TokenCard[] {
         const tokenIds = normalizeTokenIds(params.tokenIds);
         if (tokenIds.length === 0) {
             return [];
@@ -1925,6 +2090,13 @@ export class SqliteCollectionsReadModel {
               })
             : [];
         const placeholders = tokenIds.map(() => "?").join(", ");
+        const predicate = params.traitContext
+            ? buildCatalogTokenPredicate({
+                  ...params,
+                  traitContext: params.traitContext,
+                  tokenColumnSql: "t.token_id",
+              })
+            : { sql: "1", values: [] };
         const rows = db.raw
             .prepare(
                 `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, ` +
@@ -1941,17 +2113,19 @@ export class SqliteCollectionsReadModel {
                     "AND m.token_id = t.token_id " +
                     TOKEN_IMAGE_CACHE_JOIN_SQL +
                     "WHERE t.chain_id = ? AND t.collection_id = ? " +
-                    `AND t.token_id IN (${placeholders})`,
+                    `AND ${predicate.sql} AND t.token_id IN (${placeholders})`,
             )
             .all(
                 ...listingValues,
                 ...(includeListings ? tokenIds : []),
                 params.chainId,
                 params.collectionId,
+                ...predicate.values,
                 ...tokenIds,
             ) as TokenRow[];
 
         const hydratedRows = hydrateTokenRowsWithNormalizedAttributes({
+            traitContext: params.traitContext,
             rows,
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -1972,23 +2146,44 @@ export class SqliteCollectionsReadModel {
     countMarketplaceBiddingSupportedTokensByIds(
         params: CountMarketplaceBiddingSupportedTokensByIdsParams,
     ): number {
+        const read = () =>
+            this.countMarketplaceBiddingSupportedTokensByIdsSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private countMarketplaceBiddingSupportedTokensByIdsSnapshot(
+        params: CountMarketplaceBiddingSupportedTokensByIdsParams,
+    ): number {
         const tokenIds = normalizeTokenIds(params.tokenIds);
         if (tokenIds.length === 0) {
             return 0;
         }
 
         const placeholders = tokenIds.map(() => "?").join(", ");
+        const predicate = params.traitContext
+            ? buildCatalogTokenPredicate({
+                  ...params,
+                  traitContext: params.traitContext,
+                  tokenColumnSql: "tokens.token_id",
+              })
+            : { sql: "1", values: [] };
         const row = db.raw
             .prepare(
                 "SELECT COUNT(*) AS count " +
                     "FROM tokens " +
                     "WHERE chain_id = ? AND collection_id = ? " +
-                    `AND token_id IN (${placeholders}) ` +
+                    `AND ${predicate.sql} AND token_id IN (${placeholders}) ` +
                     "AND record_kind = ?",
             )
             .get(
                 params.chainId,
                 params.collectionId,
+                ...predicate.values,
                 ...tokenIds,
                 TOKEN_RECORD_KIND.Canonical,
             ) as { count: number };
@@ -1998,12 +2193,33 @@ export class SqliteCollectionsReadModel {
     listCollectionHolders(
         params: ListCollectionHoldersParams,
     ): CollectionHolderPage {
+        const read = () => this.listCollectionHoldersSnapshot(params);
+        return params.traitContext
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
+            : read();
+    }
+
+    private listCollectionHoldersSnapshot(
+        params: ListCollectionHoldersParams,
+    ): CollectionHolderPage {
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined
                 ? decodeHolderCursor(params.cursor)
                 : null;
         const values: unknown[] = [params.chainId, params.collectionId];
+
+        const predicate = params.traitContext
+            ? buildCatalogTokenPredicate({
+                  ...params,
+                  traitContext: params.traitContext,
+                  tokenColumnSql: "nft_balances.token_id",
+              })
+            : { sql: "1", values: [] };
+        values.push(...predicate.values);
 
         if (cursor) {
             values.push(
@@ -2017,7 +2233,9 @@ export class SqliteCollectionsReadModel {
         }
 
         const rows = db.raw
-            .prepare(buildCollectionHoldersPageSql(cursor !== null))
+            .prepare(
+                buildCollectionHoldersPageSql(cursor !== null, predicate.sql),
+            )
             .all(...values, limit + 1) as HolderRow[];
         const rowsWithData = rows.filter(
             (row) =>
@@ -2530,14 +2748,14 @@ function tokenSortKeyParams(
     return [key.bucket, key.length, key.value, key.tokenId];
 }
 
-function buildCollectionHoldersSql(): string {
+function buildCollectionHoldersSql(membership: string): string {
     return `
         WITH holder_totals AS (
             SELECT
                 owner AS owner,
                 SUM(CAST(amount AS INTEGER)) AS token_count_int
             FROM nft_balances
-            WHERE chain_id = ? AND collection_id = ?
+            WHERE chain_id = ? AND collection_id = ? AND ${membership}
             GROUP BY owner
             HAVING SUM(CAST(amount AS INTEGER)) > 0
         ),
@@ -2566,7 +2784,10 @@ function buildCollectionHoldersSql(): string {
     `.trim();
 }
 
-function buildCollectionHoldersPageSql(hasCursor: boolean): string {
+function buildCollectionHoldersPageSql(
+    hasCursor: boolean,
+    membership: string,
+): string {
     const rangeStartSql = hasCursor
         ? `(SELECT MIN(h.row_num) FROM holder_ranked h WHERE ${buildHolderAfterCursorWhereClause()})`
         : "(SELECT MIN(h.row_num) FROM holder_ranked h)";
@@ -2583,7 +2804,7 @@ function buildCollectionHoldersPageSql(hasCursor: boolean): string {
                     ORDER BY h.count_sort_length DESC, h.count_sort_value DESC, h.owner ASC
                 ) AS row_num,
                 COUNT(*) OVER () AS total_count
-            FROM (${buildCollectionHoldersSql()}) h
+            FROM (${buildCollectionHoldersSql(membership)}) h
         ),
         page_meta AS (
             SELECT
@@ -2868,6 +3089,8 @@ function withCandidateSpanAttributes(
 }
 
 function buildTokenQueryParts(params: {
+    traitContext?: TraitReadContext;
+    traitFilterGroups: TraitFilterGroup[];
     chainId: number;
     collectionId: number;
     traitRangeFilterGroups: TraitRangeFilterGroup[];
@@ -2884,6 +3107,22 @@ function buildTokenQueryParts(params: {
         "t.collection_id = ?",
     ];
     const baseWhereValues: unknown[] = [params.chainId, params.collectionId];
+
+    if (params.traitContext) {
+        const predicate = buildCatalogTokenPredicate({
+            ...params,
+            traitContext: params.traitContext,
+            tokenColumnSql: "t.token_id",
+        });
+        baseWhereClauses.push(predicate.sql);
+        baseWhereValues.push(...predicate.values);
+        return {
+            baseJoinClauses,
+            baseJoinValues,
+            baseWhereClauses,
+            baseWhereValues,
+        };
+    }
 
     const { joinClauses: traitRangeJoinClauses, values: traitRangeValues } =
         buildTokenTraitRangeJoinClauses({
@@ -3132,6 +3371,7 @@ function resolveTokenImagePresentation(
 }
 
 function hydrateTokenRowsWithNormalizedAttributes(params: {
+    traitContext?: TraitReadContext;
     rows: TokenRow[];
     chainId: number;
     collectionId: number;
@@ -3145,6 +3385,7 @@ function hydrateTokenRowsWithNormalizedAttributes(params: {
         new Set(params.rows.map((row) => row.token_id)),
     );
     const attributesByTokenId = readNormalizedTokenAttributes({
+        traitContext: params.traitContext,
         chainId: params.chainId,
         collectionId: params.collectionId,
         tokenIds,
@@ -3157,10 +3398,16 @@ function hydrateTokenRowsWithNormalizedAttributes(params: {
 
 // Cards and fullscreen previews share the same ordered metadata and extension traits.
 function readNormalizedTokenAttributes(params: {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenIds: string[];
 }): Map<string, TokenAttribute[]> {
+    if (params.traitContext)
+        return readCatalogAttributes(
+            { ...params, traitContext: params.traitContext },
+            params.tokenIds,
+        );
     const placeholders = params.tokenIds.map(() => "?").join(", ");
     const rows = db.raw
         .prepare(
