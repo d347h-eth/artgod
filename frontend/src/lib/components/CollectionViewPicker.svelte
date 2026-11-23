@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import {
+		collectionViewPickerHref,
 		selectedCollectionView,
 		selectCollectionViewHref,
 		type CollectionViewPage
 	} from '$lib/collection-view';
-	import { joinPath, withQuery } from '$lib/route-paths';
 
 	let {
 		context,
@@ -36,12 +36,7 @@
 		if (leaf) {
 			void goto(selectCollectionViewHref(path, query, leaf));
 		} else if (active) {
-			void goto(
-				withQuery(
-					joinPath(context.basePath, 'views'),
-					new URLSearchParams({ group: id, section: path })
-				)
-			);
+			void goto(collectionViewPickerHref(context.basePath, path, query, id));
 		} else {
 			choosingGroup = id;
 		}
