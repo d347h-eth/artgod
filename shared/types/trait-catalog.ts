@@ -96,6 +96,9 @@ export type TraitProjection = {
 export interface TraitCatalogMapper {
     unclassified: CollectionViewDescriptor;
     classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor;
+    /** Ordered, equivalent native keys for a single pinned value. Discovery tests
+     * these exact alternatives only when members prefer different source spellings. */
+    equivalentPinKeys?(view: CollectionViewDescriptor): readonly string[];
     structure?(
         view: CollectionViewDescriptor,
         version: string,

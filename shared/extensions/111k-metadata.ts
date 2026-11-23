@@ -9,10 +9,13 @@ export const NFT111K_METADATA = {
     Revealed: "revealed",
 } as const;
 
+/** Prefer the lower-case canonical key when both exact spellings are available. */
+export const NFT111K_BLOCK_KEYS = [
+    NFT111K_METADATA.CollectionBlock,
+    NFT111K_METADATA.CollectionBlockAlias,
+] as const;
+
 /** Both source spellings identify artwork blocks, with their case preserved for native criteria. */
 export function isNft111kBlockKey(key: unknown): boolean {
-    return (
-        key === NFT111K_METADATA.CollectionBlock ||
-        key === NFT111K_METADATA.CollectionBlockAlias
-    );
+    return NFT111K_BLOCK_KEYS.some((blockKey) => blockKey === key);
 }

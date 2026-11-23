@@ -44,6 +44,49 @@ export function readTokenViewId(
     );
 }
 
+function readCommonViewPins(
+    chainId: number,
+    collectionId: number,
+    view: CollectionViewDescriptor,
+    mapper: TraitCatalogMapper,
+    commonPreferredKey: string | null,
+): TraitFilter[] {
+    const pin = view.pinnedTraits[0];
+    if (!pin) return [];
+    if (commonPreferredKey === pin.key) return view.pinnedTraits;
+    if (view.pinnedTraits.length !== 1) return [];
+    const alternatives = mapper.equivalentPinKeys?.(view) ?? [];
+    if (commonPreferredKey !== null)
+        return alternatives.includes(commonPreferredKey)
+            ? [{ key: commonPreferredKey, value: pin.value }]
+            : [];
+    if (!alternatives.length) return [];
+
+    // Classification already proves each member's preferred key. Consult strict
+    // source links only for members that preferred another equivalent key.
+    const missing = db.prepare(`
+        SELECT 1 FROM trait_catalog_members m
+        WHERE m.chain_id=? AND m.collection_id=? AND m.view_id=? AND m.scope_key<>?
+          AND NOT EXISTS (
+              SELECT 1 FROM (${CANONICAL_TRAIT_RELATION_SQL}) f
+              WHERE f.chain_id=m.chain_id AND f.collection_id=m.collection_id AND f.token_id=m.token_id
+                AND f.key=? AND f.value=?
+          ) LIMIT 1
+    `);
+    const key = alternatives.find(
+        (candidate) =>
+            !missing.get(
+                chainId,
+                collectionId,
+                view.id,
+                candidate,
+                candidate,
+                pin.value,
+            ),
+    );
+    return key === undefined ? [] : [{ key, value: pin.value }];
+}
+
 export function readViewStatus(
     chainId: number,
     collectionId: number,
@@ -58,18 +101,20 @@ export function readViewStatus(
         const rows = db.raw
             .prepare(
                 `SELECT descriptor_json,active_generation,mapper_version,
-            COALESCE(m.classified,0) classified,m.scope_key,
+            COALESCE(m.classified,0) classified,m.scope_key,m.scope_complete,
             COALESCE(m.errors,0)+(SELECT COUNT(*) FROM trait_catalog_work w WHERE w.generation=v.active_generation AND w.error IS NOT NULL) failed,
             (SELECT COUNT(*) FROM trait_catalog_projections p WHERE p.chain_id=v.chain_id AND p.collection_id=v.collection_id AND p.view_id=v.view_id AND p.generation=v.active_generation) ready,
             (SELECT MAX(generation) FROM trait_catalog_rebuilds r WHERE r.chain_id=v.chain_id AND r.collection_id=v.collection_id AND r.view_id=v.view_id) latest
             FROM trait_catalog_views v JOIN trait_catalog_generations g ON g.generation=v.active_generation
             LEFT JOIN (SELECT view_id,COUNT(*) classified,COUNT(classification_error) errors,
-                    CASE WHEN COUNT(scope_key)=COUNT(*) AND MIN(scope_key)=MAX(scope_key) THEN MIN(scope_key) END scope_key
+                    COUNT(scope_key)=COUNT(*) AND COUNT(classification_error)=0 AS scope_complete,
+                    CASE WHEN MIN(scope_key)=MAX(scope_key) THEN MIN(scope_key) END scope_key
                     FROM trait_catalog_members WHERE chain_id=? AND collection_id=? ${viewId === undefined ? "" : "AND view_id=?"} GROUP BY view_id) m ON m.view_id=v.view_id
             WHERE v.chain_id=? AND v.collection_id=? ${viewId === undefined ? "" : "AND v.view_id=?"} ORDER BY v.view_id`,
             )
             .all(...bindScope, ...bindScope) as {
             scope_key: string | null;
+            scope_complete: number | null;
             descriptor_json: string;
             active_generation: number;
             mapper_version: string;
@@ -84,11 +129,14 @@ export function readViewStatus(
             );
             return {
                 ...descriptor,
-                pinnedTraits: row.scope_key
-                    ? descriptor.pinnedTraits.map((pin) => ({
-                          ...pin,
-                          key: row.scope_key!,
-                      }))
+                pinnedTraits: row.scope_complete
+                    ? readCommonViewPins(
+                          chainId,
+                          collectionId,
+                          descriptor,
+                          mapper,
+                          row.scope_key,
+                      )
                     : [],
 
                 classified: row.classified,
