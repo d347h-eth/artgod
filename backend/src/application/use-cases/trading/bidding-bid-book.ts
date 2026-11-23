@@ -1,3 +1,7 @@
+import type {
+    TraitReadContext,
+    ViewOfferApplicability,
+} from "@artgod/shared/types/trait-catalog";
 import { formatEther } from "viem";
 import type {
     ChainRecord,
@@ -41,6 +45,7 @@ export type {
 } from "@artgod/shared/types";
 
 type PersistedBiddingBidBookRowBase = {
+    viewApplicability?: ViewOfferApplicability;
     orderId: string;
     source: TradingBiddingBidBookSource;
     scopeKind: TradingBiddingBidScopeKind;
@@ -162,6 +167,7 @@ export type PersistedBiddingBidBook = {
 
 export interface BiddingBidBookRepositoryPort {
     listCollectionBidBook(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeOwnJobContext: boolean;
@@ -185,6 +191,8 @@ type BiddingBidBookRowViewBase = {
     orderId: string;
     source: TradingBiddingBidBookSource;
     scope: {
+        viewApplicability?: ViewOfferApplicability;
+        encodedTokenIds?: string;
         kind: TradingBiddingBidScopeKind;
         label: string;
         tokenId: string | null;
@@ -317,6 +325,12 @@ function mapPersistedBidRowToView(
         orderId: bid.orderId,
         source: bid.source,
         scope: {
+            ...(bid.viewApplicability
+                ? { viewApplicability: bid.viewApplicability }
+                : {}),
+            ...(bid.encodedTokenIds
+                ? { encodedTokenIds: bid.encodedTokenIds }
+                : {}),
             kind: bid.scopeKind,
             label: bid.scopeLabel,
             tokenId: bid.tokenId,
