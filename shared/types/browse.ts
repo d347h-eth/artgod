@@ -288,6 +288,7 @@ export type TraitCatalogFacetValue = {
 };
 
 export type TraitFacet = {
+    nativeKey?: string | null;
     key: string;
     displayKind: TraitFilterDisplayKind;
     minValue: string | null;
@@ -296,6 +297,7 @@ export type TraitFacet = {
 };
 
 export type TraitCatalogFacet = {
+    nativeKey?: string | null;
     key: string;
     values: TraitCatalogFacetValue[];
 };
