@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE as Target,
@@ -15,7 +15,14 @@ import {
 	TRAIT_FILTER_DISPLAY_KIND as Display,
 	TRADING_BIDDING_BID_SCOPE_KIND as Scope
 } from '@artgod/shared/types';
-import { selectCollectionViewHref } from './collection-view';
+import {
+	COLLECTION_VIEW_PICKER_QUERY,
+	collectionViewPickerHref,
+	resolveCollectionViewPickerDestination,
+	selectCollectionViewHref
+} from './collection-view';
+
+const match = vi.fn<typeof import('$app/paths').match>();
 
 const view = {
 	id: 'example',
@@ -80,6 +87,57 @@ it('clears filters and cursor only when choosing a new view', () => {
 		['mode', ...Object.values(TRAIT_CATALOG_QUERY)].sort()
 	);
 	expect(url.searchParams.get(TRAIT_CATALOG_QUERY.View)).toBe(view.id);
+});
+
+it.each(['https://example.test', 'tauri://localhost'])(
+	'preserves the same section controls across a parent picker and a direct switch on %s',
+	async (origin) => {
+		const basePath = '/chain/collection';
+		const path = `${basePath}/activity`;
+		const controls = new URLSearchParams(
+			'sort=oldest&limit=25&media_mode=snapshot&cursor=old&traits=key:value'
+		);
+		match.mockResolvedValueOnce({
+			id: '/[chain_ref]/[collection_ref]/activity',
+			params: { chain_ref: 'chain', collection_ref: 'collection' }
+		});
+		const picker = new URL(collectionViewPickerHref(basePath, path, controls, 'art'), origin);
+		const resume = await resolveCollectionViewPickerDestination(basePath, picker, match);
+		expect(picker.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group)).toBe('art');
+		expect(resume).toEqual({ path, query: 'sort=oldest&limit=25&media_mode=snapshot' });
+		expect(selectCollectionViewHref(resume.path, new URLSearchParams(resume.query), view)).toBe(
+			selectCollectionViewHref(path, controls, view)
+		);
+	}
+);
+
+it('falls back to the collection for external, stale and recursive picker destinations', async () => {
+	const basePath = '/chain/collection';
+	const picker = new URL(`${basePath}/views`, 'https://example.test');
+	const fallback = { path: basePath, query: '' };
+	for (const section of [
+		'//elsewhere.test/activity',
+		'/chain/other/activity',
+		'/chain/collection/../other'
+	]) {
+		picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Section, section);
+		expect(await resolveCollectionViewPickerDestination(basePath, picker, match)).toEqual(fallback);
+	}
+	picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Section, `${basePath}/missing/route`);
+	match.mockResolvedValueOnce(null);
+	expect(await resolveCollectionViewPickerDestination(basePath, picker, match)).toEqual(fallback);
+	picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Section, `${basePath}/views?limit=2`);
+	match.mockResolvedValueOnce({
+		id: '/[chain_ref]/[collection_ref]/views',
+		params: { chain_ref: 'chain', collection_ref: 'collection' }
+	});
+	expect(await resolveCollectionViewPickerDestination(basePath, picker, match)).toEqual(fallback);
+	picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Section, '/blockspace');
+	match.mockResolvedValueOnce({ id: '/blockspace', params: {} });
+	expect(await resolveCollectionViewPickerDestination('/', picker, match)).toEqual({
+		path: '/',
+		query: ''
+	});
 });
 
 it('keeps finite and numeric offer scopes out of exact trait drafts', () => {
