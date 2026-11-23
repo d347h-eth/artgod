@@ -227,6 +227,11 @@ using the complete key/value and current media selection. Values that cannot
 round-trip through the existing trait-filter query grammar remain plain text.
 The template summary has no filter links.
 
+In a structured collection view, the traits page opens a collapsible tree.
+Values with a matching flat catalog field link to filtered tokens in the same
+view and generation. Instance properties such as a painting's artist remain
+readable within their group. Large groups support search and paging.
+
 The intentional hidden mode stays completely empty. Saving customization clears
 the frontend preview cache, including pending prefetches, so the next preview
 uses the saved template.
