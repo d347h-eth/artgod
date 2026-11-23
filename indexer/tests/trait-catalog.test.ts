@@ -26,6 +26,7 @@ import { readCanonicalTokenTraits } from "@artgod/shared/database/canonical-trai
 import {
     NFT111K_MAINNET_CONTRACT_ADDRESS,
     NFT111K_METADATA,
+    NFT111K_STRUCTURED_BLOCK,
     nft111kTraitCatalog,
 } from "@artgod/shared/extensions/111k";
 import {
@@ -138,6 +139,34 @@ describe("local trait catalog lifecycle", () => {
         catalog = new SqliteTraitCatalog(() => resolve());
         metadata = new SqliteMetadataStore(debug, catalog);
     });
+    it("pins the preferred exact block key shared by all current members, including pending projections", () => {
+        const primary = {
+            key: NFT111K_METADATA.CollectionBlock,
+            value: NFT111K_STRUCTURED_BLOCK.Backrooms,
+        };
+        const alias = {
+            ...primary,
+            key: NFT111K_METADATA.CollectionBlockAlias,
+        };
+        const id = nft111kTraitCatalog.classify([primary]).id;
+        const pins = () =>
+            readViewStatus(chainId, collectionId, nft111kTraitCatalog, id)[0]
+                .pinnedTraits;
+        observe("1", [alias, primary]);
+        observe("2", [primary]);
+        expect(pins()).toEqual([primary]);
+        observe("2", [alias, primary]);
+        expect(pins()).toEqual([primary]);
+        observe("2", [alias]);
+        expect(pins()).toEqual([alias]);
+        observe("1", [primary]);
+        expect(pins()).toEqual([]);
+        observe("1", driMi);
+        expect(pins()).toEqual([alias]);
+        observe("2", driMi);
+        expect(pins()).toEqual([]);
+    });
+
     it("retains atomic source-owned projection work, replaces obsolete traits and rejects superseded leases", () => {
         const before = [
             ...driMi,

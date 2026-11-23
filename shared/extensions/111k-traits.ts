@@ -13,6 +13,7 @@ import type {
     TraitProjection,
 } from "../types/trait-catalog.js";
 import {
+    NFT111K_BLOCK_KEYS,
     NFT111K_METADATA as META,
     isNft111kBlockKey,
 } from "./111k-metadata.js";
@@ -52,9 +53,9 @@ function classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor {
         };
     }
     if (!block) return UNCLASSIFIED;
-    const nativeKey = pairs.some((pair) => pair.key === META.CollectionBlock)
-        ? META.CollectionBlock
-        : META.CollectionBlockAlias;
+    const nativeKey = NFT111K_BLOCK_KEYS.find((key) =>
+        pairs.some((pair) => pair.key === key),
+    )!;
     return {
         id: JSON.stringify(["block", block]),
         label: block,
@@ -92,6 +93,8 @@ const structuredBlocks = new Map([
 export const nft111kTraitCatalog: TraitCatalogMapper = {
     unclassified: UNCLASSIFIED,
     classify,
+    equivalentPinKeys: (view) =>
+        isNft111kBlockKey(view.pinnedTraits[0]?.key) ? NFT111K_BLOCK_KEYS : [],
     availableVersion: (view) =>
         structuredBlocks.get(view.id)?.version ?? IDENTITY_VERSION,
     structure(view, version) {
