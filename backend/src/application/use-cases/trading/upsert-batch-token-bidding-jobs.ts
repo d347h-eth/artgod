@@ -144,8 +144,10 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 pricingSource: pricing.pricingSource,
             }));
         // Persist the batch as one SQLite transaction and enqueue one command per affected job.
-        const result =
-            this.biddingJobsRepositoryPort.upsertTokenJobs(persistedInputs);
+        const result = this.biddingJobsRepositoryPort.upsertTokenJobs(
+            persistedInputs,
+            traitContext,
+        );
         // Publish a post-commit wake-up so the running bot scans all durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,

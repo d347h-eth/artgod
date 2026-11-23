@@ -76,7 +76,8 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             },
             supportingTraitTargets(),
             {
-                upsertCollectionJob: (input) => {
+                upsertCollectionJob: (input, assertNewTargetSupported) => {
+                    assertNewTargetSupported!();
                     persistedInputs.push(input);
                     return {
                         job: buildPersistedTraitJob({
@@ -227,7 +228,8 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                     ),
             },
             {
-                upsertCollectionJob: () => {
+                upsertCollectionJob: (_input, assertNewTargetSupported) => {
+                    assertNewTargetSupported!();
                     persistenceCalls += 1;
                     throw new Error("Unexpected trait job persistence");
                 },

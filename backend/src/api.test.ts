@@ -1,3 +1,4 @@
+import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
 import { SqliteNativeTokenRead } from "./infra/trading/sqlite-native-token-read.js";
 import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from "@artgod/shared/types";
 import {
@@ -25,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { BiddingJobView } from "./application/use-cases/trading/types.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
     MARKET_DATA_STORAGE_POLICY,
@@ -1623,6 +1624,71 @@ describe("backend api routes", () => {
                 auth,
             );
             expect(outside.statusCode).toBe(422);
+            const batchWrite = base + "/bidding/jobs/tokens/batch?" + query;
+            const batchRequest = {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                selection: {
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                    tokenStatus: "all",
+                    traits: [],
+                },
+            };
+            const repository = SqliteBiddingJobsRepository.prototype;
+            const write = repository.upsertTokenJobs;
+            const commandKinds = listTradingCommandKinds();
+            for (const changeScope of [
+                () =>
+                    db
+                        .prepare(
+                            "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
+                        )
+                        .run(collectionId),
+                () =>
+                    db
+                        .prepare(
+                            "UPDATE trait_catalog_views SET active_generation=? WHERE collection_id=? AND view_id=?",
+                        )
+                        .run(generation + 1, collectionId, view.id),
+            ]) {
+                db.exec("SAVEPOINT changed_batch_scope");
+                const hook = vi
+                    .spyOn(repository, "upsertTokenJobs")
+                    .mockImplementationOnce(function (
+                        this: SqliteBiddingJobsRepository,
+                        inputs,
+                        context,
+                    ) {
+                        // The reader has finished selecting both tokens before the indexer changes the scope.
+                        changeScope();
+                        return write.call(this, inputs, context);
+                    });
+                try {
+                    const rejected = await resolve(
+                        "PUT",
+                        batchWrite,
+                        batchRequest,
+                        auth,
+                    );
+                    expect(hook).toHaveBeenCalledOnce();
+                    expect(rejected.statusCode).toBe(422);
+                    expect(listTradingCommandKinds()).toEqual(commandKinds);
+                } finally {
+                    hook.mockRestore();
+                    db.exec("ROLLBACK TO changed_batch_scope");
+                    db.exec("RELEASE changed_batch_scope");
+                }
+            }
+            const accepted = await resolve(
+                "PUT",
+                batchWrite,
+                batchRequest,
+                auth,
+            );
+            expect(accepted.statusCode).toBe(200);
+            expect(accepted.payload.tokenIds).toEqual(["1", "2"]);
             const pending = await resolve("GET", base + "/2?" + query);
             expect(pending.payload.token).toMatchObject({
                 attributes: [],
@@ -3459,6 +3525,95 @@ describe("backend api routes", () => {
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
             TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
+    });
+
+    it("edits and archives the original native trait job after its last source disappears", async () => {
+        db.exec("SAVEPOINT stale_native_target");
+        try {
+            clearTradingJobFixtures();
+            const csrf = await issueAdminCsrf();
+            const jobs = "/api/ethereum/milady/bidding/jobs";
+            const targetTraits = [{ type: "Mood", value: "Calm" }];
+            const declaration = {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                targetTraits,
+            };
+            const created = await resolve(
+                "PUT",
+                jobs + "/traits",
+                declaration,
+                csrf,
+            );
+            expect(created.statusCode).toBe(200);
+            const job = created.payload.job;
+            db.prepare(
+                "DELETE FROM token_attributes WHERE collection_id=? AND attribute_id IN (SELECT a.id FROM attributes a JOIN attribute_keys k ON k.id=a.attribute_key_id WHERE k.key=? AND a.value=?)",
+            ).run(
+                getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id,
+                targetTraits[0].type,
+                targetTraits[0].value,
+            );
+
+            const lookup = await resolve(
+                "POST",
+                jobs + "/target-lookup",
+                { target: { type: "trait", quantity: 1, targetTraits } },
+                csrf,
+            );
+            expect(lookup.payload.job.jobId).toBe(job.jobId);
+            const edit = await resolve(
+                "PUT",
+                jobs + "/traits",
+                {
+                    ...declaration,
+                    floorEth: "0.12",
+                    status: TRADING_JOB_STATUS.Paused,
+                },
+                csrf,
+            );
+            expect(edit.statusCode).toBe(200);
+            expect(edit.payload.job).toMatchObject({
+                jobId: job.jobId,
+                target: job.target,
+                status: TRADING_JOB_STATUS.Paused,
+                config: { floorEth: "0.12" },
+                revision: job.revision + 1,
+            });
+            const commandsAfterEdit = listTradingCommandKinds();
+            // A different quantity creates a separate native declaration.
+            expect(
+                (
+                    await resolve(
+                        "PUT",
+                        jobs + "/traits",
+                        { ...declaration, quantity: 2 },
+                        csrf,
+                    )
+                ).statusCode,
+            ).toBe(422);
+            expect(listTradingCommandKinds()).toEqual(commandsAfterEdit);
+            const archived = await resolve(
+                "DELETE",
+                jobs + "/" + job.jobId,
+                undefined,
+                csrf,
+            );
+            expect(archived.payload.job.status).toBe(
+                TRADING_JOB_STATUS.Archived,
+            );
+            const commandsAfterArchive = listTradingCommandKinds();
+            expect(
+                (await resolve("PUT", jobs + "/traits", declaration, csrf))
+                    .statusCode,
+            ).toBe(422);
+            expect(listTradingCommandKinds()).toEqual(commandsAfterArchive);
+        } finally {
+            db.exec("ROLLBACK TO stale_native_target");
+            db.exec("RELEASE stale_native_target");
+        }
     });
 
     it("creates collection-wide bidding jobs via admin routes", async () => {
