@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetTokenBiddingBidBookInput,
@@ -28,6 +29,7 @@ export class GetTokenBiddingBidBookHttpAdapter {
         request: FastifyRequest<GetTokenBiddingBidBookRoute>,
     ) => {
         return await this.getTokenBiddingBidBookPort.getTokenBiddingBidBook({
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,

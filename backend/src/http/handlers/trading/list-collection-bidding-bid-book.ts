@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import { parseBiddingBidBookPriceTierFilter } from "@artgod/shared/trading/bid-book-own-state";
 import type { FastifyRequest } from "fastify";
 import { PAGINATION_QUERY_PARAMS } from "@artgod/shared/config/pagination";
@@ -75,6 +76,7 @@ export class ListCollectionBiddingBidBookHttpAdapter {
         const searchParams = getSearchParams(request);
         return await this.listCollectionBiddingBidBookPort.listCollectionBiddingBidBook(
             {
+                ...catalogRequest(request),
                 chainRef: request.params.chain_ref,
                 collectionRef: request.params.collection_ref,
                 includeOwnJobContext: this.includeOwnJobContext,

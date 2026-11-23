@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { SpanAttributes } from "@artgod/shared/observability/apm";
@@ -41,6 +42,7 @@ export class GetCollectionTraitCatalogHttpAdapter {
     ): GetCollectionTraitCatalogInput {
         const searchParams = getSearchParams(request);
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             keys: parseTraitCatalogKeys(searchParams),
@@ -67,7 +69,8 @@ export function getCollectionTraitCatalogSpanAttributes(
             countDelimitedQuerySegments(searchParams, [
                 TRAIT_CATALOG_QUERY_PARAMS.Keys,
                 TRAIT_CATALOG_QUERY_PARAMS.Key,
-            ]),
+            ]) +
+            searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.ExactKey).length,
         [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
             countDelimitedQuerySegments(searchParams, [
                 TRAIT_CATALOG_QUERY_PARAMS.ScopeTraits,
@@ -81,7 +84,13 @@ function parseTraitCatalogKeys(searchParams: URLSearchParams): string[] {
         ...searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.Keys),
         ...searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.Key),
     ];
-    const keys = parseDelimitedQueryValues(values);
+    const exactKeys = searchParams
+        .getAll(TRAIT_CATALOG_QUERY_PARAMS.ExactKey)
+        .map((key) => key.trim())
+        .filter(Boolean);
+    const keys = [
+        ...new Set([...parseDelimitedQueryValues(values), ...exactKeys]),
+    ];
     if (keys.length === 0) {
         throw new ReadModelBadRequestError("Trait catalog keys are required");
     }

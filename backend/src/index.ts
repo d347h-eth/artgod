@@ -1,3 +1,10 @@
+import { SqliteNativeTokenRead } from "./infra/trading/sqlite-native-token-read.js";
+import { resolveCollectionTraitMapper } from "./application/collection-extensions/index.js";
+import { CollectionViewsUseCase } from "./application/use-cases/collections/collection-views.js";
+import {
+    requestTraitCatalogRebuild,
+    getTraitCatalogRebuild,
+} from "@artgod/shared/database/trait-catalog-rebuilds";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { pathToFileURL } from "node:url";
@@ -511,18 +518,20 @@ export function createBackendApp(
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
     );
+    const publicCollection = createPublicCollectionDefaultMediaModePort(
+        config,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+    );
     const tokenPreview = maybeCreateCachedGetTokenPreviewPort(
         config,
         getTokenPreviewUseCase,
+        publicCollection.requiresView,
     );
     const collectionDetail = maybeCreateCollectionDetailPort(
         config,
         getCollectionDetailUseCase,
-        createPublicCollectionDefaultMediaModePort(
-            config,
-            chainsReadModel,
-            extensionAwareCollectionsReadModel,
-        ),
+        publicCollection,
         tokenPreview.warmup,
     );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
@@ -619,28 +628,31 @@ export function createBackendApp(
             chainsReadModel,
             biddingJobCeilingPrefillsRead,
         );
+    const nativeTokenRead = new SqliteNativeTokenRead(
+        extensionAwareCollectionsReadModel,
+    );
     const getTokenBiddingJobUseCase = new GetTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
-        extensionAwareCollectionsReadModel,
+        nativeTokenRead,
         biddingJobsRepository,
     );
     const getTokenBiddingBidBookUseCase = new GetTokenBiddingBidBookUseCase(
         config.defaultChainId,
         chainsReadModel,
-        extensionAwareCollectionsReadModel,
+        nativeTokenRead,
         biddingBidBookRepository,
     );
     const biddingJobTargetLookupUseCase = new BiddingJobTargetLookupUseCase(
         config.defaultChainId,
         chainsReadModel,
-        extensionAwareCollectionsReadModel,
+        nativeTokenRead,
         biddingJobsRepository,
     );
     const upsertTokenBiddingJobUseCase = new UpsertTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
-        extensionAwareCollectionsReadModel,
+        nativeTokenRead,
         biddingJobsRepository,
         biddingPriceTiersRepository,
         tradingJobCommandSignalPublisher,
@@ -715,7 +727,7 @@ export function createBackendApp(
     const archiveTokenBiddingJobUseCase = new ArchiveTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
-        extensionAwareCollectionsReadModel,
+        nativeTokenRead,
         biddingJobsRepository,
         tradingJobCommandSignalPublisher,
     );
@@ -820,6 +832,12 @@ export function createBackendApp(
         publicGetSyncBackfillStateUseCase,
         competitionPresetsUseCase,
         competitionPresetReapplyUseCase,
+        new CollectionViewsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            { requestTraitCatalogRebuild, getTraitCatalogRebuild },
+        ),
     );
     collectionDetail.lifecycle?.start();
     app.addHook("preClose", async () => {
@@ -872,7 +890,10 @@ function maybeCreatePublicBlockspaceUseCase(
 function maybeCreateCollectionDetailPort(
     config: BackendConfig,
     port: GetCollectionDetailPort,
-    defaultMediaModePort: { getDefaultMediaMode(): string | Promise<string> },
+    defaultMediaModePort: {
+        getDefaultMediaMode(): string | Promise<string>;
+        requiresView(): boolean;
+    },
     tokenPreviewWarmupPort: TokenPreviewWarmupPort | null,
 ): {
     port: GetCollectionDetailPort;
@@ -912,6 +933,7 @@ function maybeCreateCollectionDetailPort(
 function maybeCreateCachedGetTokenPreviewPort(
     config: BackendConfig,
     port: GetTokenPreviewPort,
+    requiresView: () => boolean,
 ): {
     port: GetTokenPreviewPort;
     warmup: TokenPreviewWarmupPort | null;
@@ -928,6 +950,7 @@ function maybeCreateCachedGetTokenPreviewPort(
     }
 
     const cachedPort = new CachedGetTokenPreview(cache, port, {
+        requiresView,
         freshMs: config.queryCache.tokenPreview.freshMs,
         staleMs: config.queryCache.tokenPreview.staleMs,
         warmupConcurrency: config.queryCache.tokenPreview.warmupConcurrency,
@@ -966,28 +989,38 @@ function createPublicCollectionDefaultMediaModePort(
         resolveCollectionRef(
             chainId: number,
             collectionRef: string,
-        ): { collectionId: number };
+        ): { collectionId: number; extensions?: { key: string }[] };
         getCollectionMediaState(params: {
             chainId: number;
             collectionId: number;
             mediaMode?: string;
         }): { defaultMode: string };
     },
-): { getDefaultMediaMode(): string } {
+) {
+    const resolveCollection = () => {
+        const scope = config.deployment.publicCollectionScope;
+        if (!scope) {
+            throw new Error("Missing public collection scope");
+        }
+        const chain = chainRefResolverPort.resolveChainRef(
+            scope.chainRef,
+            config.defaultChainId,
+        );
+        const collection = collectionDetailReadPort.resolveCollectionRef(
+            chain.publicChainId,
+            scope.collectionRef,
+        );
+        return { chain, collection };
+    };
     return {
+        requiresView(): boolean {
+            const { collection } = resolveCollection();
+            return Boolean(
+                resolveCollectionTraitMapper(collection.extensions ?? []),
+            );
+        },
         getDefaultMediaMode(): string {
-            const scope = config.deployment.publicCollectionScope;
-            if (!scope) {
-                throw new Error("Missing public collection scope");
-            }
-            const chain = chainRefResolverPort.resolveChainRef(
-                scope.chainRef,
-                config.defaultChainId,
-            );
-            const collection = collectionDetailReadPort.resolveCollectionRef(
-                chain.publicChainId,
-                scope.collectionRef,
-            );
+            const { chain, collection } = resolveCollection();
             const media = collectionDetailReadPort.getCollectionMediaState({
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,

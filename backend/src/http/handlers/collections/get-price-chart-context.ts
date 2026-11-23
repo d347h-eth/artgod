@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 import type { GetPriceChartContextPort } from "../../../application/use-cases/collections/get-price-chart-context.js";
@@ -19,6 +20,7 @@ export class GetPriceChartContextHttpAdapter {
     ) => {
         const query = getSearchParams(request);
         return this.context.getPriceChartContext({
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             traits: parseTraits(query),

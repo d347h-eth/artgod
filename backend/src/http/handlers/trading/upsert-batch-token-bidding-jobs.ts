@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import { parseBiddingBidBookPriceTierFilter } from "@artgod/shared/trading/bid-book-own-state";
 import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
@@ -66,6 +67,7 @@ export class UpsertBatchTokenBiddingJobsHttpAdapter {
         request: FastifyRequest<UpsertBatchTokenBiddingJobsRoute>,
     ): UpsertBatchTokenBiddingJobsInput {
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             includeOwnJobContext: this.includeOwnJobContext,
