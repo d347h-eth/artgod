@@ -78,14 +78,6 @@ export class UpsertTraitBiddingJobUseCase {
             input.collectionRef,
         );
         const targetTraits = normalizeNativeJobTarget(input.targetTraits);
-        assertMarketplaceBiddingSupportedTargetTraits({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            targetTraits,
-            traitBiddingTargetSupportReadPort:
-                this.traitBiddingTargetSupportReadPort,
-        });
-
         // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
         const pricing = resolveBiddingJobPricing({
             chainId: chain.publicChainId,
@@ -108,8 +100,17 @@ export class UpsertTraitBiddingJobUseCase {
             competitionPresetVersionId: input.competitionPresetVersionId,
         };
         // Persist the desired trait job and enqueue the matching Outbox command.
-        const result =
-            this.biddingJobsRepositoryPort.upsertCollectionJob(persistedInput);
+        const result = this.biddingJobsRepositoryPort.upsertCollectionJob(
+            persistedInput,
+            () =>
+                assertMarketplaceBiddingSupportedTargetTraits({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    targetTraits,
+                    traitBiddingTargetSupportReadPort:
+                        this.traitBiddingTargetSupportReadPort,
+                }),
+        );
         // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,

@@ -73,11 +73,20 @@ export interface BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
-    upsertTokenJobs(inputs: UpsertTokenBiddingJobInput[]): {
+    // Check the selected view and generation for every token under the batch writer lock.
+    upsertTokenJobs(
+        inputs: UpsertTokenBiddingJobInput[],
+        traitContext?: TraitReadContext,
+    ): {
         jobs: PersistedTokenBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     };
-    upsertCollectionJob(input: UpsertCollectionBiddingJobInput): {
+    // Run native admission only when creating a declaration. The exact existing
+    // target stays editable after metadata or display bindings disappear.
+    upsertCollectionJob(
+        input: UpsertCollectionBiddingJobInput,
+        assertNewTargetSupported?: () => void,
+    ): {
         job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };

@@ -658,7 +658,10 @@ export class SqliteBiddingJobsRepository
         )(input);
     }
 
-    upsertTokenJobs(inputs: UpsertTokenBiddingJobInput[]): {
+    upsertTokenJobs(
+        inputs: UpsertTokenBiddingJobInput[],
+        traitContext?: TraitReadContext,
+    ): {
         jobs: PersistedTokenBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     } {
@@ -666,6 +669,11 @@ export class SqliteBiddingJobsRepository
             (transactionInputs: UpsertTokenBiddingJobInput[]) => {
                 const jobs: PersistedTokenBiddingJobRecord[] = [];
                 const commands: TradingJobCommandRecord[] = [];
+                if (traitContext?.viewId != null && transactionInputs.length)
+                    this.assertBatchViewMembership(
+                        transactionInputs,
+                        traitContext,
+                    );
                 for (const input of transactionInputs) {
                     const result = this.upsertTokenJobInTransaction(input);
                     jobs.push(result.job);
@@ -676,7 +684,54 @@ export class SqliteBiddingJobsRepository
         )(inputs);
     }
 
-    upsertCollectionJob(input: UpsertCollectionBiddingJobInput): {
+    // The indexer can reclassify a token or publish a generation between
+    // browser pagination and acquisition of the declaration/outbox writer lock.
+    private assertBatchViewMembership(
+        inputs: UpsertTokenBiddingJobInput[],
+        context: TraitReadContext,
+    ): void {
+        const { chainId, collectionId } = inputs[0];
+        const ids = inputs.map((input) => {
+            if (
+                input.chainId !== chainId ||
+                input.collectionId !== collectionId
+            )
+                throw new TradingValidationError(
+                    "Token selection spans multiple collections",
+                );
+            return input.tokenId;
+        });
+        const current = db
+            .prepare(
+                `
+            SELECT 1 FROM trait_catalog_views v
+            JOIN collection_extension_installs i USING(chain_id, collection_id)
+            WHERE v.chain_id=? AND v.collection_id=? AND v.view_id=?
+              AND i.enabled=1 AND v.active_generation=?
+              AND NOT EXISTS (
+                  SELECT 1 FROM json_each(?) selected WHERE NOT EXISTS (
+                      SELECT 1 FROM trait_catalog_members m
+                      WHERE m.chain_id=v.chain_id AND m.collection_id=v.collection_id
+                        AND m.view_id=v.view_id AND m.token_id=selected.value))
+        `,
+            )
+            .get(
+                chainId,
+                collectionId,
+                context.viewId,
+                context.generation,
+                JSON.stringify(ids),
+            );
+        if (!current)
+            throw new TradingValidationError(
+                "Token selection changed. Reload this view and select the tokens again.",
+            );
+    }
+
+    upsertCollectionJob(
+        input: UpsertCollectionBiddingJobInput,
+        assertNewTargetSupported?: () => void,
+    ): {
         job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } {
@@ -692,6 +747,7 @@ export class SqliteBiddingJobsRepository
                     targetTraits,
                 });
 
+                if (!existing) assertNewTargetSupported?.();
                 this.assertCompetitionPresetSelection(
                     transactionInput,
                     targetTraits,
