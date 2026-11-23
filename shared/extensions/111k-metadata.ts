@@ -8,3 +8,11 @@ export const NFT111K_METADATA = {
     RevealStatus: "revealStatus",
     Revealed: "revealed",
 } as const;
+
+/** Both source spellings identify artwork blocks, with their case preserved for native criteria. */
+export function isNft111kBlockKey(key: unknown): boolean {
+    return (
+        key === NFT111K_METADATA.CollectionBlock ||
+        key === NFT111K_METADATA.CollectionBlockAlias
+    );
+}
