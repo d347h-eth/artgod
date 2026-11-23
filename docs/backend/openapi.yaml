@@ -30,6 +30,9 @@ paths:
             operationId: getPriceChartContext
             description: Returns chart navigation, media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists. Thumbnail reads remain snapshot-only.
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaMode"
@@ -74,6 +77,9 @@ paths:
                 key are ORed; keys and numeric ranges are ANDed. Filtered requests
                 bypass the public snapshot cache.
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - name: bucket
@@ -379,6 +385,9 @@ paths:
             summary: Get collection activity feed
             operationId: getCollectionActivity
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaMode"
@@ -481,6 +490,9 @@ paths:
             summary: Get collection detail with token page and trait facets
             operationId: getCollectionDetail
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/Limit"
@@ -706,9 +718,12 @@ paths:
         get:
             tags: [Collections]
             summary: Get exact minted counts for requested collection trait keys
-            description: At least one nonblank trait key must be supplied through `keys` or `key`.
+            description: At least one nonblank trait key must be supplied through `keys`, `key` or `exact_key`.
             operationId: getCollectionTraitCatalog
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - name: keys
@@ -751,6 +766,14 @@ paths:
                           type: string
                   style: form
                   explode: true
+                - name: exact_key
+                  in: query
+                  description: One exact trait field key, including any literal commas. Repeat this parameter for additional keys.
+                  style: form
+                  explode: true
+                  schema:
+                      type: array
+                      items: { type: string }
             responses:
                 "200":
                     description: Trait-value counts for requested keys within the optional scope
@@ -771,6 +794,9 @@ paths:
             summary: Get collection customization
             operationId: getCollectionCustomization
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
             responses:
@@ -794,6 +820,9 @@ paths:
                 - csrfHeader: []
                   csrfCookie: []
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
             requestBody:
@@ -887,6 +916,9 @@ paths:
                 Private Userland reads accept `ownership=own` to include locally owned market bids and addressless local job intent. It cannot be combined with `maker`.
             operationId: listCollectionBiddingBidBook
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaMode"
@@ -1377,6 +1409,9 @@ paths:
                 - csrfHeader: []
                   csrfCookie: []
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
             requestBody:
@@ -1449,6 +1484,9 @@ paths:
                 - csrfHeader: []
                   csrfCookie: []
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
             requestBody:
@@ -1540,12 +1578,100 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/collection-views:
+        get:
+            tags: [Collections]
+            operationId: discoverCollectionViews
+            summary: Discover collection views
+            description: Returns installed view descriptors, classification and projection coverage, the active and available versions and, on local deployments, the latest rebuild. A direct token link can resolve its current view.
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TraitView"
+                - name: token_id
+                  in: query
+                  schema: { type: string }
+            responses:
+                "200":
+                    description: Discover collection views
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionViewsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+
+    /api/{chain_ref}/{collection_ref}/trait-catalog/rebuilds:
+        post:
+            tags: [Collections]
+            operationId: startTraitCatalogRebuild
+            summary: Start or retry a local view rebuild
+            description: Uses the selected view and saved canonical traits. Public deployments omit this mutation.
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TraitView"
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                mapperVersion: { type: string }
+                                retryRunId: { type: integer, minimum: 1 }
+            responses:
+                "200":
+                    description: Start or retry a local view rebuild
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TraitCatalogRebuildResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+
+    /api/{chain_ref}/{collection_ref}/trait-catalog/rebuilds/{run_id}:
+        get:
+            tags: [Collections]
+            operationId: getTraitCatalogRebuild
+            summary: Read local rebuild progress
+            description: Returns the requested durable rebuild for this collection. Local deployments expose this read.
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: run_id
+                  in: path
+                  required: true
+                  schema: { type: integer, minimum: 1 }
+            responses:
+                "200":
+                    description: Read local rebuild progress
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TraitCatalogRebuildResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+
     /api/{chain_ref}/{collection_ref}/holders:
         get:
             tags: [Collections]
             summary: Get collection holders
             operationId: getCollectionHolders
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/Limit"
@@ -1570,6 +1696,9 @@ paths:
             summary: Get token activity feed
             operationId: getTokenActivity
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -1686,6 +1815,9 @@ paths:
             description: Returns display-only bid rows applicable to the token across collection, trait, token-set, and exact-token scopes. Private Userland reads include the current collection bidding authorization; public reads return `null` for that field.
             operationId: getTokenBiddingBidBook
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -1712,6 +1844,9 @@ paths:
                 by dedicated static routes first.
             operationId: getTokenDetail
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -1739,6 +1874,9 @@ paths:
             description: Reuses collection grid media selection, current ask, and effective trait summary template. Applies the public collection scope guard.
             operationId: getTokenCard
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -1768,6 +1906,9 @@ paths:
                 `image`, and `animationUrl`.
             operationId: getTokenPreview
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -1795,6 +1936,9 @@ paths:
             description: Uses the enabled collection extension's token-URI resolver when available and otherwise calls the ERC-721 collection contract through the current RPC; it does not return indexed metadata.
             operationId: getTokenUri
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
@@ -2279,6 +2423,21 @@ components:
             schema:
                 type: string
             description: Chain slug or EVM network chain ID as a decimal string, not the database-local ChainRecord.id.
+        TraitView:
+            name: view
+            in: query
+            description: Opaque selectable leaf ID returned by collection-views. Required for collection browsing when the extension declares exclusive views.
+            schema: { type: string }
+        TraitCatalogKind:
+            name: trait_catalog
+            in: query
+            description: Explicit canonical reads use normalized metadata only. Derived reads require a supporting extension.
+            schema: { type: string, enum: [canonical, derived] }
+        TraitGeneration:
+            name: generation
+            in: query
+            description: Requested active view generation. Stale requests must reload the selected view.
+            schema: { type: integer, minimum: 1 }
         CollectionRef:
             name: collection_ref
             in: path
@@ -2517,6 +2676,108 @@ components:
                         message: Internal server error
 
     schemas:
+        CollectionViewsResponse:
+            type: object
+            required: [required, views, selectedViewId, collection]
+            properties:
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                required: { type: boolean }
+                selectedViewId: { type: string, nullable: true }
+                views:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionViewStatus"
+        CollectionViewStatus:
+            type: object
+            required:
+                [
+                    id,
+                    label,
+                    parent,
+                    pinnedTraits,
+                    generation,
+                    classified,
+                    ready,
+                    activeMapperVersion,
+                    availableMapperVersion,
+                ]
+            properties:
+                id: { type: string }
+                label: { type: string }
+                parent:
+                    type: object
+                    nullable: true
+                    required: [id, label]
+                    properties:
+                        id: { type: string }
+                        label: { type: string }
+                pinnedTraits:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitFilter"
+                generation: { type: integer }
+                classified: { type: integer }
+                ready: { type: integer }
+                activeMapperVersion: { type: string }
+                availableMapperVersion: { type: string }
+                structure:
+                    type: array
+                    items:
+                        type: object
+                        required: [label, fields]
+                        properties:
+                            label: { type: string }
+                            fields:
+                                type: array
+                                items: { type: string }
+                latestRun:
+                    type: object
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/TraitCatalogRebuild"
+        TraitCatalogRebuildResponse:
+            type: object
+            required: [rebuild]
+            properties:
+                rebuild:
+                    $ref: "#/components/schemas/TraitCatalogRebuild"
+        TraitCatalogRebuild:
+            type: object
+            required:
+                [
+                    runId,
+                    viewId,
+                    generation,
+                    mapperVersion,
+                    status,
+                    processed,
+                    total,
+                    error,
+                ]
+            properties:
+                runId: { type: integer }
+                viewId: { type: string }
+                generation: { type: integer }
+                mapperVersion: { type: string }
+                status: { type: string, enum: [running, failed, completed] }
+                processed: { type: integer }
+                total: { type: integer }
+                error: { type: string, nullable: true }
+        TraitTreeNode:
+            type: object
+            required: [id, label, kind]
+            properties:
+                id: { type: string }
+                kind: { type: string, enum: [group, entity, leaf] }
+                label: { type: string }
+                value: { type: string }
+                source:
+                    $ref: "#/components/schemas/TraitFilter"
+                children:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitTreeNode"
         BootstrapOperationStream:
             type: string
             description: |
@@ -3469,6 +3730,11 @@ components:
                 ]
             additionalProperties: false
             properties:
+                native:
+                    type: object
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/TraitFilter"
                 key:
                     type: string
                 value:
@@ -3501,6 +3767,11 @@ components:
                 ]
             additionalProperties: false
             properties:
+                traitTree:
+                    type: array
+                    nullable: true
+                    items:
+                        $ref: "#/components/schemas/TraitTreeNode"
                 tokenId:
                     type: string
                 marketplaceBiddingSupported:
@@ -3553,6 +3824,11 @@ components:
             required: [tokenId, image, animationUrl, attributes, traitSummary]
             additionalProperties: false
             properties:
+                traitTree:
+                    type: array
+                    nullable: true
+                    items:
+                        $ref: "#/components/schemas/TraitTreeNode"
                 tokenId:
                     type: string
                 image:
@@ -3843,6 +4119,11 @@ components:
             required: [value, tokenCount, marketplaceBiddingSupported]
             additionalProperties: false
             properties:
+                native:
+                    type: object
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/TraitFilter"
                 value:
                     type: string
                 tokenCount:
@@ -3855,6 +4136,11 @@ components:
             required: [value, tokenCount]
             additionalProperties: false
             properties:
+                native:
+                    type: object
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/TraitFilter"
                 value:
                     type: string
                 tokenCount:
@@ -3865,6 +4151,7 @@ components:
             required: [key, displayKind, minValue, maxValue, values]
             additionalProperties: false
             properties:
+                nativeKey: { type: string, nullable: true }
                 key:
                     type: string
                 displayKind:
@@ -3878,19 +4165,20 @@ components:
                 values:
                     type: array
                     items:
-                        $ref: "#/components/schemas/TraitCatalogFacetValue"
+                        $ref: "#/components/schemas/TraitFacetValue"
 
         TraitCatalogFacet:
             type: object
             required: [key, values]
             additionalProperties: false
             properties:
+                nativeKey: { type: string, nullable: true }
                 key:
                     type: string
                 values:
                     type: array
                     items:
-                        $ref: "#/components/schemas/TraitFacetValue"
+                        $ref: "#/components/schemas/TraitCatalogFacetValue"
 
         TraitCatalog:
             type: object
@@ -4800,6 +5088,9 @@ components:
                     required: [kind, label, tokenId, traits]
                     additionalProperties: false
                     properties:
+                        viewApplicability:
+                            { type: string, enum: [matched, unresolved] }
+                        encodedTokenIds: { type: string }
                         kind:
                             $ref: "#/components/schemas/BiddingBidScopeKind"
                         label:
@@ -5765,6 +6056,29 @@ components:
             required: [chain, collection, media, traits, tokens]
             additionalProperties: false
             properties:
+                catalogContext:
+                    type: object
+                    required:
+                        [
+                            catalog,
+                            viewId,
+                            generation,
+                            pinnedTraits,
+                            nativeSelection,
+                        ]
+                    properties:
+                        catalog: { type: string, enum: [canonical, derived] }
+                        viewId: { type: string, nullable: true }
+                        generation: { type: integer, nullable: true }
+                        pinnedTraits:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        nativeSelection:
+                            type: array
+                            nullable: true
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:

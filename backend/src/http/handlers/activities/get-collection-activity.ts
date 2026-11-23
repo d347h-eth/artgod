@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import { PAGINATION_QUERY_PARAMS } from "@artgod/shared/config/pagination";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
@@ -119,6 +120,7 @@ export class GetCollectionActivityHttpAdapter {
         );
 
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             limit,

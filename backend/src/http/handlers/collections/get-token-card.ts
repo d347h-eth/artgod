@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetTokenCardInput,
@@ -25,6 +26,7 @@ export class GetTokenCardHttpAdapter {
     ): Promise<GetTokenCardOutput> => {
         const query = getSearchParams(request);
         return this.cards.getTokenCard({
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,

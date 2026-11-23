@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type { BiddingCompetitionPresetReapplyUseCase } from "../../../application/use-cases/trading/bidding-competition-preset-reapply.js";
@@ -20,7 +21,11 @@ export class BiddingCompetitionPresetReapplyHttpAdapter {
 
     readonly preview = async (
         request: FastifyRequest<CompetitionPresetReapplyRoute>,
-    ) => this.reapply.previewCompetitionPresetReapply(this.scope(request));
+    ) =>
+        this.reapply.previewCompetitionPresetReapply({
+            ...this.scope(request),
+            ...catalogRequest(request),
+        });
 
     readonly apply = async (
         request: FastifyRequest<CompetitionPresetReapplyRoute>,

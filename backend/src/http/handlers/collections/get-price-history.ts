@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import { PRICE_HISTORY_QUERY } from "@artgod/shared/http/collection-routes";
 import type { GetPriceHistoryPort } from "../../../application/use-cases/collections/get-price-history.js";
@@ -15,6 +16,7 @@ export class GetPriceHistoryHttpAdapter {
     readonly handle = async (request: FastifyRequest<GetPriceHistoryRoute>) => {
         const query = getSearchParams(request);
         return this.prices.getPriceHistory({
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             bucket: query.get(PRICE_HISTORY_QUERY.Bucket) ?? undefined,

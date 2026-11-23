@@ -1,8 +1,14 @@
+import { encodeTraitQueryPair } from "./trait-query.js";
 import type { PriceHistoryRequest } from "../types/price-history.js";
 import { TRAIT_FILTER_QUERY_PARAMS } from "../types/browse.js";
 
 // Collection API route templates registered by the backend.
 export const COLLECTION_API_ROUTE_TEMPLATE = {
+    CollectionViews: "/api/:chain_ref/:collection_ref/collection-views",
+    TraitCatalogRebuilds:
+        "/api/:chain_ref/:collection_ref/trait-catalog/rebuilds",
+    TraitCatalogRebuild:
+        "/api/:chain_ref/:collection_ref/trait-catalog/rebuilds/:run_id",
     PriceHistory: "/api/:chain_ref/:collection_ref/price-history",
     PriceChartContext: "/api/:chain_ref/:collection_ref/chart-context",
     TokenCard: "/api/:chain_ref/:collection_ref/:token_ref/card",
@@ -36,12 +42,15 @@ export function buildPriceHistoryPath(
     for (const trait of input.traits ?? [])
         query.append(
             TRAIT_FILTER_QUERY_PARAMS.Traits,
-            `${trait.key}:${trait.value}`,
+            encodeTraitQueryPair(trait.key, trait.value),
         );
     for (const range of input.traitRanges ?? [])
         query.append(
             TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
-            `${range.key}:${range.fromValue ?? ""}..${range.toValue ?? ""}`,
+            encodeTraitQueryPair(
+                range.key,
+                `${range.fromValue ?? ""}..${range.toValue ?? ""}`,
+            ),
         );
     return (
         buildCollectionRoute(COLLECTION_API_ROUTE_TEMPLATE.PriceHistory, {
@@ -145,4 +154,23 @@ function buildCollectionRoute(
             COLLECTION_API_COLLECTION_REF_PARAM,
             encodeURIComponent(input.collectionRef),
         );
+}
+
+export function buildCollectionViewsPath(
+    chainRef: string,
+    collectionRef: string,
+): string {
+    return buildCollectionRoute(COLLECTION_API_ROUTE_TEMPLATE.CollectionViews, {
+        chainRef,
+        collectionRef,
+    });
+}
+export function buildTraitCatalogRebuildsPath(
+    chainRef: string,
+    collectionRef: string,
+): string {
+    return buildCollectionRoute(
+        COLLECTION_API_ROUTE_TEMPLATE.TraitCatalogRebuilds,
+        { chainRef, collectionRef },
+    );
 }

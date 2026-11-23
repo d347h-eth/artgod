@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import {
     COLLECTION_MEDIA_SOURCE,
@@ -89,7 +90,10 @@ export class UpdateCollectionCustomizationHttpAdapter {
         request: FastifyRequest<UpdateCollectionCustomizationRoute>,
     ): UpdateCollectionCustomizationInput {
         const traitFilterPresentation = request.body?.traitFilterPresentation;
-        if (!traitFilterPresentation || typeof traitFilterPresentation !== "object") {
+        if (
+            !traitFilterPresentation ||
+            typeof traitFilterPresentation !== "object"
+        ) {
             throw new ReadModelBadRequestError(
                 "traitFilterPresentation is required",
             );
@@ -120,7 +124,9 @@ export class UpdateCollectionCustomizationHttpAdapter {
         }
         const mediaPurposePolicy = request.body?.mediaPurposePolicy;
         if (!mediaPurposePolicy || typeof mediaPurposePolicy !== "object") {
-            throw new ReadModelBadRequestError("mediaPurposePolicy is required");
+            throw new ReadModelBadRequestError(
+                "mediaPurposePolicy is required",
+            );
         }
 
         const selectedSource = parseSelectedSource(
@@ -169,6 +175,7 @@ export class UpdateCollectionCustomizationHttpAdapter {
         );
 
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             traitFilterPresentation: {
@@ -287,7 +294,9 @@ function parseImageCacheMode(value: unknown): ImageCacheMode {
     );
 }
 
-function parseMediaPurposePolicyConfig(value: unknown): MediaPurposePolicyConfig {
+function parseMediaPurposePolicyConfig(
+    value: unknown,
+): MediaPurposePolicyConfig {
     if (!value || typeof value !== "object") {
         throw new ReadModelBadRequestError(
             "mediaPurposePolicy.userConfig must be an object",

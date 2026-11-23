@@ -1,4 +1,21 @@
+import { SqliteNativeTokenRead } from "./infra/trading/sqlite-native-token-read.js";
+import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from "@artgod/shared/types";
 import {
+    buildCollectionViewsPath,
+    buildTraitCatalogRebuildsPath,
+} from "@artgod/shared/http/collection-routes";
+import {
+    TRAIT_CATALOG,
+    TRAIT_CATALOG_QUERY,
+    TRAIT_CATALOG_REBUILD_STATUS,
+} from "@artgod/shared/types/trait-catalog";
+import { CollectionViewsUseCase } from "./application/use-cases/collections/collection-views.js";
+import {
+    getTraitCatalogRebuild,
+    requestTraitCatalogRebuild,
+} from "@artgod/shared/database/trait-catalog-rebuilds";
+import {
+    buildLookupBatchTokenBiddingJobsPath,
     buildCompetitionPresetsPath,
     buildCompetitionPresetReapplyPreviewPath,
     buildCompetitionPresetReapplyPath,
@@ -93,6 +110,7 @@ import {
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    nft111kTraitCatalog,
     NFT111K_EXTENSION_KEY,
     NFT111K_MAINNET_CHAIN_ID,
     NFT111K_MAINNET_CONTRACT_ADDRESS,
@@ -608,25 +626,26 @@ beforeAll(async () => {
             chainsReadModel,
             biddingJobCeilingPrefillsRead,
         );
+    const nativeTokenRead = new SqliteNativeTokenRead(collectionsReadModel);
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
         );
     const getTokenBiddingBidBookUseCase =
         new getTokenBiddingBidBookUseCaseModule.GetTokenBiddingBidBookUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingBidBookRepository,
         );
     const biddingJobTargetLookupUseCase =
         new biddingJobTargetLookupUseCaseModule.BiddingJobTargetLookupUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
         );
     const tradingJobCommandSignalPort = {
@@ -636,7 +655,7 @@ beforeAll(async () => {
         new upsertTokenBiddingJobUseCaseModule.UpsertTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
@@ -713,7 +732,7 @@ beforeAll(async () => {
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
             tradingJobCommandSignalPort,
         );
@@ -1173,6 +1192,10 @@ beforeAll(async () => {
         null,
         competitionPresetsUseCase,
         competitionPresetReapplyUseCase,
+        new CollectionViewsUseCase(1, chainsReadModel, collectionsReadModel, {
+            getTraitCatalogRebuild,
+            requestTraitCatalogRebuild,
+        }),
     );
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -1242,6 +1265,10 @@ beforeAll(async () => {
         null,
         competitionPresetsUseCase,
         competitionPresetReapplyUseCase,
+        new CollectionViewsUseCase(1, chainsReadModel, collectionsReadModel, {
+            getTraitCatalogRebuild,
+            requestTraitCatalogRebuild,
+        }),
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
@@ -1353,6 +1380,309 @@ afterAll(async () => {
 });
 
 describe("backend api routes", () => {
+    it("scopes collection reads, continuations and local rebuilds to the selected published view", async () => {
+        const collectionId =
+            getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+        const base = "/api/ethereum/milady";
+        const discovery = buildCollectionViewsPath("ethereum", "milady");
+        const rebuilds = buildTraitCatalogRebuildsPath("ethereum", "milady");
+        const pin = { key: "Hat", value: "Beanie" };
+        const view = {
+            id: "fixture-view",
+            label: "Beanies",
+            parent: null,
+            pinnedTraits: [pin],
+        };
+        const mapperVersion = nft111kTraitCatalog.availableVersion(view);
+        db.exec("SAVEPOINT collection_view_api_fixture");
+        db.prepare(
+            "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,enabled,config_json) VALUES(1,?,?,1,'{}')",
+        ).run(collectionId, NFT111K_EXTENSION_KEY);
+        try {
+            db.prepare(
+                "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,?)",
+            ).run(collectionId, view.id, JSON.stringify(view));
+            const generation = Number(
+                db
+                    .prepare(
+                        "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,?)",
+                    )
+                    .run(collectionId, view.id, mapperVersion).lastInsertRowid,
+            );
+            db.prepare(
+                "UPDATE trait_catalog_views SET active_generation=? WHERE chain_id=1 AND collection_id=? AND view_id=?",
+            ).run(generation, collectionId, view.id);
+            for (const id of ["1", "2"]) {
+                db.prepare(
+                    "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision,scope_key) VALUES(1,?,?,?,1,?)",
+                ).run(collectionId, view.id, id, pin.key);
+            }
+            db.prepare(
+                "INSERT INTO trait_catalog_projections(chain_id,collection_id,view_id,generation,token_id,revision,tree_json) VALUES(1,?,?,?,'1',1,'[]')",
+            ).run(collectionId, view.id, generation);
+            db.prepare(
+                "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value,native_key,native_value,native_field_key) VALUES(1,?,?,?,'1','Colour','Colour','quiet','Mood','Calm',NULL)",
+            ).run(collectionId, view.id, generation);
+            const query = new URLSearchParams({
+                [TRAIT_CATALOG_QUERY.View]: view.id,
+                [TRAIT_CATALOG_QUERY.Generation]: String(generation),
+            });
+            expect((await resolve("GET", discovery)).payload).toMatchObject({
+                required: true,
+                selectedViewId: null,
+                views: [
+                    {
+                        id: view.id,
+                        classified: 2,
+                        ready: 1,
+                        generation,
+                        pinnedTraits: [pin],
+                    },
+                ],
+            });
+            expect(
+                (await resolve("GET", discovery + "?token_id=1")).payload
+                    .selectedViewId,
+            ).toBe(view.id);
+            expect((await resolve("GET", base)).statusCode).toBe(400);
+            const browse = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&limit=1",
+            );
+            expect(browse.statusCode).toBe(200);
+            expect(browse.payload.tokens).toMatchObject({
+                totalItems: 2,
+                items: [
+                    {
+                        tokenId: "1",
+                        attributes: [{ key: "Colour", value: "quiet" }],
+                    },
+                ],
+            });
+            expect(browse.payload.traits.facets).toMatchObject([
+                {
+                    key: "Colour",
+                    values: [
+                        {
+                            tokenCount: 1,
+                            native: { key: "Mood", value: "Calm" },
+                        },
+                    ],
+                },
+            ]);
+            const customization = base + "/customization?" + query;
+            const csrf = await issueAdminCsrf();
+            const settings = {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: { rangeKeys: ["Rank"] },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: { template: "Card {Colour}" },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: { template: "Activity {Colour}" },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
+            };
+            db.prepare(
+                "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value) VALUES(1,?,?,?,'1','Rank','Rank','7')",
+            ).run(collectionId, view.id, generation);
+            const update = await resolve("PUT", customization, settings, csrf);
+            expect(update.statusCode).toBe(200);
+            expect(
+                update.payload.customization.traitFilterPresentation,
+            ).toMatchObject({
+                availableTraitKeys: ["Colour", "Rank"],
+                effectiveConfig: { rangeKeys: ["Rank"] },
+            });
+            expect(
+                (await resolve("GET", base + "/1/preview?" + query)).payload
+                    .token.traitSummary,
+            ).toBe("Card quiet");
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        buildTokenCardPath({
+                            chainRef: "ethereum",
+                            collectionRef: "milady",
+                            tokenRef: "1",
+                        }) +
+                            "?" +
+                            query,
+                    )
+                ).payload.token.traitSummary,
+            ).toBe("Card quiet");
+            expect(
+                (await resolve("GET", base + "/activity?kind=sales&" + query))
+                    .payload.included.tokensById["1"].traitSummary,
+            ).toBe("Activity quiet");
+            expect(
+                (
+                    await resolve("GET", base + "?token_status=all&" + query)
+                ).payload.traits.facets.find(
+                    (facet: { key: string }) => facet.key === "Rank",
+                ),
+            ).toMatchObject({ displayKind: "range" });
+            const canonicalSettings = await resolve(
+                "GET",
+                customization + "&trait_catalog=" + TRAIT_CATALOG.Canonical,
+            );
+            expect(
+                canonicalSettings.payload.customization.traitFilterPresentation
+                    .availableTraitKeys,
+            ).not.toContain("Rank");
+            expect(
+                canonicalSettings.payload.customization
+                    .tokenCardTraitSummaryTemplate.effectiveConfig.template,
+            ).toBe("");
+            const badRange = await resolve(
+                "PUT",
+                customization,
+                {
+                    ...settings,
+                    traitFilterPresentation: {
+                        selectedSource: "user",
+                        userConfig: { rangeKeys: ["Power"] },
+                    },
+                },
+                csrf,
+            );
+            expect(badRange.statusCode).toBe(400);
+            const cursor = encodeURIComponent(browse.payload.tokens.nextCursor);
+            const canonical =
+                base +
+                "?" +
+                query +
+                "&token_status=all&trait_catalog=" +
+                TRAIT_CATALOG.Canonical;
+            expect(
+                (await resolve("GET", canonical + "&cursor=" + cursor))
+                    .statusCode,
+            ).toBe(400);
+            expect(
+                (await resolve("GET", canonical)).payload.traits.facets.map(
+                    (f: { key: string }) => f.key,
+                ),
+            ).toContain("Hat");
+            // A client may repeat the visible pin in the request. Membership includes pending tokens.
+            const pinnedOnly = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&traits=Hat:Beanie",
+            );
+            expect(pinnedOnly.payload.tokens.totalItems).toBe(2);
+            const selected = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&traits=Colour:quiet",
+            );
+            expect(selected.payload.catalogContext).toMatchObject({
+                viewId: view.id,
+                generation,
+                pinnedTraits: [pin],
+                nativeSelection: [pin, { key: "Mood", value: "Calm" }],
+            });
+            expect(
+                selected.payload.tokens.items.map(
+                    (item: { tokenId: string }) => item.tokenId,
+                ),
+            ).toEqual(["1"]);
+            const batch =
+                buildLookupBatchTokenBiddingJobsPath({
+                    chainRef: "ethereum",
+                    collectionRef: "milady",
+                }) +
+                "?" +
+                query;
+            const auth = await issueAdminCsrf();
+            const filtered = await resolve(
+                "POST",
+                batch,
+                {
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                        tokenStatus: "all",
+                        traits: [{ key: "Colour", value: "quiet" }],
+                    },
+                },
+                auth,
+            );
+            expect(filtered.payload.tokenIds).toEqual(["1"]);
+            const outside = await resolve(
+                "POST",
+                batch,
+                {
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                        tokenIds: ["1", "10"],
+                    },
+                },
+                auth,
+            );
+            expect(outside.statusCode).toBe(422);
+            const pending = await resolve("GET", base + "/2?" + query);
+            expect(pending.payload.token).toMatchObject({
+                attributes: [],
+                traitTree: null,
+            });
+            expect(
+                (await resolve("GET", base + "/10?" + query)).statusCode,
+            ).toBe(404);
+            expect(
+                (
+                    await resolve("POST", rebuilds + "?" + query, {
+                        mapperVersion,
+                    })
+                ).statusCode,
+            ).toBe(403);
+            const started = await resolve(
+                "POST",
+                rebuilds + "?" + query,
+                { mapperVersion },
+                await issueAdminCsrf(),
+            );
+            expect(started.payload.rebuild).toMatchObject({
+                viewId: view.id,
+                status: TRAIT_CATALOG_REBUILD_STATUS.Running,
+                total: 2,
+            });
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        rebuilds + "/" + started.payload.rebuild.runId,
+                    )
+                ).payload.rebuild,
+            ).toEqual(started.payload.rebuild);
+            expect(
+                (
+                    await resolvePublic(
+                        "GET",
+                        buildCollectionViewsPath("ethereum", "terraforms"),
+                    )
+                ).payload.required,
+            ).toBe(false);
+            expect((await resolvePublic("GET", discovery)).statusCode).toBe(
+                404,
+            );
+            expect(
+                (
+                    await resolvePublic(
+                        "POST",
+                        buildTraitCatalogRebuildsPath("ethereum", "terraforms"),
+                        {},
+                        await issueAdminCsrf(),
+                    )
+                ).statusCode,
+            ).toBe(404);
+        } finally {
+            db.exec("ROLLBACK TO collection_view_api_fixture");
+            db.exec("RELEASE collection_view_api_fixture");
+        }
+    });
     it("returns the default chain", async () => {
         const result = await resolve("GET", "/api/chains/default");
         expect(result.statusCode).toBe(200);

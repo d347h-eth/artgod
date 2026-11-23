@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetCollectionHoldersInput,
@@ -44,6 +45,7 @@ export class GetCollectionHoldersHttpAdapter {
         const cursor = parseCursor(searchParams.get("cursor"));
 
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             limit,
