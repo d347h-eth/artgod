@@ -135,7 +135,11 @@
         "./database/bidding-competition-presets": "./database/bidding-competition-presets.ts",
         "./trading/bidding-price-tier-pricing": "./trading/bidding-price-tier-pricing.ts",
         "./trading/open-sea-mainnet-security-policy": "./trading/open-sea-mainnet-security-policy.ts",
-        "./trading/runtime-state": "./trading/runtime-state.ts"
+        "./trading/runtime-state": "./trading/runtime-state.ts",
+        "./types/trait-catalog": "./types/trait-catalog.ts",
+        "./database/trait-catalog-rebuilds": "./database/trait-catalog-rebuilds.ts",
+        "./database/canonical-traits": "./database/canonical-traits.ts",
+        "./read-models/trait-catalog": "./read-models/trait-catalog.ts"
     },
     "dependencies": {
         "@opentelemetry/api": "1.9.1",

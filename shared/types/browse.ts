@@ -1,3 +1,4 @@
+import type { TraitNode } from "./trait-catalog.js";
 import type {
     CollectionExtensionKey,
     CollectionMediaPresentation,
@@ -240,6 +241,7 @@ export type TokenCard = TokenPresentationSummary & {
 };
 
 export type TokenDetailTrait = TraitMarketplaceBiddingSupport & {
+    native?: TraitFilter | null;
     key: string;
     value: string;
     tokenCount: number | null;
@@ -254,11 +256,13 @@ export type TokenMediaPreview = {
 
 // Fullscreen token inspection adds normalized traits without detail-page market reads.
 export type TokenPreview = TokenMediaPreview & {
+    traitTree?: TraitNode[] | null;
     attributes: TokenAttribute[];
     traitSummary: string | null;
 };
 
 export type TokenDetail = TokenMarketplaceBiddingSupport & {
+    traitTree?: TraitNode[] | null;
     tokenId: string;
     name: string | null;
     image: string | null;
@@ -272,11 +276,13 @@ export type TokenDetail = TokenMarketplaceBiddingSupport & {
 };
 
 export type TraitFacetValue = TraitMarketplaceBiddingSupport & {
+    native?: TraitFilter | null;
     value: string;
     tokenCount: number;
 };
 
 export type TraitCatalogFacetValue = {
+    native?: TraitFilter | null;
     value: string;
     tokenCount: number;
 };
