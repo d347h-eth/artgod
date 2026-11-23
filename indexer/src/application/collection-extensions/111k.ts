@@ -1,6 +1,7 @@
 import { parseAbi, zeroAddress } from "viem";
 import {
     NFT111K_METADATA,
+    nft111kTraitCatalog,
     NFT111K_EXTENSION_KEY,
     NFT111K_MAINNET_CHAIN_ID,
     NFT111K_MAINNET_CONTRACT_ADDRESS,
@@ -124,6 +125,7 @@ export function isNft111kMetadataReady(
 
 export const nft111kIndexerExtension: IndexerCollectionExtension = {
     key: NFT111K_EXTENSION_KEY,
+    traitCatalog: nft111kTraitCatalog,
     isMetadataReady: isNft111kMetadataReady,
     metadataContentRetryPolicy: NFT111K_METADATA_CONTENT_RETRY_POLICY,
     enumerateBootstrapTokenIds,

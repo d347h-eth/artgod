@@ -45,14 +45,14 @@ function classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor {
         };
     }
     if (!block) return UNCLASSIFIED;
-    // Alias-only input cannot establish the primary marketplace key for the whole view.
-    if (!pairs.some((pair) => pair.key === META.CollectionBlock))
-        return UNCLASSIFIED;
+    const nativeKey = pairs.some((pair) => pair.key === META.CollectionBlock)
+        ? META.CollectionBlock
+        : META.CollectionBlockAlias;
     return {
         id: JSON.stringify(["block", block]),
         label: block,
         parent: ARTWORKS,
-        pinnedTraits: [{ key: META.CollectionBlock, value: block }],
+        pinnedTraits: [{ key: nativeKey, value: block }],
     };
 }
 
@@ -70,11 +70,13 @@ function identity(pairs: readonly TraitFilter[]): TraitProjection {
             label: native.key,
             value: native.value,
             native,
+            nativeFieldKey: native.key,
         })),
     };
 }
 
 export const nft111kTraitCatalog: TraitCatalogMapper = {
+    unclassified: UNCLASSIFIED,
     classify,
     availableVersion: () => IDENTITY_VERSION,
     project(_view, version, pairs) {

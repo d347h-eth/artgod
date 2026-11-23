@@ -1,3 +1,4 @@
+import type { CanonicalTraitCatalogSink } from "../../application/collection-extensions/trait-catalog.js";
 import { randomUUID } from "node:crypto";
 import { zeroAddress } from "viem";
 import { db } from "@artgod/shared/database";
@@ -35,7 +36,7 @@ import type {
     MetadataCandidate,
     MetadataStorePort,
 } from "../../ports/metadata-store.js";
-import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
+import { normalizeMetadataAttributes } from "../../domain/attributes.js";
 import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import { SqliteTokenAttributeWriter } from "../attributes/sqlite-token-attributes.js";
 import { captureChainSyncCheckpoint } from "../storage/sqlite-chain-revisions.js";
@@ -127,6 +128,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
 
     constructor(
         private readonly debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+        private readonly catalog?: CanonicalTraitCatalogSink,
     ) {}
 
     *candidates(context: DomainSyncContext): Iterable<MetadataCandidate> {
@@ -573,11 +575,8 @@ export class SqliteMetadataStore implements MetadataStorePort {
         metadata: TokenMetadata,
         attribution?: MetadataAttribution,
     ): void {
-        const normalizedAttributes = normalizeUniqueAttributeList(
-            (metadata.attributes ?? []).map((attribute) => ({
-                key: attribute.traitType,
-                value: attribute.value,
-            })),
+        const normalizedAttributes = normalizeMetadataAttributes(
+            metadata.attributes ?? [],
         );
 
         const persist = db.writeTransaction(() => {
@@ -618,7 +617,7 @@ export class SqliteMetadataStore implements MetadataStorePort {
             });
 
             // Replace only canonical metadata links so extension-owned traits survive refreshes.
-            this.tokenAttributes.replaceTokenAttributes({
+            this.tokenAttributes.replaceNormalizedTokenAttributes({
                 chainId,
                 collectionId,
                 contractAddress: contract,
@@ -627,6 +626,10 @@ export class SqliteMetadataStore implements MetadataStorePort {
                 sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 attributes: normalizedAttributes,
             });
+            this.catalog?.replaceCanonical(
+                { chainId, collectionId, tokenId },
+                normalizedAttributes,
+            );
         });
 
         persist();

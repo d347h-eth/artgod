@@ -1,3 +1,8 @@
+import {
+    advanceTraitCatalog,
+    installedCatalogMapper,
+} from "../application/collection-extensions/trait-catalog.js";
+import { SqliteTraitCatalog } from "../infra/metadata/sqlite-trait-catalog.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -149,12 +154,39 @@ async function main() {
             },
         );
 
+        const resolveCatalog = installedCatalogMapper(collectionExtensions);
+        const catalogStore = new SqliteTraitCatalog(resolveCatalog);
+        // Yield to broker jobs between bounded pages. Idle polling also recovers missed wakeups.
+        let projectionTimer: ReturnType<typeof setTimeout>;
+        function pollCatalog() {
+            let progress = false;
+            try {
+                const deadline = Date.now() + 25;
+                do {
+                    progress = advanceTraitCatalog(
+                        config.chainId,
+                        catalogStore,
+                        resolveCatalog,
+                    );
+                } while (progress && Date.now() < deadline);
+            } catch (error) {
+                logger.error("Local trait catalog processing failed", {
+                    component: "CollectionExtensionWorker",
+                    error: String(error),
+                });
+                progress = false;
+            }
+            projectionTimer = setTimeout(pollCatalog, progress ? 0 : 1000);
+        }
+        pollCatalog();
+
         logger.info("Collection extension worker ready", {
             component: "CollectionExtensionWorker",
             action: "main",
         });
 
         const shutdown = async () => {
+            clearTimeout(projectionTimer);
             rpcAllocation.budget.stopWaiting();
             logger.info("Collection extension worker shutting down", {
                 component: "CollectionExtensionWorker",

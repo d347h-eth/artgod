@@ -32,6 +32,7 @@ export type CollectionViewStatus = CollectionViewDescriptor & {
     availableMapperVersion: string;
     classified: number;
     ready: number;
+    structure?: TraitStructureGroup[];
     latestRun?: TraitCatalogRebuild | null;
 };
 export type CollectionViewsResponse = {
@@ -76,13 +77,21 @@ export type ProjectedTraitValue = {
     label: string;
     value: string;
     native: TraitFilter | null;
+    /** An explicit declaration that the entire canonical key retains its meaning. */
+    nativeFieldKey?: string;
 };
+export type TraitStructureGroup = { label: string; fields: string[] };
 export type TraitProjection = {
     tree: TraitNode[];
     values: ProjectedTraitValue[];
 };
 export interface TraitCatalogMapper {
+    unclassified: CollectionViewDescriptor;
     classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor;
+    structure?(
+        view: CollectionViewDescriptor,
+        version: string,
+    ): TraitStructureGroup[];
     availableVersion(view: CollectionViewDescriptor): string;
     project(
         view: CollectionViewDescriptor,
