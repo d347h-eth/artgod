@@ -38,6 +38,7 @@ CREATE TABLE trait_catalog_members (
   revision INTEGER NOT NULL,
   view_id TEXT,
   scope_key TEXT,
+  canonical_count INTEGER NOT NULL DEFAULT 0 CHECK(canonical_count >= 0),
   classification_error TEXT,
   retry_at INTEGER,
   PRIMARY KEY (chain_id, collection_id, token_id),
@@ -91,7 +92,7 @@ CREATE TABLE trait_catalog_work (
   token_id TEXT NOT NULL,
   revision INTEGER NOT NULL,
   lease_owner TEXT,
-  due_at INTEGER NOT NULL DEFAULT 0,
+  due_at INTEGER DEFAULT 0,
   error TEXT,
   PRIMARY KEY (generation,token_id),
   FOREIGN KEY (chain_id, collection_id, view_id, generation)
@@ -116,6 +117,7 @@ CREATE TABLE trait_catalog_rebuilds (
   FOREIGN KEY (chain_id, collection_id, view_id, generation)
     REFERENCES trait_catalog_generations(chain_id, collection_id, view_id, generation) ON DELETE CASCADE
 );
+CREATE INDEX trait_catalog_rebuild_poll ON trait_catalog_rebuilds(chain_id,status,generation);
 CREATE UNIQUE INDEX trait_catalog_running ON trait_catalog_rebuilds(chain_id,collection_id,view_id) WHERE status='running';
 
 -- A reorg deletes attributed token_metadata. Native and derived consumers must

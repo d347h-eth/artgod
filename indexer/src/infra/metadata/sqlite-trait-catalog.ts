@@ -1,3 +1,4 @@
+import { CANONICAL_TRAITS_INCOMPLETE } from "../../application/collection-extensions/trait-catalog.js";
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
 import { readCanonicalTokenTraits } from "@artgod/shared/database/canonical-traits";
@@ -43,8 +44,8 @@ export class SqliteTraitCatalog implements TraitProjectionStore {
             )
             .get(chainId, collectionId) as { revision: number };
         db.prepare(
-            "INSERT INTO trait_catalog_members(chain_id,collection_id,token_id,revision) VALUES(?,?,?,?)",
-        ).run(chainId, collectionId, tokenId, revision);
+            "INSERT INTO trait_catalog_members(chain_id,collection_id,token_id,revision,canonical_count) VALUES(?,?,?,?,?)",
+        ).run(chainId, collectionId, tokenId, revision, traits.length);
         this.classify(mapper, token, revision, traits, Date.now());
     }
 
@@ -131,29 +132,47 @@ export class SqliteTraitCatalog implements TraitProjectionStore {
 
     retryClassification(chainId: number, now: number): boolean {
         const select = db.prepare(`
-            SELECT collection_id AS collectionId,token_id AS tokenId,revision FROM trait_catalog_members m
+            SELECT collection_id AS collectionId,token_id AS tokenId,revision,canonical_count AS expectedTraits FROM trait_catalog_members m
             JOIN collection_extension_installs i USING(chain_id,collection_id)
             WHERE chain_id=? AND retry_at<=? AND i.enabled=1 ORDER BY retry_at LIMIT 1
         `);
         if (!select.get(chainId, now)) return false;
         return db.writeTransaction(() => {
             const row = select.get(chainId, now) as
-                | { collectionId: number; tokenId: string; revision: number }
+                | {
+                      collectionId: number;
+                      tokenId: string;
+                      revision: number;
+                      expectedTraits: number;
+                  }
                 | undefined;
             if (!row) return false;
             const mapper = this.resolve(chainId, row.collectionId);
             if (!mapper) return false;
-            this.classify(
-                mapper,
-                { ...row, chainId },
-                row.revision,
-                readCanonicalTokenTraits(
+            const traits = readCanonicalTokenTraits(
+                chainId,
+                row.collectionId,
+                row.tokenId,
+            );
+            if (traits.length !== row.expectedTraits) {
+                db.prepare(
+                    "UPDATE trait_catalog_members SET classification_error=?,retry_at=? WHERE chain_id=? AND collection_id=? AND token_id=? AND revision=?",
+                ).run(
+                    CANONICAL_TRAITS_INCOMPLETE,
+                    now + RETRY_MS,
                     chainId,
                     row.collectionId,
                     row.tokenId,
-                ),
-                now,
-            );
+                    row.revision,
+                );
+            } else
+                this.classify(
+                    mapper,
+                    { ...row, chainId },
+                    row.revision,
+                    traits,
+                    now,
+                );
             return true;
         })();
     }
@@ -161,8 +180,9 @@ export class SqliteTraitCatalog implements TraitProjectionStore {
     claim(chainId: number, now: number): ProjectionClaim | null {
         const select = db.prepare(`
             SELECT w.collection_id AS collectionId,w.token_id AS tokenId,w.revision,w.generation,
-                   g.mapper_version AS mapperVersion,v.descriptor_json AS descriptor
-            FROM trait_catalog_work w JOIN trait_catalog_generations g USING(generation)
+                   m.canonical_count AS expectedTraits,g.mapper_version AS mapperVersion,v.descriptor_json AS descriptor
+            FROM trait_catalog_work w JOIN trait_catalog_members m USING(chain_id,collection_id,view_id,token_id,revision)
+            JOIN trait_catalog_generations g ON g.generation=w.generation
             JOIN trait_catalog_views v USING(chain_id,collection_id,view_id)
             JOIN collection_extension_installs i USING(chain_id,collection_id)
             LEFT JOIN trait_catalog_rebuilds r ON r.generation=w.generation
@@ -256,9 +276,16 @@ export class SqliteTraitCatalog implements TraitProjectionStore {
             db.prepare(
                 "UPDATE trait_catalog_work SET error=?,due_at=?,lease_owner=NULL WHERE generation=? AND token_id=?",
             ).run(error, now + RETRY_MS, claim.generation, claim.tokenId);
-            db.prepare(
-                "UPDATE trait_catalog_rebuilds SET status=?,error=? WHERE generation=? AND status=?",
-            ).run(STATUS.Failed, error, claim.generation, STATUS.Running);
+            const failed = db
+                .prepare(
+                    "UPDATE trait_catalog_rebuilds SET status=?,error=? WHERE generation=? AND status=?",
+                )
+                .run(STATUS.Failed, error, claim.generation, STATUS.Running);
+            // An explicitly failed generation stays off the due index until the operator retries.
+            if (failed.changes)
+                db.prepare(
+                    "UPDATE trait_catalog_work SET due_at=NULL,lease_owner=NULL WHERE generation=?",
+                ).run(claim.generation);
         })();
     }
 
