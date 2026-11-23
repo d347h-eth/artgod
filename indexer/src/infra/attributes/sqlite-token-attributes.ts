@@ -91,7 +91,15 @@ export class SqliteTokenAttributeWriter {
 
     // Replaces only the links owned by the supplied source; shared key/value rows remain reusable.
     replaceTokenAttributes(input: SqliteTokenAttributeReplacementInput): void {
-        const attributes = normalizeUniqueAttributeList([...input.attributes]);
+        this.replaceNormalizedTokenAttributes({
+            ...input,
+            attributes: normalizeUniqueAttributeList([...input.attributes]),
+        });
+    }
+
+    replaceNormalizedTokenAttributes(
+        input: SqliteTokenAttributeReplacementInput,
+    ): void {
         this.deleteTokenAttributes.run({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -100,7 +108,7 @@ export class SqliteTokenAttributeWriter {
             sourceKey: input.sourceKey,
         });
 
-        for (const attribute of attributes) {
+        for (const attribute of input.attributes) {
             this.insertAttributeKey.run({
                 chainId: input.chainId,
                 collectionId: input.collectionId,

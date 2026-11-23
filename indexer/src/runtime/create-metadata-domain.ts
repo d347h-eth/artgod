@@ -1,3 +1,5 @@
+import { SqliteTraitCatalog } from "../infra/metadata/sqlite-trait-catalog.js";
+import { installedCatalogMapper } from "../application/collection-extensions/trait-catalog.js";
 import {
     getDefaultDebugPayloadPersistenceConfig,
     type DebugPayloadPersistenceConfig,
@@ -17,12 +19,14 @@ export function createMetadataDomain(
     fetcher: MetadataFetcherPort,
     debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
 ): MetadataDomain {
+    const installs = new SqliteCollectionExtensions(debugPayloads);
     return new MetadataDomain({
         resolver,
         fetcher,
-        store: new SqliteMetadataStore(debugPayloads),
-        readiness: new CollectionExtensionMetadataReadiness(
-            new SqliteCollectionExtensions(debugPayloads),
+        store: new SqliteMetadataStore(
+            debugPayloads,
+            new SqliteTraitCatalog(installedCatalogMapper(installs)),
         ),
+        readiness: new CollectionExtensionMetadataReadiness(installs),
     });
 }
