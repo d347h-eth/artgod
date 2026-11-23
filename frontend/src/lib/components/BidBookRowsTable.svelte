@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { VIEW_OFFER_APPLICABILITY } from '@artgod/shared/types/trait-catalog';
 	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 	import { BID_BOOK_ROWS_TABLE_SCOPE_KIND, type BidBookRowsTableRow } from '$lib/bid-book-view-models';
 	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
@@ -128,7 +129,8 @@
 						/>
 						{#if showScope}
 							<td class="bid-book-col-center">
-								{#if row.scope.kind === BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits}
+								{#if row.bid.scope.viewApplicability===VIEW_OFFER_APPLICABILITY.Unresolved}<span class="muted">View match unknown</span>{/if}
+							{#if row.scope.kind === BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits}
 									<div class="bid-book-demand-group-header bid-book-row-scope-header">
 										<span class="bid-book-demand-group-title">
 											<BidBookTraitList

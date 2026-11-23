@@ -327,27 +327,9 @@ export type ApiTokenCard = {
 	metadataUpdatedAt: string | null;
 };
 
-export type ApiTokenDetailTrait = {
-	key: string;
-	value: string;
-	tokenCount: number | null;
-	rarityPercent: number | null;
-	marketplaceBiddingSupported: boolean;
-};
+export type ApiTokenDetailTrait = import('@artgod/shared/types/browse').TokenDetailTrait;
 
-export type ApiTokenDetail = {
-	tokenId: string;
-	marketplaceBiddingSupported: boolean;
-	name: string | null;
-	image: string | null;
-	animationUrl: string | null;
-	listingPrice: string | null;
-	listingCurrency: string | null;
-	currentHolder: string | null;
-	attributes: ApiTokenDetailTrait[];
-	hasMetadata: boolean;
-	metadataUpdatedAt: string | null;
-};
+export type ApiTokenDetail = import('@artgod/shared/types/browse').TokenDetail;
 
 export type ApiTokenPreview = import('@artgod/shared/types/browse').TokenPreview;
 
@@ -364,25 +346,9 @@ export type ApiTokensPage = {
 	totalPages: number;
 };
 
-export type ApiTraitFacet = {
-	key: string;
-	displayKind: ApiTraitFilterDisplayKind;
-	minValue: string | null;
-	maxValue: string | null;
-	values: Array<{
-		value: string;
-		tokenCount: number;
-		marketplaceBiddingSupported: boolean;
-	}>;
-};
+export type ApiTraitFacet = import('@artgod/shared/types/browse').TraitFacet;
 
-export type ApiTraitCatalogFacet = {
-	key: string;
-	values: Array<{
-		value: string;
-		tokenCount: number;
-	}>;
-};
+export type ApiTraitCatalogFacet = import('@artgod/shared/types/browse').TraitCatalogFacet;
 
 export type ApiTraitCatalog = {
 	scope: ApiTokenAttribute[];
@@ -645,6 +611,8 @@ type ApiBiddingBidBookRowBase = {
 	orderId: string;
 	source: ApiBiddingBidBookSource;
 	scope: {
+		viewApplicability?: import('@artgod/shared/types/trait-catalog').ViewOfferApplicability;
+		encodedTokenIds?: string;
 		kind: ApiBiddingBidScopeKind;
 		label: string;
 		tokenId: string | null;

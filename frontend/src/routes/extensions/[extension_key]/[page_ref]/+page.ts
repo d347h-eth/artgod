@@ -6,7 +6,8 @@ import {
 	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 
-export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, setHeaders, url }) => {
+	await parent();
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		throw error(404, 'Not found');
 	}

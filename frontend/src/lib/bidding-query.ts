@@ -1,3 +1,4 @@
+import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import {
 	parseBiddingBidBookPriceTierFilter,
@@ -46,6 +47,7 @@ export type CollectionBiddingQueryParams = {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
@@ -64,7 +66,7 @@ export function buildCollectionBiddingQuery(
 	overrides: Partial<CollectionBiddingQueryParams> = {}
 ): URLSearchParams {
 	const params = { ...current, ...overrides };
-	const query = new URLSearchParams();
+	const query = appendCatalogScope(new URLSearchParams(), params.catalogScope);
 	appendCollectionMediaParams(query, {
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null

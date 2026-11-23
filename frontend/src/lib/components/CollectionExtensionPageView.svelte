@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import {
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
@@ -24,6 +26,8 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chain,
@@ -52,6 +56,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,

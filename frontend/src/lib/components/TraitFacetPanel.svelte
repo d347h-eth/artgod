@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import { tick } from 'svelte';
 	import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 	import type {
@@ -17,6 +19,8 @@
 		sortTraitFacetValues,
 		type TraitFacetValueSortMode
 	} from '$lib/trait-facet-sorting';
+
+	const collectionViewPage = useCollectionView();
 
 	type MaybePromise<T> = T | Promise<T>;
 	type TraitRangeDraft = {
@@ -57,7 +61,9 @@
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
 	let openTraitGroups = $state<Record<string, boolean>>({});
 	const traitSearchInputs = new Map<string, HTMLInputElement>();
-	let activeTraitSet = $derived(new Set(selectedTraits.map((item) => `${item.key}:${item.value}`)));
+	let activeTraitSet = $derived(
+		new Set(selectedTraits.map((item) => JSON.stringify([item.key, item.value])))
+	);
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
 	);
@@ -83,7 +89,7 @@
 	}
 
 	function traitChecked(key: string, value: string): boolean {
-		return activeTraitSet.has(`${key}:${value}`);
+		return activeTraitSet.has(JSON.stringify([key, value]));
 	}
 
 	function onRootTraitSearchInput(event: Event): void {
@@ -288,6 +294,9 @@
 				<h2>traits</h2>
 			</div>
 
+			{#each selectedCollectionView(collectionViewPage())?.structure ?? [] as group}
+				<details class="trait-group"><summary>{group.label}</summary><ul>{#each group.fields as field}<li>{field}</li>{/each}</ul></details>
+			{/each}
 			{#if facets.length === 0}
 				<p class="muted">no trait facets yet</p>
 			{:else if hasSearchableFacets}

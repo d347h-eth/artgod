@@ -1,3 +1,9 @@
+import {
+	resolveEffectiveNativeTraits,
+	TRAIT_CATALOG,
+	type CollectionViewStatus
+} from '@artgod/shared/types/trait-catalog';
+import type { CatalogScope } from '$lib/collection-view';
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import { isTradingNumericTraitRange } from '@artgod/shared/types';
 import type {
@@ -82,6 +88,9 @@ export type BiddingAutomationDraftTargetType =
 
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
+	catalogScope?: CatalogScope;
+	// A derived filter remains usable for browsing when its full native predicate cannot be expressed.
+	nativeSelection?: ApiTokenAttribute[] | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: BiddingAutomationTraitAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
@@ -123,6 +132,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 
 // Builds a bidding filter snapshot by injecting backend-declared trait bidding support from facets.
 export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
+	view?: CollectionViewStatus | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: ApiTokenAttribute[];
 	facets: ApiTraitFacet[];
@@ -135,7 +145,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
-	return buildBiddingAutomationTokenFilterSnapshot({
+	const snapshot = buildBiddingAutomationTokenFilterSnapshot({
 		source: params.source,
 		selectedTraits: resolveBiddingAutomationTraitAttributes({
 			selectedTraits: params.selectedTraits,
@@ -150,6 +160,17 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		ownStateFilter: params.ownStateFilter,
 		priceTierFilter: params.priceTierFilter
 	});
+	if (params.view) {
+		const view = params.view;
+		snapshot.catalogScope = { id: view.id, generation: view.generation };
+		snapshot.nativeSelection = resolveEffectiveNativeTraits({
+			catalog: TRAIT_CATALOG.Derived,
+			pinned: view.pinnedTraits,
+			traits: params.selectedTraits,
+			facets: params.facets
+		});
+	}
+	return snapshot;
 }
 
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
@@ -504,7 +525,19 @@ export function marketplaceBiddingSupportedTraits(
 		}));
 }
 
+// Finite token lists and numeric criteria cannot be expressed by the exact-trait job contract.
+export function canDraftNativeBidScope(scope: ApiBiddingBidBookRow['scope']): boolean {
+	return (
+		scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.TokenSet &&
+		(scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token ||
+			!scope.encodedTokenIds ||
+			scope.encodedTokenIds === '*') &&
+		!scope.traits.some(isTradingNumericTraitRange)
+	);
+}
+
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
+	if (!canDraftNativeBidScope(bid.scope)) return null;
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
@@ -513,7 +546,6 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 	}
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
 		const traits = bid.scope.traits.filter((trait) => !isTradingNumericTraitRange(trait));
-		if (traits.length !== bid.scope.traits.length) return null;
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: traits.map((trait) => ({
@@ -561,6 +593,31 @@ function resolveDraftTargetFromSelection(
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
 			tokenIds: selection.state.visibleTokenIds
+		};
+	}
+
+	if (
+		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
+		selection.filter.catalogScope
+	) {
+		const native = selection.filter.nativeSelection;
+		if (
+			!native ||
+			!canDraftTraitJobFromFilters({
+				selectedTraits: native,
+				selectedTraitRanges: selection.filter.selectedTraitRanges
+			})
+		) {
+			return {
+				type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+				traits: selection.filter.selectedTraits,
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+			};
+		}
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: native,
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
 

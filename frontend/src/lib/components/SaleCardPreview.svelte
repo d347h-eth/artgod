@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import TokenCardTile from './TokenCardTile.svelte';
 	import { getTokenPreviewController } from './token-preview-controller';
@@ -6,6 +8,8 @@
 	import { buildAskMarketPrice } from '$lib/market-price';
 	import { openseaItemHref } from '$lib/marketplace-links';
 	import type { SaleMedia, SaleMediaLoader, SalePreviewTarget } from '$lib/price-chart/media';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		target,
@@ -89,7 +93,7 @@
 	<div inert={!pinned}>
 	{#if token}
 		<TokenCardTile {chain} {collection} {token} {tokenPreview}
-			href={buildTokenDetailHref({ basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
+			href={buildTokenDetailHref({ catalogScope: selectedCollectionView(collectionViewPage()), basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
 			selectedMediaMode={media.selectedMode} availableMediaModes={media.availableModes}
 			mediaPreference={media.preference} marketPrices={ask ? [ask] : []} />
 	{:else}

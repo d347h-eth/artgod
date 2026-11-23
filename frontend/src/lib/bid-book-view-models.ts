@@ -71,6 +71,7 @@ export type BidBookDemandTableTab = BidBookFilterTab;
 
 // Describes one trait-demand group after bid-book grouping and muting decisions are resolved.
 export type BidBookDemandTableGroup = {
+	viewUnresolved?: boolean;
 	key: string;
 	hidden: boolean;
 	muted: boolean;

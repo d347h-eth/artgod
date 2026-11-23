@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getCollectionCustomization, getRuntimeConfig } from '$lib/backend-api';
@@ -11,7 +12,8 @@ import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-depl
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { parseSelectedTraitRanges, parseSelectedTraits } from '$lib/trait-filters';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, url }) => {
+	await parent();
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		throw error(404, 'Not found');
 	}
@@ -33,7 +35,12 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		const [response, runtimeConfigResponse] = await Promise.all([
-			getCollectionCustomization(fetch, params.chain_ref, params.collection_ref),
+			getCollectionCustomization(
+				fetch,
+				params.chain_ref,
+				params.collection_ref,
+				copyCatalogScope(new URLSearchParams(), url.searchParams)
+			),
 			getRuntimeConfig(fetch)
 		]);
 		return {

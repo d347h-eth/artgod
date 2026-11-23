@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -26,6 +28,8 @@
 	import { createTraitFacetPanelController } from './trait-facet-panel-controller';
 	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
 	import { buildCollectionChartFiltersHref } from '$lib/price-chart/routing';
+
+	const collectionViewPage = useCollectionView();
 	let {
 		chain,
 		collection,
@@ -53,6 +57,7 @@
 	const tokenPreviewState = tokenPreview.state;
 	const navigation = $derived(
 		buildCollectionNavigation({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,

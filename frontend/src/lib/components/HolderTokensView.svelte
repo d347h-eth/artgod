@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { goto } from '$app/navigation';
@@ -68,6 +70,8 @@
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
+	const collectionViewPage = useCollectionView();
+
 	let {
 		chain,
 		collection,
@@ -136,9 +140,13 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const canBidOnTraits = $derived(
-		canDraftTraitJobFromFilters({ selectedTraits, selectedTraitRanges })
-	);
+	const canBidOnTraits = $derived.by(() => {
+		const filter = currentBiddingFilterSnapshot();
+		return canDraftTraitJobFromFilters({
+			selectedTraits: filter.catalogScope ? (filter.nativeSelection ?? []) : filter.selectedTraits,
+			selectedTraitRanges: filter.selectedTraitRanges
+		});
+	});
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
@@ -195,6 +203,7 @@
 
 	function resetTraitsHref(): string {
 		return buildOwnerTokensHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
@@ -207,6 +216,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: collectionBasePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,
@@ -241,13 +251,14 @@
 	): Promise<void> {
 		await goto(
 			buildOwnerTokensHref({
+				catalogScope: selectedCollectionView(collectionViewPage()),
 				basePath: browserBasePath,
 				limit: tokens.limit,
 				displayMode,
 				selectedTraits: nextTraits,
-					selectedTraitRanges: nextRanges,
-					mediaMode: media.selectedMode,
-					mediaPreference: media.preference
+				selectedTraitRanges: nextRanges,
+				mediaMode: media.selectedMode,
+				mediaPreference: media.preference
 			}),
 			{
 				invalidateAll: true,
@@ -300,6 +311,7 @@
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
 		return buildTokenBrowserBiddingFilterSnapshot({
+			view: selectedCollectionView(collectionViewPage()),
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			facets,
@@ -354,6 +366,7 @@
 
 	function panelBidBookContext() {
 		return {
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			fetchFn: fetch,
 			chain,
 			collection,

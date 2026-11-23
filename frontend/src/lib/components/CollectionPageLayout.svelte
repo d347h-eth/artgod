@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { page } from '$app/state';
+	import CollectionViewPicker from './CollectionViewPicker.svelte';
 	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import type { Snippet } from 'svelte';
 	import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
@@ -7,6 +10,9 @@
 	import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '$lib/components/collection-page-layout-dom';
 	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
+
+	const collectionViewPage = useCollectionView();
+	const viewContext = $derived(collectionViewPage());
 
 	let {
 		navigation,
@@ -74,6 +80,9 @@
 		{/if}
 	</header>
 
+	{#if viewContext}
+		<div class="panel-top-actions"><CollectionViewPicker context={viewContext} path={page.params.token_ref ? navigation.basePath : page.url.pathname} query={new URLSearchParams(page.url.search)} /></div>
+	{/if}
 	{#if topActions}
 		<div
 			class={`${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root} ${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}`}

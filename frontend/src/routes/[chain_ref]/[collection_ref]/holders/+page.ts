@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
@@ -20,7 +21,8 @@ import {
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, url }) => {
+	await parent();
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
@@ -77,7 +79,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 };
 
 function normalizeCollectionHoldersParams(raw: URLSearchParams): URLSearchParams {
-	const params = new URLSearchParams();
+	const params = copyCatalogScope(new URLSearchParams(), raw);
 
 	const limit = raw.get('limit');
 	params.set('limit', limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT));

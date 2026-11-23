@@ -21,7 +21,8 @@ import {
 	parseDisplayMode
 } from '$lib/token-browser-query';
 
-export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
+export const load: PageLoad = async ({ parent, fetch, setHeaders, url }) => {
+	await parent();
 	// Admin owns runtime startup and must not load Userland data before it is ready.
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {

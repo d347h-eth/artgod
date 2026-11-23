@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error } from '@sveltejs/kit';
 import { BackendApiError, getPriceChartContext, getRuntimeConfig } from '$lib/backend-api';
 import { MEDIA_MODE_QUERY_PARAM, MEDIA_PREFERENCE_QUERY_PARAM } from '$lib/media-mode';
@@ -11,7 +12,7 @@ export async function loadCollectionChartPage(
 	query: URLSearchParams,
 	publicPage = false
 ) {
-	const contextQuery = new URLSearchParams();
+	const contextQuery = copyCatalogScope(new URLSearchParams(), query);
 	appendNormalizedTraitParams(contextQuery, query);
 	appendNormalizedTraitRangeParams(contextQuery, query);
 	const mode = query.get(MEDIA_MODE_QUERY_PARAM);

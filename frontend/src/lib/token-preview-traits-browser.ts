@@ -1,3 +1,4 @@
+import { type CatalogScope } from '$lib/collection-view';
 import { browser } from '$app/env';
 import {
 	DEFAULT_TOKEN_PREVIEW_TRAIT_DISPLAY,
@@ -22,6 +23,7 @@ import { buildTokenBrowserHref, TOKEN_BROWSER_DISPLAY_MODES } from '$lib/token-b
 import { canRepresentTraitFilters } from '$lib/trait-filters';
 
 type PreviewCollectionNavigation = CollectionRouteTarget & {
+	catalogScope?: CatalogScope | null;
 	mediaMode: string;
 	mediaPreference: CollectionMediaPreferenceInput;
 };
@@ -78,6 +80,7 @@ export function buildTokenPreviewTraitHref(
 		tokenStatus: TOKEN_BROWSER_STATUS.All,
 		selectedTraits: [params.trait],
 		selectedTraitRanges: [],
+		catalogScope: params.catalogScope,
 		mediaMode: params.mediaMode,
 		mediaPreference: params.mediaPreference
 	});
@@ -92,6 +95,7 @@ export function buildTokenPreviewCustomizationHref(
 		basePath: previewCollectionBasePath(params),
 		selectedTraits: [],
 		selectedTraitRanges: [],
+		catalogScope: params.catalogScope,
 		mediaMode: params.mediaMode,
 		mediaPreference: params.mediaPreference,
 		section: COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate
