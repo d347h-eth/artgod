@@ -14,6 +14,7 @@ import { TRAIT_CATALOG_QUERY, type CollectionViewStatus } from '@artgod/shared/t
 import { buildTokenDetailHref } from '../src/lib/token-browser-query';
 import { MEDIA_MODE_QUERY_PARAM } from '../src/lib/media-mode';
 import { selectCollectionViewHref } from '../src/lib/collection-view';
+import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '../src/lib/components/collection-page-layout-dom';
 import {
 	buildBiddingE2eCollectionDetailData,
 	buildBiddingE2eTokenDetailData
@@ -61,6 +62,7 @@ function viewFor(pairs: { key: string; value: string }[], size: number): Collect
 const plane = viewFor(artwork(PLANE), 2);
 const film = viewFor(artwork(FILM, 'video'), 1);
 const drimi = viewFor(artwork('DriMi'), 1);
+const driluhh = viewFor(artwork('DRILUHH'), 1);
 const backrooms = viewFor(artwork(NFT111K_STRUCTURED_BLOCK.Backrooms), 1);
 const typedViews = ['crate', META.Egg, 'relic', 'warehouse'].map((value) =>
 	viewFor([{ key: META.Type, value }], 1)
@@ -187,7 +189,7 @@ async function installPlaneFixture(page: Page) {
 	await page.route('**/api/**', (route) =>
 		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
 	);
-	await installBiddingAutomationApiMock(page);
+	await installBiddingAutomationApiMock(page, { bidBookCollection: collection });
 	await page.route('**/api/runtime/config', (route) =>
 		route.fulfill({ json: { bidding: { trustOpenSeaSignedZoneTraitOffers: true } } })
 	);
@@ -229,7 +231,7 @@ async function installPlaneFixture(page: Page) {
 				collection,
 				required: true,
 				selectedViewId: token?.view.id ?? viewId,
-				views: [plane, drimi, film, backrooms, ...typedViews]
+				views: [plane, drimi, film, backrooms, driluhh, ...typedViews]
 			}
 		});
 	});
@@ -395,6 +397,7 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(block.getByRole('option')).toHaveText([
 		'Choose block',
 		backrooms.label,
+		driluhh.label,
 		drimi.label,
 		film.label,
 		plane.label
@@ -522,6 +525,56 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(block).toHaveValue(plane.id);
 	await expect(page).toHaveURL((url) => !url.searchParams.has(TRAIT_FILTER_QUERY_PARAMS.Traits));
 	expect(requests).not.toContain('');
+});
+
+test('separates the collection scope from Offers and Asks controls', async ({ page }, info) => {
+	const { path } = await installPlaneFixture(page);
+	await enter(page, path);
+	const kind = page.getByRole('group', { name: 'Token kind' });
+	const block = page.getByRole('combobox', { name: 'Collection block' });
+	const actions = page.locator('.' + COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack);
+	const rows = actions.locator(':scope > .' + COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.row);
+	const picker = rows.filter({ has: kind });
+	await kind.getByRole('link', { name: 'Artworks' }).click();
+	await expect(block).toBeVisible();
+	await expect(rows).toHaveCount(1);
+	const trailingSpace = await actions.evaluate(
+		(element) =>
+			element.getBoundingClientRect().bottom -
+			element.firstElementChild!.getBoundingClientRect().bottom -
+			parseFloat(getComputedStyle(element).paddingBottom)
+	);
+	expect(Math.abs(trailingSpace)).toBeLessThanOrEqual(1);
+
+	await block.selectOption({ label: driluhh.label });
+	const filter = page.getByRole('button', { name: 'expand traits panel' });
+	await expect(filter).toBeVisible();
+	const asksPickerBox = (await picker.boundingBox())!;
+	const filterBox = (await filter.boundingBox())!;
+	expect(filterBox.y - (asksPickerBox.y + asksPickerBox.height)).toBeGreaterThanOrEqual(16);
+	await actions.screenshot({ path: info.outputPath('driluhh-asks-toolbar.png') });
+
+	await page.getByRole('link', { name: 'offers', exact: true }).click();
+	const maker = page.getByRole('textbox', { name: /Filter bids by maker address/ });
+	const owner = page.getByLabel('Own bid filter');
+	const scope = page.getByLabel('Bid scope filter');
+	await expect(maker).toBeVisible();
+	const allBids = owner.getByRole('link', { name: 'all bids' });
+	await allBids.click();
+	await scope.getByRole('link', { name: 'traits', exact: true }).click();
+	await expect(owner.getByRole('button', { name: 'all bids' })).toBeDisabled();
+	await expect(scope.getByRole('button', { name: 'traits', exact: true })).toBeDisabled();
+	await expect(block).toHaveValue(driluhh.id);
+	const pickerBox = (await picker.boundingBox())!;
+	const makerRowBox = (await rows.filter({ has: maker }).boundingBox())!;
+	const scopeRowBox = (await rows.filter({ has: scope }).boundingBox())!;
+	const sectionGap = makerRowBox.y - (pickerBox.y + pickerBox.height);
+	const controlGap = scopeRowBox.y - (makerRowBox.y + makerRowBox.height);
+	expect(sectionGap).toBeGreaterThanOrEqual(16);
+	expect(controlGap).toBeGreaterThan(0);
+	expect(controlGap).toBeLessThan(sectionGap / 2);
+	await actions.screenshot({ path: info.outputPath('driluhh-offers-toolbar.png') });
+	await page.screenshot({ path: info.outputPath('driluhh-offers.png') });
 });
 
 test('jumps across blocks and restores a bookmarked token in its current block', async ({
