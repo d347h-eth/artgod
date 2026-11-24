@@ -67,6 +67,7 @@ export class CachedGetTokenPreview
         if (
             this.options.requiresView?.() ||
             input.view ||
+            input.viewGroup ||
             input.traitCatalog ||
             input.generation !== undefined
         )

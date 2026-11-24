@@ -1,4 +1,4 @@
-import type { TraitNode } from "./trait-catalog.js";
+import type { CollectionViewStatus, TraitNode } from "./trait-catalog.js";
 import type {
     CollectionExtensionKey,
     CollectionMediaPresentation,
@@ -257,6 +257,8 @@ export type TokenMediaPreview = {
 
 // Fullscreen token inspection adds normalized traits without detail-page market reads.
 export type TokenPreview = TokenMediaPreview & {
+    // Trait links from a multi-view gallery use the catalog that supplied this token's fields.
+    catalogScope?: Pick<CollectionViewStatus, "id" | "generation">;
     traitTree?: TraitNode[] | null;
     attributes: TokenAttribute[];
     traitSummary: string | null;

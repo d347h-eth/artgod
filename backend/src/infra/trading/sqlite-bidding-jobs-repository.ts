@@ -1,3 +1,4 @@
+import { catalogViewIds } from "@artgod/shared/read-models/trait-catalog";
 import { readJobsForView } from "./sqlite-view-bid-applicability.js";
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import { randomUUID } from "node:crypto";
@@ -669,7 +670,11 @@ export class SqliteBiddingJobsRepository
             (transactionInputs: UpsertTokenBiddingJobInput[]) => {
                 const jobs: PersistedTokenBiddingJobRecord[] = [];
                 const commands: TradingJobCommandRecord[] = [];
-                if (traitContext?.viewId != null && transactionInputs.length)
+                if (
+                    traitContext &&
+                    (traitContext.viewId || traitContext.groupId) &&
+                    transactionInputs.length
+                )
                     this.assertBatchViewMembership(
                         transactionInputs,
                         traitContext,
@@ -701,26 +706,27 @@ export class SqliteBiddingJobsRepository
                 );
             return input.tokenId;
         });
+        const views = catalogViewIds(chainId, collectionId, context)!;
         const current = db
             .prepare(
                 `
-            SELECT 1 FROM trait_catalog_views v
-            JOIN collection_extension_installs i USING(chain_id, collection_id)
-            WHERE v.chain_id=? AND v.collection_id=? AND v.view_id=?
-              AND i.enabled=1 AND v.active_generation=?
+            SELECT 1 FROM collection_extension_installs i
+            WHERE i.chain_id=? AND i.collection_id=? AND i.enabled=1
               AND NOT EXISTS (
-                  SELECT 1 FROM json_each(?) selected WHERE NOT EXISTS (
-                      SELECT 1 FROM trait_catalog_members m
-                      WHERE m.chain_id=v.chain_id AND m.collection_id=v.collection_id
-                        AND m.view_id=v.view_id AND m.token_id=selected.value))
-        `,
+                SELECT 1 FROM json_each(?) selected WHERE NOT EXISTS (
+                  SELECT 1 FROM trait_catalog_members m
+                  JOIN trait_catalog_views v USING(chain_id,collection_id,view_id)
+                  WHERE m.chain_id=i.chain_id AND m.collection_id=i.collection_id
+                    AND m.token_id=selected.value AND v.view_id IN (${views.sql})
+                    AND (? IS NULL OR v.active_generation=?)))`,
             )
             .get(
                 chainId,
                 collectionId,
-                context.viewId,
-                context.generation,
                 JSON.stringify(ids),
+                ...views.values,
+                context.generation,
+                context.generation,
             );
         if (!current)
             throw new TradingValidationError(

@@ -339,6 +339,7 @@ export type ListCollectionTokensParams = {
 };
 
 export type ListCollectionTraitFacetsOptions = {
+    keys?: readonly string[];
     traitContext?: TraitReadContext;
     excludeKeys?: string[];
     rangeOnlyKeys?: string[];
@@ -1368,6 +1369,9 @@ export class SqliteCollectionsReadModel {
                             traitContext: options.traitContext!,
                         },
                         {
+                            keys: options.keys?.filter(
+                                (key) => !excludeKeys.includes(key),
+                            ),
                             excludeKeys,
                             owner: owner
                                 ? normalizeAddressRef(owner)

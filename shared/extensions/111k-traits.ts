@@ -89,6 +89,7 @@ const structuredBlocks = new Map([
 
 export const nft111kTraitCatalog: TraitCatalogMapper = {
     unclassified: UNCLASSIFIED,
+    aggregateFacetKeys: [META.Type, ...NFT111K_BLOCK_KEYS],
     classify,
     equivalentPinKeys: (view) =>
         isNft111kBlockKey(view.pinnedTraits[0]?.key) ? NFT111K_BLOCK_KEYS : [],

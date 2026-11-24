@@ -72,6 +72,7 @@ export function resolveBatchTraitScope(
         selection.type ===
             TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds &&
         input.view === undefined &&
+        input.viewGroup === undefined &&
         input.traitCatalog === undefined &&
         input.generation === undefined
     )

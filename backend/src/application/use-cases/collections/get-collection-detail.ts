@@ -93,6 +93,7 @@ export class GetCollectionDetailUseCase {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    keys?: readonly string[];
                     traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
@@ -152,11 +153,11 @@ export class GetCollectionDetailUseCase {
                     input.collectionRef,
                 ),
         );
-        const { traitContext, view: selectedView } = resolveTraitScope(
-            this.collectionDetailReadPort,
-            collection,
-            input,
-        );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collectionDetailReadPort, collection, input);
         const ordinaryTraits = ordinaryViewTraits(
             selectedView?.pinnedTraits ?? [],
             input.traits,
@@ -238,6 +239,7 @@ export class GetCollectionDetailUseCase {
                     input.owner,
                     {
                         traitContext,
+                        keys: aggregateFacetKeys,
                         rangeOnlyKeys:
                             traitFilterPresentation.effectiveConfig.rangeKeys,
                     },
@@ -280,16 +282,15 @@ export class GetCollectionDetailUseCase {
                       catalogContext: {
                           ...traitContext,
                           pinnedTraits: selectedView?.pinnedTraits ?? [],
-                          nativeSelection: input.traitRanges.length
-                              ? null
-                              : selectedView
-                                ? resolveEffectiveNativeTraits({
-                                      catalog: traitContext.catalog,
-                                      pinned: selectedView.pinnedTraits,
-                                      traits: input.traits,
-                                      facets,
-                                  })
-                                : input.traits,
+                          nativeSelection:
+                              traitContext.groupId || input.traitRanges.length
+                                  ? null
+                                  : resolveEffectiveNativeTraits({
+                                        catalog: traitContext.catalog,
+                                        pinned: selectedView?.pinnedTraits,
+                                        traits: input.traits,
+                                        facets,
+                                    }),
                       },
                   }
                 : {}),

@@ -18,10 +18,13 @@ export function catalogRequest(request: FastifyRequest): CatalogRequest {
             "Choose one catalog, view and generation",
         );
     const view = search.get(TRAIT_CATALOG_QUERY.View);
+    const viewGroup = search.get(TRAIT_CATALOG_QUERY.Group);
     const traitCatalog = search.get(TRAIT_CATALOG_QUERY.Catalog);
     const generation = search.get(TRAIT_CATALOG_QUERY.Generation);
     if (
         view === "" ||
+        viewGroup === "" ||
+        (view !== null && viewGroup !== null) ||
         (traitCatalog !== null &&
             traitCatalog !== TRAIT_CATALOG.Canonical &&
             traitCatalog !== TRAIT_CATALOG.Derived)
@@ -29,6 +32,7 @@ export function catalogRequest(request: FastifyRequest): CatalogRequest {
         throw new ReadModelBadRequestError("Invalid trait catalog or view");
     return {
         ...(view ? { view } : {}),
+        ...(viewGroup ? { viewGroup } : {}),
         ...(traitCatalog ? { traitCatalog } : {}),
         ...(generation !== null
             ? { generation: positiveInteger(generation) }

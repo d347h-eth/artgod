@@ -1,5 +1,6 @@
 import {
     readViewStatus,
+    hasCollectionViewGroup,
     readTokenViewId,
 } from "@artgod/shared/read-models/trait-catalog";
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
@@ -87,6 +88,7 @@ type CollectionDetailReadPort = {
         owner?: string,
         options?: {
             traitContext?: TraitReadContext;
+            keys?: readonly string[];
             excludeKeys?: string[];
             rangeOnlyKeys?: string[];
         },
@@ -161,6 +163,7 @@ type ResolvedTokenMediaContext = {
 };
 
 export class ExtensionAwareCollectionDetailRead {
+    readonly hasViewGroup = hasCollectionViewGroup;
     readonly readViewStatus = readViewStatus;
     readonly readTokenViewId = readTokenViewId;
     constructor(
@@ -253,6 +256,7 @@ export class ExtensionAwareCollectionDetailRead {
         owner?: string,
         options?: {
             traitContext?: TraitReadContext;
+            keys?: readonly string[];
             excludeKeys?: string[];
             rangeOnlyKeys?: string[];
         },

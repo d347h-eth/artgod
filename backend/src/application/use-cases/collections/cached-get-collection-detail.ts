@@ -77,7 +77,6 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         input: GetCollectionDetailInput,
     ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput> {
         if (
-            this.defaultMediaModePort.requiresView?.() ||
             !isPublicCollectionDetailCacheShapeEligible(
                 input,
                 this.defaultInput,
@@ -120,11 +119,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
 
     private scheduleBackgroundRefresh(): void {
         void Promise.resolve()
-            .then(() =>
-                this.defaultMediaModePort.requiresView?.()
-                    ? undefined
-                    : this.refreshDefaultCollectionDetail(),
-            )
+            .then(() => this.refreshDefaultCollectionDetail())
             .catch((error) => {
                 logger.error("Public collection detail cache refresh failed", {
                     component: "PublicCollectionDetailCache",
@@ -166,7 +161,11 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         output: GetCollectionDetailOutput,
         refreshedAt: number,
     ): void {
-        if (!this.tokenPreviewWarmupPort) {
+        // Each token resolves its own leaf. An unscoped preview warmup cannot serve those reads.
+        if (
+            !this.tokenPreviewWarmupPort ||
+            this.defaultMediaModePort.requiresView?.()
+        ) {
             return;
         }
         if (
@@ -188,14 +187,6 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     private resolveRequestMode(
         input: GetCollectionDetailInput,
     ): PublicCollectionRequestMode | Promise<PublicCollectionRequestMode> {
-        if (
-            input.view ||
-            input.traitCatalog ||
-            input.generation !== undefined ||
-            input.mediaPreference
-        ) {
-            return PUBLIC_COLLECTION_REQUEST_MODES.Bypass;
-        }
         if (!input.mediaMode) {
             return PUBLIC_COLLECTION_REQUEST_MODES.Canonical;
         }
@@ -239,14 +230,8 @@ export function isCollectionDetailDefaultQueryCacheEligible(
     input: GetCollectionDetailInput,
 ): boolean {
     return (
-        input.tokenStatus === "listed" &&
-        input.limit === DEFAULT_PAGE_LIMIT &&
-        !input.cursor &&
-        !input.owner &&
-        input.traits.length === 0 &&
-        input.traitRanges.length === 0 &&
         !input.mediaMode &&
-        !input.mediaPreference
+        isCollectionDetailDefaultQueryCacheShapeEligible(input)
     );
 }
 
@@ -276,6 +261,10 @@ function isCollectionDetailDefaultQueryCacheShapeEligible(
     input: GetCollectionDetailInput,
 ): boolean {
     return (
+        !input.view &&
+        !input.viewGroup &&
+        !input.traitCatalog &&
+        input.generation === undefined &&
         input.tokenStatus === "listed" &&
         input.limit === DEFAULT_PAGE_LIMIT &&
         !input.cursor &&

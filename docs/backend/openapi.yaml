@@ -31,6 +31,7 @@ paths:
             description: Returns chart navigation, media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists. Thumbnail reads remain snapshot-only.
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -78,6 +79,7 @@ paths:
                 bypass the public snapshot cache.
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -386,6 +388,7 @@ paths:
             operationId: getCollectionActivity
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -491,6 +494,7 @@ paths:
             operationId: getCollectionDetail
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -722,6 +726,7 @@ paths:
             operationId: getCollectionTraitCatalog
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -795,6 +800,7 @@ paths:
             operationId: getCollectionCustomization
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -821,6 +827,7 @@ paths:
                   csrfCookie: []
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -917,6 +924,7 @@ paths:
             operationId: listCollectionBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1114,6 +1122,10 @@ paths:
             description: Lists enabled and paused jobs linked to the preset, including unchanged and ineligible rows. Archived jobs are excluded.
             operationId: previewCompetitionPresetReapply
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - name: preset_id
@@ -1273,6 +1285,10 @@ paths:
             description: Builds a staged diff for all current jobs backed by the selected tier without mutating jobs.
             operationId: previewBiddingPriceTierReapply
             parameters:
+                - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
+                - $ref: "#/components/parameters/TraitCatalogKind"
+                - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TierId"
@@ -1410,6 +1426,7 @@ paths:
                   csrfCookie: []
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1485,6 +1502,7 @@ paths:
                   csrfCookie: []
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1588,6 +1606,7 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - name: token_id
                   in: query
                   schema: { type: string }
@@ -1670,6 +1689,7 @@ paths:
             operationId: getCollectionHolders
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1697,6 +1717,7 @@ paths:
             operationId: getTokenActivity
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1816,6 +1837,7 @@ paths:
             operationId: getTokenBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1845,6 +1867,7 @@ paths:
             operationId: getTokenDetail
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1875,6 +1898,7 @@ paths:
             operationId: getTokenCard
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1907,6 +1931,7 @@ paths:
             operationId: getTokenPreview
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -1937,6 +1962,7 @@ paths:
             operationId: getTokenUri
             parameters:
                 - $ref: "#/components/parameters/TraitView"
+                - $ref: "#/components/parameters/TraitViewGroup"
                 - $ref: "#/components/parameters/TraitCatalogKind"
                 - $ref: "#/components/parameters/TraitGeneration"
                 - $ref: "#/components/parameters/ChainRef"
@@ -2426,7 +2452,12 @@ components:
         TraitView:
             name: view
             in: query
-            description: Opaque selectable leaf ID returned by collection-views. Required for collection browsing when the extension declares exclusive views.
+            description: Opaque leaf ID returned by collection-views. Omit both view and view_group to browse the whole collection.
+            schema: { type: string }
+        TraitViewGroup:
+            name: view_group
+            in: query
+            description: Parent ID returned by collection-views. Selects members of the group across all its child views. Mutually exclusive with view.
             schema: { type: string }
         TraitCatalogKind:
             name: trait_catalog
@@ -2682,8 +2713,11 @@ components:
             properties:
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
-                required: { type: boolean }
+                required:
+                    type: boolean
+                    description: Whether this collection uses extension-managed views. With no leaf or group selected, the current scope is All.
                 selectedViewId: { type: string, nullable: true }
+                selectedGroupId: { type: string, description: Present when browsing a parent across its child views. }
                 views:
                     type: array
                     items:
@@ -3814,6 +3848,13 @@ components:
             required: [tokenId, image, animationUrl, attributes, traitSummary]
             additionalProperties: false
             properties:
+                catalogScope:
+                    type: object
+                    description: Active leaf catalog for this token's projected trait links.
+                    required: [id, generation]
+                    properties:
+                        id: { type: string }
+                        generation: { type: integer, minimum: 1 }
                 traitTree:
                     type: array
                     nullable: true
@@ -6059,6 +6100,7 @@ components:
                     properties:
                         catalog: { type: string, enum: [canonical, derived] }
                         viewId: { type: string, nullable: true }
+                        groupId: { type: string, description: Present when the current scope spans a parent group's child views. }
                         generation: { type: integer, nullable: true }
                         pinnedTraits:
                             type: array

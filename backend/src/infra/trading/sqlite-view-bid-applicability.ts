@@ -1,4 +1,7 @@
-import { withTraitReadSnapshot } from "@artgod/shared/read-models/trait-catalog";
+import {
+    withTraitReadSnapshot,
+    catalogViewIds,
+} from "@artgod/shared/read-models/trait-catalog";
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import type { PersistedBiddingJobRecord } from "@artgod/shared/types";
 import { db } from "@artgod/shared/database";
@@ -29,7 +32,7 @@ type NativeScope = Pick<
 function viewOfferMatcher(
     chainId: number,
     collectionId: number,
-    viewId: string,
+    views: NonNullable<ReturnType<typeof catalogViewIds>>,
 ) {
     const cache = new Map<string, ViewOfferApplicability | null>();
     const scope = [chainId, collectionId] as const;
@@ -62,12 +65,12 @@ function viewOfferMatcher(
     function exactToken(id: string): ViewOfferApplicability | null {
         const member = db
             .prepare(
-                "SELECT view_id,scope_key FROM trait_catalog_members WHERE chain_id=? AND collection_id=? AND token_id=?",
+                `SELECT view_id IN (${views.sql}) AS matched,scope_key FROM trait_catalog_members WHERE chain_id=? AND collection_id=? AND token_id=?`,
             )
-            .get(...scope, id) as
-            | { view_id: string | null; scope_key: string | null }
+            .get(...views.values, ...scope, id) as
+            | { matched: number | null; scope_key: string | null }
             | undefined;
-        if (member?.view_id === viewId) return RESULT.Matched;
+        if (member?.matched) return RESULT.Matched;
         return member?.scope_key ? null : RESULT.Unresolved;
     }
     function finite(encoded: string): ViewOfferApplicability | null {
@@ -76,7 +79,7 @@ function viewOfferMatcher(
         let missing = false;
         const count = db.prepare(`
             SELECT COUNT(DISTINCT CASE WHEN m.scope_key IS NOT NULL THEN t.token_sort_value END) AS known,
-                   MAX(m.view_id=?) AS matched
+                   MAX(m.view_id IN (${views.sql})) AS matched
             FROM tokens t JOIN trait_catalog_members m USING(chain_id,collection_id,token_id)
             WHERE t.chain_id=? AND t.collection_id=? AND t.token_sort_bucket=0
                 AND (t.token_sort_length,t.token_sort_value)>=(?,?) AND (t.token_sort_length,t.token_sort_value)<=(?,?)
@@ -85,7 +88,7 @@ function viewOfferMatcher(
             const start = range.start.toString(),
                 end = range.end.toString();
             const row = count.get(
-                viewId,
+                ...views.values,
                 ...scope,
                 start.length,
                 start,
@@ -110,11 +113,15 @@ function viewOfferMatcher(
                 `
             SELECT m.token_id,f.key AS type,f.value FROM trait_catalog_members m
             JOIN (${CANONICAL_TRAIT_RELATION_SQL}) f USING(chain_id,collection_id,token_id)
-            WHERE m.chain_id=? AND m.collection_id=? AND m.view_id=? AND f.key IN(SELECT value FROM json_each(?))
+            WHERE m.chain_id=? AND m.collection_id=? AND m.view_id IN (${views.sql}) AND f.key IN(SELECT value FROM json_each(?))
             ORDER BY m.token_id
         `,
             )
-            .iterate(...scope, viewId, JSON.stringify(keys)) as Iterable<{
+            .iterate(
+                ...scope,
+                ...views.values,
+                JSON.stringify(keys),
+            ) as Iterable<{
             token_id: string;
             type: string;
             value: string;
@@ -160,10 +167,10 @@ function viewOfferMatcher(
 export function scopeBidsToCollectionView(
     chainId: number,
     collectionId: number,
-    viewId: string,
+    views: NonNullable<ReturnType<typeof catalogViewIds>>,
     rows: PersistedBiddingBidBookRow[],
 ): PersistedBiddingBidBookRow[] {
-    const matches = viewOfferMatcher(chainId, collectionId, viewId);
+    const matches = viewOfferMatcher(chainId, collectionId, views);
     return rows.flatMap((row) => {
         const viewApplicability = matches(row);
         return viewApplicability ? [{ ...row, viewApplicability }] : [];
@@ -180,13 +187,17 @@ export function readJobsForView<T extends PersistedBiddingJobRecord>(
     load: () => T[],
 ): T[] {
     const traitContext = params.traitContext;
-    if (!traitContext?.viewId) return load();
-    const viewId = traitContext.viewId;
+    const views = catalogViewIds(
+        params.chainId,
+        params.collectionId,
+        traitContext,
+    );
+    if (!views || !traitContext) return load();
     return withTraitReadSnapshot({ ...params, traitContext }, () => {
         const match = viewOfferMatcher(
             params.chainId,
             params.collectionId,
-            viewId,
+            views,
         );
         return load().filter(
             (job) =>

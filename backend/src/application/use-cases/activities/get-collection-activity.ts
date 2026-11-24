@@ -79,6 +79,7 @@ export class GetCollectionActivityUseCase {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    keys?: readonly string[];
                     traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
@@ -158,11 +159,11 @@ export class GetCollectionActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const { traitContext, view: selectedView } = resolveTraitScope(
-            this.collectionReadPort,
-            collection,
-            input,
-        );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collectionReadPort, collection, input);
         const ordinaryTraits = ordinaryViewTraits(
             selectedView?.pinnedTraits ?? [],
             input.traits,
@@ -236,6 +237,7 @@ export class GetCollectionActivityUseCase {
                     undefined,
                     {
                         traitContext,
+                        keys: aggregateFacetKeys,
                         rangeOnlyKeys:
                             traitFilterPresentation.effectiveConfig.rangeKeys,
                     },
