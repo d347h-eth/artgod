@@ -4,7 +4,6 @@ import type {
     ProjectedTraitValue,
     TraitNode,
     TraitProjection,
-    TraitStructureGroup,
 } from "../types/trait-catalog.js";
 import {
     NFT111K_METADATA as META,
@@ -105,17 +104,6 @@ const SCENE_FAMILIES = new Set([
     "portal",
     "small paint mark",
 ]);
-export function structuredSchema(block: string): TraitStructureGroup[] {
-    if (block === STRUCTURED_BLOCK.Backrooms)
-        return [{ label: PAINTINGS, fields: [TITLE, ARTIST] }];
-    return [...CHARACTER_FIELDS].map(([label, fields]) => ({
-        label,
-        fields: Object.keys(fields).length
-            ? Object.values(fields)
-            : [REFERENCE],
-    }));
-}
-
 export function identityValue(native: TraitFilter): ProjectedTraitValue {
     return {
         fieldId: native.key,

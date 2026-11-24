@@ -34,7 +34,6 @@ export type CollectionViewStatus = CollectionViewDescriptor & {
     ready: number;
     /** Current members with a classifier or active projection error. */
     failed?: number;
-    structure?: TraitStructureGroup[];
     latestRun?: TraitCatalogRebuild | null;
 };
 export type CollectionViewsResponse = {
@@ -88,7 +87,6 @@ export type ProjectedTraitValue = {
     /** An explicit declaration that the entire canonical key retains its meaning. */
     nativeFieldKey?: string;
 };
-export type TraitStructureGroup = { label: string; fields: string[] };
 export type TraitProjection = {
     tree: TraitNode[];
     values: ProjectedTraitValue[];
@@ -99,10 +97,6 @@ export interface TraitCatalogMapper {
     /** Ordered, equivalent native keys for a single pinned value. Discovery tests
      * these exact alternatives only when members prefer different source spellings. */
     equivalentPinKeys?(view: CollectionViewDescriptor): readonly string[];
-    structure?(
-        view: CollectionViewDescriptor,
-        version: string,
-    ): TraitStructureGroup[];
     availableVersion(view: CollectionViewDescriptor): string;
     project(
         view: CollectionViewDescriptor,

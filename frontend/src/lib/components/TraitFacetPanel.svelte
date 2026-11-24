@@ -22,7 +22,6 @@
 
 	const collectionViewPage = useCollectionView();
 	const view = $derived(selectedCollectionView(collectionViewPage()));
-	const detailFields = $derived(view?.structure ?? []);
 
 	type MaybePromise<T> = T | Promise<T>;
 	type TraitRangeDraft = {
@@ -311,7 +310,7 @@
 			</div>
 
 			{#if facets.length === 0}
-				<p class="muted">{catalogFacets.length ? 'no additional trait filters' : 'no trait facets yet'}</p>
+				<p class="muted">no trait filters available</p>
 			{:else if hasSearchableFacets}
 				<div class="trait-root-search">
 					<input
@@ -482,56 +481,6 @@
 					{/each}
 				{/if}
 			{/if}
-			{#if detailFields.length}
-				<details class="token-field-reference">
-					<summary>Token detail fields</summary>
-					<dl>
-						{#each detailFields as group (group.label)}
-							<div>
-								<dt>{group.label}</dt>
-								<dd>{group.fields.join(', ')}</dd>
-							</div>
-						{/each}
-					</dl>
-				</details>
-			{/if}
 		</aside>
 	{/if}
 </div>
-
-<style>
-	.token-field-reference {
-		border-top: 1px solid var(--c-blue);
-		padding-top: 0.45rem;
-		font-size: 0.75rem;
-		line-height: 1.4;
-	}
-
-	.token-field-reference summary {
-		width: fit-content;
-		padding: 0.2rem 0;
-		cursor: pointer;
-		color: var(--c-cyan);
-	}
-
-	.token-field-reference summary:hover,
-	.token-field-reference summary:focus-visible {
-		color: var(--c-yellow);
-	}
-
-	.token-field-reference dl {
-		display: grid;
-		gap: 0.5rem;
-		padding-inline-start: 1rem;
-		margin: 0.35rem 0 0;
-	}
-
-	.token-field-reference dt {
-		color: var(--c-ice);
-	}
-
-	.token-field-reference dd {
-		margin: 0;
-		color: var(--c-sand);
-	}
-</style>

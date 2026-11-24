@@ -17,8 +17,7 @@ describe('TraitFacetPanel', () => {
 			classified: 1,
 			ready: 1,
 			activeMapperVersion: 'v1',
-			availableMapperVersion: 'v1',
-			structure: [{ label: 'Inventory', fields: ['Slot'] }]
+			availableMapperVersion: 'v1'
 		};
 		const source = vi.spyOn(collectionView, 'selectedCollectionView');
 		source.mockReturnValueOnce(view).mockReturnValueOnce(view);
@@ -39,7 +38,9 @@ describe('TraitFacetPanel', () => {
 
 		const initial = render(TraitFacetPanel, { props }).body;
 		expect(initial).not.toContain(facet.key);
-		expect(initial).toMatch(/Other choice[\s\S]+Token detail fields[\s\S]+Inventory[\s\S]+Slot/);
+		expect(initial.match(/<summary>/g)).toHaveLength(1);
+		expect(initial).toContain('Other choice');
+		expect(initial).toContain('type="checkbox"');
 
 		const explicit = render(TraitFacetPanel, {
 			props: { ...props, selectedTraits: [{ key: facet.key, value: 'Blue' }] }
