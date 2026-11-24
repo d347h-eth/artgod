@@ -1,15 +1,12 @@
 <script lang="ts">
+	import { COLLECTION_VIEW_PICKER_QUERY } from '$lib/collection-view';
 	import { useCollectionView } from '$lib/collection-view-context';
 	import { page } from '$app/state';
 	import CollectionViewPicker from './CollectionViewPicker.svelte';
-	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import type { Snippet } from 'svelte';
-	import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
-	import type { CollectionNavigation } from '$lib/collection-navigation';
+	import type { CollectionNavigation, CollectionSectionSelection } from '$lib/collection-navigation';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
 	import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '$lib/components/collection-page-layout-dom';
-	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
-	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
 	const collectionViewPage = useCollectionView();
 	const viewContext = $derived(collectionViewPage());
@@ -27,28 +24,14 @@
 		headerActions,
 		topActions,
 		children
-	}: {
+	}: CollectionSectionSelection & {
 		navigation: CollectionNavigation;
-		activeSection:
-			| 'tokens'
-			| 'chart'
-			| 'activities'
-			| 'holders'
-			| 'customization'
-			| 'bidding'
-			| 'blockspace'
-			| 'extension-page'
-			| null;
-		activeTokenStatus?: CollectionTokenStatus | null;
-		activeActivityKind?: ActivityFeedFilterKind | null;
-		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
-		activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
 		breadcrumbs: Snippet;
 		headerActions?: Snippet;
 		topActions?: Snippet;
-		children: Snippet;
+		children?: Snippet;
 	} = $props();
 </script>
 
@@ -80,16 +63,19 @@
 		{/if}
 	</header>
 
-	{#if viewContext}
-		<div class="panel-top-actions"><CollectionViewPicker context={viewContext} path={page.params.token_ref ? navigation.basePath : page.url.pathname} query={new URLSearchParams(page.url.search)} /></div>
-	{/if}
-	{#if topActions}
-		<div
-			class={`${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root} ${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}`}
-		>
-			{@render topActions()}
+	{#if viewContext || topActions}
+		<div class={`${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root} ${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}`}>
+			{#if viewContext}
+				<CollectionViewPicker
+					context={viewContext}
+					path={viewContext.pickerDestination?.path ?? (page.params.token_ref ? navigation.basePath : page.url.pathname)}
+					query={new URLSearchParams(viewContext.pickerDestination?.query ?? page.url.search)}
+					initialGroup={page.url.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group)}
+				/>
+			{/if}
+			{@render topActions?.()}
 		</div>
 	{/if}
 
-	{@render children()}
+	{@render children?.()}
 </section>
