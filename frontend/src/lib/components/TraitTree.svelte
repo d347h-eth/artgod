@@ -1,29 +1,41 @@
 <script lang="ts">
 	import { TRAIT_NODE_KIND, type TraitNode } from '@artgod/shared/types/trait-catalog';
 	import type { Snippet } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import type { TraitLeaf } from '$lib/trait-tree';
-	import TraitTree from './TraitTree.svelte';
-
-	const MIN_SEARCHABLE_ENTRIES = 25;
 
 	let {
 		nodes,
 		leafValue,
 		initiallyExpanded = false
-	}: { nodes: TraitNode[]; leafValue?: Snippet<[TraitLeaf]>; initiallyExpanded?: boolean } = $props();
-	let search = $state('');
-	let open = $state<Record<string, boolean>>({});
-	const matches = $derived.by(() => {
-		const term = search.trim().toLocaleLowerCase();
-		return term ? nodes.filter((node) => contains(node, term)) : nodes;
-	});
-	const fieldsOnly = $derived(nodes.every((node) => node.kind === TRAIT_NODE_KIND.Leaf));
+	}: {
+		nodes: TraitNode[];
+		leafValue?: Snippet<[TraitLeaf]>;
+		initiallyExpanded?: boolean;
+	} = $props();
 
-	function contains(node: TraitNode, term: string): boolean {
-		if (node.label.toLocaleLowerCase().includes(term)) return true;
-		return node.kind === TRAIT_NODE_KIND.Leaf
-			? node.value.toLocaleLowerCase().includes(term)
-			: node.children.some((child) => contains(child, term));
+	let allOpenByDefault = $state(false);
+	// IDs are local to their branch. Keep a manual toggle scoped to its full path.
+	const manualExpansion = new SvelteMap<string, boolean>();
+
+	function isExpanded(path: string[]): boolean {
+		return (
+			manualExpansion.get(JSON.stringify(path)) ??
+			(allOpenByDefault || (initiallyExpanded && path.length === 1))
+		);
+	}
+
+	function hasCollapsedBranch(items: TraitNode[], parent: string[]): boolean {
+		return items.some((node) => {
+			if (node.kind === TRAIT_NODE_KIND.Leaf) return false;
+			const path = [...parent, node.id];
+			return !isExpanded(path) || hasCollapsedBranch(visibleChildren(node), path);
+		});
+	}
+
+	function expandAll(): void {
+		manualExpansion.clear();
+		allOpenByDefault = true;
 	}
 
 	function visibleChildren(node: Exclude<TraitNode, TraitLeaf>): TraitNode[] {
@@ -40,17 +52,9 @@
 	}
 </script>
 
-<div class="trait-tree">
-	{#if nodes.length >= MIN_SEARCHABLE_ENTRIES}
-		<input
-			class="trait-search-input"
-			aria-label="Search traits"
-			placeholder="Search traits"
-			bind:value={search}
-		/>
-	{/if}
-	<ul class:field-list={fieldsOnly}>
-		{#each matches as node (node.id)}
+{#snippet list(items: TraitNode[], parent: string[])}
+	<ul class:field-list={items.every((node) => node.kind === TRAIT_NODE_KIND.Leaf)}>
+		{#each items as node (node.id)}
 			<li class:field={node.kind === TRAIT_NODE_KIND.Leaf}>
 				{#if node.kind === TRAIT_NODE_KIND.Leaf}
 					<dl class="trait-tree-field">
@@ -65,10 +69,14 @@
 					</dl>
 				{:else}
 					{@const children = visibleChildren(node)}
-					{@const expanded = open[node.id] ?? initiallyExpanded}
+					{@const path = [...parent, node.id]}
+					{@const expanded = isExpanded(path)}
 					<details
 						open={expanded}
-						ontoggle={(event) => (open[node.id] = event.currentTarget.open)}
+						ontoggle={(event) => {
+							const open = event.currentTarget.open;
+							if (open !== expanded) manualExpansion.set(JSON.stringify(path), open);
+						}}
 					>
 						<summary>
 							<span>{node.label}</span>
@@ -77,16 +85,27 @@
 							{/if}
 						</summary>
 						{#if expanded}
-							<TraitTree nodes={children} {leafValue} />
+							<div class="trait-tree">{@render list(children, path)}</div>
 						{/if}
 					</details>
 				{/if}
 			</li>
 		{/each}
 	</ul>
-	{#if matches.length === 0 && search}
-		<p class="muted">No matching traits</p>
+{/snippet}
+
+<div class="trait-tree">
+	{#if nodes.some((node) => node.kind !== TRAIT_NODE_KIND.Leaf)}
+		<button
+			type="button"
+			class="facet-panel-action-button"
+			disabled={!hasCollapsedBranch(nodes, [])}
+			onclick={expandAll}
+		>
+			Expand all
+		</button>
 	{/if}
+	{@render list(nodes, [])}
 </div>
 
 <style>
@@ -98,7 +117,7 @@
 		word-break: normal;
 	}
 
-	ul, dl, dd, p {
+	ul, dl, dd {
 		margin: 0;
 	}
 
@@ -155,7 +174,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	details > :global(.trait-tree) {
+	details > .trait-tree {
 		border-inline-start: 1px solid var(--c-blue);
 		margin-inline-start: 0.25rem;
 		padding-inline-start: 0.65rem;
@@ -174,8 +193,7 @@
 		color: var(--c-ice);
 	}
 
-	.trait-search-input {
-		width: min(25ch, 100%);
-		margin-block: 0.3rem;
+	.facet-panel-action-button {
+		margin-block-end: var(--control-button-gap);
 	}
 </style>

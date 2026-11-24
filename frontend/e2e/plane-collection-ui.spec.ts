@@ -909,9 +909,15 @@ test('reads long Plane trait names and filenames together on token 34273', async
 	expect(await roots.locator('details').count()).toBeGreaterThan(0);
 	await expect(roots.locator('details[open]')).toHaveCount(0);
 	const table = traits.getByRole('table');
+	const expandAll = traits.getByRole('button', { name: 'Expand all', exact: true });
 	await expect(table).toBeVisible();
+	await expect(expandAll).toHaveCount(1);
 	const tableBox = (await table.boundingBox())!;
-	expect(tableBox.y + tableBox.height).toBeLessThanOrEqual((await tree.boundingBox())!.y);
+	const buttonBox = (await expandAll.boundingBox())!;
+	expect(tableBox.y + tableBox.height).toBeLessThanOrEqual(buttonBox.y);
+	expect(buttonBox.y + buttonBox.height).toBeLessThanOrEqual(
+		(await roots.first().boundingBox())!.y
+	);
 	await table.evaluate((element) => element.scrollIntoView({ block: 'start' }));
 	await page.screenshot({ path: info.outputPath('34273-trait-table-and-tree.png') });
 	const background = tree.getByText('Background bottom', { exact: true });
@@ -962,4 +968,24 @@ test('reads long Plane trait names and filenames together on token 34273', async
 		await page.setViewportSize({ width: 708, height: 857 });
 		await inspectLayout('34273-other-fields-708');
 	}
+
+	const characterRoot = roots.filter({ has: page.getByText('Characters', { exact: true }) });
+	const characters = characterRoot.locator(':scope > summary');
+	await characters.click();
+	await expandAll.focus();
+	await expandAll.press('Enter');
+	await expect(tree.locator('details:not([open])')).toHaveCount(0);
+	await expect(expandAll).toBeDisabled();
+	const characterFields = characterRoot.locator('dd');
+	await expect(characterFields.first()).toBeVisible();
+	await expect(expandAll).toHaveCount(1);
+	await expect(tree.getByRole('textbox')).toHaveCount(0);
+	await expandAll.evaluate((button) => button.scrollIntoView({ block: 'start' }));
+	await page.screenshot({ path: info.outputPath('34273-all-traits-expanded.png') });
+	await characters.click();
+	await expect(characterFields).toHaveCount(0);
+	await expect(expandAll).toBeEnabled();
+	await expandAll.click();
+	await expect(tree.locator('details:not([open])')).toHaveCount(0);
+	await expect(characterFields.first()).toBeVisible();
 });
