@@ -41,6 +41,11 @@ test('resolves a direct Backrooms token and searches paired artworks with bounde
 			json: {
 				required: true,
 				selectedViewId: view.id,
+				collection: {
+					...fixture.collection,
+					extensions: [{ key: NFT111K_EXTENSION_KEY }],
+					activityEventFeeds: []
+				},
 				views: [
 					{
 						...view,
@@ -105,22 +110,12 @@ test('resolves a direct Backrooms token and searches paired artworks with bounde
 	expect(dataReads).toBeGreaterThan(0);
 	await heading.click();
 	await expect(page.getByText('1–24 of 1447')).toBeVisible();
-	expect(
-		await page
-			.locator('summary')
-			.filter({ hasText: /^Painting [0-9]+$/ })
-			.count()
-	).toBe(24);
+	await expect(page.getByText(/^Painting [0-9]+$/)).toHaveCount(24);
 	const search = page.getByRole('textbox', { name: 'Search traits', exact: true });
 	await search.fill('artist number 1447');
 	await page.getByText('Painting 1447', { exact: true }).click();
 	await expect(page.getByText('Artist number 1447', { exact: true })).toBeVisible();
 	await expect(page.getByText('Untitled', { exact: true })).toBeVisible();
-	expect(
-		await page
-			.locator('summary')
-			.filter({ hasText: /^Painting [0-9]+$/ })
-			.count()
-	).toBe(1);
+	await expect(page.getByText(/^Painting [0-9]+$/)).toHaveCount(1);
 	await page.screenshot({ path: info.outputPath('backrooms-painting.png') });
 });

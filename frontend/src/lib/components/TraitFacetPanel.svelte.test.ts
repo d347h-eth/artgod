@@ -1,10 +1,53 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 import type { ApiTraitFacet } from '$lib/api-types';
+import * as collectionView from '$lib/collection-view';
 import TraitFacetPanel from './TraitFacetPanel.svelte';
 
 describe('TraitFacetPanel', () => {
+	it('omits only a facet already pinned by the picker and leaves explicit filters removable', () => {
+		const pin = { key: 'source scope', value: 'blue' };
+		const view = {
+			id: 'test-view',
+			label: 'Selected scope',
+			parent: null,
+			pinnedTraits: [pin],
+			generation: 1,
+			classified: 1,
+			ready: 1,
+			activeMapperVersion: 'v1',
+			availableMapperVersion: 'v1',
+			structure: [{ label: 'Inventory', fields: ['Slot'] }]
+		};
+		const source = vi.spyOn(collectionView, 'selectedCollectionView');
+		source.mockReturnValueOnce(view).mockReturnValueOnce(view);
+		const facet: ApiTraitFacet = {
+			key: 'Already pinned',
+			displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
+			minValue: null,
+			maxValue: null,
+			values: [{ ...facetValue('Blue', 1), native: pin }]
+		};
+		const props = {
+			facets: [facet, { ...facet, key: 'Other choice', values: [facetValue('Blue', 1)] }],
+			selectedTraits: [],
+			selectedRanges: [],
+			onToggleTrait: () => {},
+			onApplyTraitRange: () => {}
+		};
+
+		const initial = render(TraitFacetPanel, { props }).body;
+		expect(initial).not.toContain(facet.key);
+		expect(initial).toMatch(/Other choice[\s\S]+Token detail fields[\s\S]+Inventory[\s\S]+Slot/);
+
+		const explicit = render(TraitFacetPanel, {
+			props: { ...props, selectedTraits: [{ key: facet.key, value: 'Blue' }] }
+		}).body;
+		expect(explicit).toContain(facet.key);
+		source.mockRestore();
+	});
+
 	it('does not render the sidebar body when collapsed', () => {
 		const { body } = render(TraitFacetPanel, {
 			props: {
@@ -61,10 +104,7 @@ describe('TraitFacetPanel', () => {
 						displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
 						minValue: null,
 						maxValue: null,
-						values: [
-							facetValue('Beanie', 1),
-							facetValue('Cap', 3)
-						]
+						values: [facetValue('Beanie', 1), facetValue('Cap', 3)]
 					}
 				],
 				selectedTraits: [],
