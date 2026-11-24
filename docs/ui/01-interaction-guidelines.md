@@ -546,7 +546,7 @@ The controller owns:
 The split of responsibilities is:
 
 - `TraitFacetPanel.svelte`
-    - presentational sidebar
+    - independently scrollable trait list sized to the space below the collection controls
     - local trait-value search
     - checkbox and label activation for the exact discrete trait value, including its capitalization
     - inclusive `from` / `to` range UI for scalar traits
