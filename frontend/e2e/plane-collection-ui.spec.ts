@@ -673,7 +673,7 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await cards.getByRole('link', { name: '1880', exact: true }).click();
 	await checkTokenDetail('1880', PLANE);
 	await shots('08-token-detail');
-	await page.getByText('Characters', { exact: true }).click();
+	await expect(page.getByText('Regular Constant fella', { exact: true })).toBeVisible();
 	await page.getByText('Regular Constant fella', { exact: true }).click();
 	await expect(page.getByText('die dritte generation', { exact: true })).toBeVisible();
 	await expect(page.getByText('nutmugs t', { exact: true })).toBeVisible();
@@ -835,17 +835,32 @@ test('reads long Plane trait names and filenames together on token 34273', async
 	await enter(page, path + '/' + DETAIL_TOKEN);
 	const title = page.getByRole('heading', { level: 1, name: DETAIL_TOKEN, exact: true });
 	await expect(title).toBeVisible();
-	await page.locator('summary').getByText('Other', { exact: true }).click();
 	const traits = page.locator('.token-detail-traits-wrap');
 	const tree = traits.locator('.trait-tree').first();
+	const roots = tree.locator(':scope > ul > li > details');
+	await expect(roots.first()).toBeVisible();
+	for (const root of await roots.all()) await expect(root).toHaveAttribute('open', '');
+	expect(await roots.locator('details').count()).toBeGreaterThan(0);
+	await expect(roots.locator('details[open]')).toHaveCount(0);
+	const table = traits.getByRole('table');
+	await expect(table).toBeVisible();
+	const tableBox = (await table.boundingBox())!;
+	expect(tableBox.y + tableBox.height).toBeLessThanOrEqual((await tree.boundingBox())!.y);
+	await table.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+	await page.screenshot({ path: info.outputPath('34273-trait-table-and-tree.png') });
 	const background = tree.getByText('Background bottom', { exact: true });
 	const objects = tree.getByText('Chain connected objects', { exact: true });
 	const coverage = tree.getByText(COVERAGE_FIELD, { exact: true });
 	const filename = tree.getByText(BACKGROUND_FILE, { exact: true });
 	for (const text of [background, objects, coverage, filename]) await expect(text).toBeVisible();
+	const other = tree.locator('summary').getByText('Other', { exact: true });
+	await other.click();
+	await expect(background).toBeHidden();
+	await other.click();
+	await expect(background).toBeVisible();
 
 	async function inspectLayout(name: string) {
-		await title.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+		await tree.evaluate((element) => element.scrollIntoView({ block: 'start' }));
 		const center = await tree.evaluate((element) => {
 			const rect = element.getBoundingClientRect();
 			return Math.abs(rect.left + rect.width / 2 - document.documentElement.clientWidth / 2);
@@ -876,6 +891,8 @@ test('reads long Plane trait names and filenames together on token 34273', async
 	}
 	await inspectLayout('34273-other-fields');
 	if (info.project.name === 'desktop-1267') {
+		await page.setViewportSize({ width: 1370, height: 1048 });
+		await inspectLayout('34273-traits-1370');
 		await page.setViewportSize({ width: 708, height: 857 });
 		await inspectLayout('34273-other-fields-708');
 	}

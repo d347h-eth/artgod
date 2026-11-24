@@ -108,8 +108,10 @@ test('resolves a direct Backrooms token and searches paired artworks with bounde
 	const heading = page.getByText('Paintings', { exact: true });
 	await expect(heading).toBeVisible();
 	expect(dataReads).toBeGreaterThan(0);
-	await heading.click();
 	await expect(page.getByText('1–24 of 1447')).toBeVisible();
+	await heading.click();
+	await expect(page.getByText('1–24 of 1447')).toBeHidden();
+	await heading.click();
 	await expect(page.getByText(/^Painting [0-9]+$/)).toHaveCount(24);
 	const search = page.getByRole('textbox', { name: 'Search traits', exact: true });
 	await search.fill('artist number 1447');

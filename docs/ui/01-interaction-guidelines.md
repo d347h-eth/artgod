@@ -532,6 +532,10 @@ colors and controls remain ArtGod's existing visual system.
 
 ## Trait Panel Behavior
 
+On token detail, show the standard traits table before the structured tree.
+Center both within the page gutters. The tree starts with its top-level groups
+open and nested entries collapsed.
+
 Trait panel behavior is centralized in `trait-facet-panel-controller.ts`.
 
 The controller owns:

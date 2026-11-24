@@ -3538,12 +3538,18 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-detail-traits-wrap {
+	container: token-detail-traits / inline-size;
 	display: grid;
-	grid-template-columns: minmax(0, 96rem);
-	justify-content: center;
-	gap: 0.8rem;
-	padding: 0 0.75rem;
+	grid-template-columns: minmax(0, 1fr);
+	justify-items: center;
+	gap: var(--token-detail-section-gap-half);
+	padding-inline: var(--panel-content-padding);
 	margin-block-start: var(--token-detail-section-gap);
+}
+
+.token-detail-traits-wrap > .trait-tree {
+	width: fit-content;
+	max-width: 100%;
 }
 
 .token-detail-traits-wrap > p {
