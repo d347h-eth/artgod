@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from 'playwright/test';
 import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_MODE_OPTIONS } from '@artgod/shared/extensions';
@@ -7,7 +8,8 @@ import {
 	NFT111K_STRUCTURED_BLOCK,
 	nft111kTraitCatalog as mapper
 } from '@artgod/shared/extensions/111k';
-import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
+import { TRAIT_FILTER_DISPLAY_KIND, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
+import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
 import { TRAIT_CATALOG_QUERY, type CollectionViewStatus } from '@artgod/shared/types/trait-catalog';
 import {
 	buildBiddingE2eCollectionDetailData,
@@ -18,6 +20,8 @@ import { installBiddingAutomationApiMock } from './helpers/bidding-automation-ap
 
 const PLANE = NFT111K_STRUCTURED_BLOCK.Plane;
 const FILM = 'film clips';
+const FILM_TOKEN = '31815';
+const FILM_ARTIST = 'evil biscuit';
 const CHAOS = 'Chaos';
 const MARK_CHAOS = 'Paint mark chaos';
 const MARK_COUNT = 'Paint mark count';
@@ -28,9 +32,9 @@ const media = {
 	preference: null
 };
 
-function artwork(block: string) {
+function artwork(block: string, type = 'painting') {
 	return [
-		{ key: META.Type, value: 'painting' },
+		{ key: META.Type, value: type },
 		{ key: META.CollectionBlock, value: block }
 	];
 }
@@ -50,7 +54,7 @@ function viewFor(pairs: { key: string; value: string }[], size: number): Collect
 }
 
 const plane = viewFor(artwork(PLANE), 2);
-const film = viewFor(artwork(FILM), 1);
+const film = viewFor(artwork(FILM, 'video'), 1);
 const typedViews = [META.Egg, 'crate', 'warehouse', 'relic'].map((value) =>
 	viewFor([{ key: META.Type, value }], 1)
 );
@@ -79,12 +83,20 @@ const tokens = [
 			{ key: 'Character 1 - Regular Constant fella / 8eyes', value: 'nutmugs t' },
 			{ key: 'Character 2', value: 'Constant fella' }
 		]
+	},
+	{
+		id: FILM_TOKEN,
+		facts: [...artwork(FILM, 'video'), { key: 'artist', value: FILM_ARTIST }]
 	}
-].map(({ id, facts }) => ({
-	id,
-	image: '/e2e-artwork/' + id,
-	projected: mapper.project(plane, plane.activeMapperVersion, facts)
-}));
+].map(({ id, facts }) => {
+	const view = mapper.classify(facts);
+	return {
+		id,
+		view,
+		image: '/e2e-artwork/' + id,
+		projected: mapper.project(view, mapper.availableVersion(view), facts)
+	};
+});
 
 async function installPlaneFixture(page: Page) {
 	const sample = buildBiddingE2eCollectionDetailData(new URLSearchParams());
@@ -107,8 +119,17 @@ async function installPlaneFixture(page: Page) {
 	await page.route('**/e2e-artwork/*', (route) => {
 		const id = new URL(route.request().url()).pathname.split('/').pop()!;
 		const dir = process.env.ARTGOD_E2E_PLANE_MEDIA_DIR;
-		if (dir) return route.fulfill({ path: join(dir, id + '.webp'), contentType: 'image/webp' });
-		// Two distinct stand-ins keep the normal suite offline. An explicit media directory provides real artwork for visual review.
+		const file = dir && join(dir, id + '.webp');
+		if (file && (id !== FILM_TOKEN || existsSync(file))) {
+			return route.fulfill({ path: file, contentType: 'image/webp' });
+		}
+		// Keep ordinary runs offline and preserve the film still's landscape aspect ratio.
+		if (id === FILM_TOKEN) {
+			return route.fulfill({
+				contentType: 'image/svg+xml',
+				body: '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="midnightblue"/></svg>'
+			});
+		}
 		const fill = id === tokens[0].id ? 'darkslateblue' : 'cadetblue';
 		return route.fulfill({
 			contentType: 'image/svg+xml',
@@ -124,7 +145,12 @@ async function installPlaneFixture(page: Page) {
 				chain: sample.chain,
 				collection,
 				required: true,
-				selectedViewId: new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View),
+				selectedViewId:
+					tokens.find(
+						(token) =>
+							token.id ===
+							new URL(route.request().url()).searchParams.get(PRICE_HISTORY_QUERY.TokenId)
+					)?.view.id ?? new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View),
 				views: [film, plane, ...typedViews]
 			}
 		})
@@ -136,7 +162,8 @@ async function installPlaneFixture(page: Page) {
 			const view = params.get(TRAIT_CATALOG_QUERY.View) ?? '';
 			requests.push(view);
 			const { selectedTraits } = buildBiddingE2eCollectionDetailData(params);
-			const items = (view === plane.id ? tokens : [])
+			const scopedTokens = tokens.filter((token) => token.view.id === view);
+			const items = scopedTokens
 				.filter(({ projected }) =>
 					selectedTraits.every((pair) =>
 						projected.values.some(
@@ -152,10 +179,12 @@ async function installPlaneFixture(page: Page) {
 					traitSummary: null,
 					attributes: projected.values.map(({ fieldId, value }) => ({ key: fieldId, value }))
 				}));
-			const facets = [CHAOS, MARK_CHAOS, MARK_COUNT].map((key) => ({
+			const keys =
+				view === plane.id ? [CHAOS, MARK_CHAOS, MARK_COUNT] : view === film.id ? ['artist'] : [];
+			const facets = keys.map((key) => ({
 				key,
 				nativeKey: key,
-				values: tokens.flatMap(({ projected }) =>
+				values: scopedTokens.flatMap(({ projected }) =>
 					projected.values
 						.filter((field) => field.fieldId === key)
 						.map(({ native, value }) => ({
@@ -188,43 +217,46 @@ async function installPlaneFixture(page: Page) {
 					traits: {
 						selected: selectedTraits,
 						selectedRanges: [],
-						facets: view === plane.id ? facets : []
+						facets
 					}
 				}
 			});
 		}
 	);
-	const token = tokens[1];
-	await page.route(
-		(url) => url.pathname === apiPath + '/' + token.id,
-		(route) => {
-			const params = new URL(route.request().url()).searchParams;
-			expect(params.get(TRAIT_CATALOG_QUERY.View)).toBe(plane.id);
-			const detail = buildBiddingE2eTokenDetailData(token.id, params);
-			return route.fulfill({
-				json: {
-					...detail,
-					collection,
-					media: { ...media, selectedVariant: null, defaultVariant: null, availableVariants: [] },
-					token: {
-						...detail.token,
-						tokenId: token.id,
-						name: '#' + token.id,
-						image: token.image,
-						traitTree: token.projected.tree,
-						attributes: token.projected.values.map(({ fieldId, value, native }) => ({
-							key: fieldId,
-							value,
-							native,
-							marketplaceBiddingSupported: true,
-							tokenCount: 1,
-							rarityPercent: 50
-						}))
+	for (const token of tokens) {
+		await page.route(
+			(url) => url.pathname === apiPath + '/' + token.id,
+			(route) => {
+				const params = new URL(route.request().url()).searchParams;
+				expect(params.get(TRAIT_CATALOG_QUERY.View)).toBe(token.view.id);
+				const detail = buildBiddingE2eTokenDetailData(token.id, params);
+				return route.fulfill({
+					json: {
+						...detail,
+						collection,
+						media: { ...media, selectedVariant: null, defaultVariant: null, availableVariants: [] },
+						token: {
+							...detail.token,
+							tokenId: token.id,
+							name: token.id === FILM_TOKEN ? token.id : '#' + token.id,
+							listingPrice:
+								token.id === FILM_TOKEN ? '89000000000000000' : detail.token.listingPrice,
+							image: token.image,
+							traitTree: token.projected.tree,
+							attributes: token.projected.values.map(({ fieldId, value, native }) => ({
+								key: fieldId,
+								value,
+								native,
+								marketplaceBiddingSupported: true,
+								tokenCount: 1,
+								rarityPercent: 50
+							}))
+						}
 					}
-				}
-			});
-		}
-	);
+				});
+			}
+		);
+	}
 	return { path, requests };
 }
 
@@ -247,6 +279,34 @@ test('keeps collection navigation and artwork filters usable through block, kind
 				() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
 			)
 		).toBe(true);
+	}
+	async function checkTokenDetail(tokenId: string, blockName: string) {
+		const heading = page.getByRole('heading', {
+			level: 1,
+			name: new RegExp('^#?' + tokenId + '$')
+		});
+		await expect(heading).toBeVisible();
+		const frame = page.getByTitle('token ' + tokenId, { exact: true });
+		await expect(frame).toBeVisible();
+		await expect
+			.poll(() =>
+				frame
+					.contentFrame()
+					.locator('img')
+					.evaluate((img: HTMLImageElement) => img.naturalWidth)
+			)
+			.toBeGreaterThan(1);
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await expect(frame).toBeInViewport();
+		await expect(kind).toHaveCount(0);
+		await expect(page.getByRole('combobox', { name: 'Token kind' })).toHaveCount(0);
+		await expect(block).toHaveCount(0);
+		await expect(
+			page.getByText(META.CollectionBlock + ' = ' + blockName, { exact: true })
+		).toHaveCount(0);
+		await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
+		await expect(offers).toHaveCount(0);
+		return heading;
 	}
 	// Start with a hydrated, isolated client. Real collection links then go through SvelteKit's production loaders.
 	await page.goto('/e2e-harness/collection');
@@ -272,13 +332,30 @@ test('keeps collection navigation and artwork filters usable through block, kind
 
 	await block.focus();
 	await block.press('f');
-	await expect(page.getByText('0 listed', { exact: true })).toBeVisible();
+	await expect(page.getByText('1 listed', { exact: true })).toBeVisible();
 	await expect(block).toHaveValue(film.id);
 	await expect(block).toBeFocused();
 	await expect(page.getByText(/^collection block\s*=\s*film clips$/i)).toHaveCount(0);
 	await checkChrome();
 	expect(await offers.boundingBox()).toEqual(origin);
 	await shots('03-film-clips');
+	await page.getByRole('button', { name: 'expand traits panel' }).click();
+	await page.locator('summary').getByText('artist', { exact: true }).click();
+	await page.getByRole('checkbox', { name: new RegExp(FILM_ARTIST) }).check();
+	await cards.getByRole('link', { name: FILM_TOKEN, exact: true }).click();
+	const filmTitle = await checkTokenDetail(FILM_TOKEN, FILM);
+	await shots('03-film-token-media');
+	await filmTitle.evaluate((heading) => heading.scrollIntoView({ block: 'center' }));
+	await expect(page.getByRole('link', { name: '0.089 ETH [OS]', exact: true })).toBeVisible();
+	await expect(page.getByText('current holder:', { exact: true })).toBeVisible();
+	await expect(page.getByRole('row').filter({ hasText: FILM_ARTIST })).toBeVisible();
+	await shots('03-film-token-identity');
+	await page.getByRole('link', { name: 'back to collection' }).click();
+	await expect(block).toHaveValue(film.id);
+	await expect(page).toHaveURL((url) =>
+		url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits).includes('artist:' + FILM_ARTIST)
+	);
+	await page.getByRole('button', { name: 'collapse traits panel' }).click();
 
 	await block.selectOption({ label: PLANE });
 	await expect(cards).toHaveCount(2);
@@ -308,7 +385,7 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	const rootSearch = page.getByRole('searchbox', { name: 'search all traits' });
 	await rootSearch.fill('Calm');
 	await block.selectOption({ label: FILM });
-	await expect(page.getByText('0 listed', { exact: true })).toBeVisible();
+	await expect(page.getByText('1 listed', { exact: true })).toBeVisible();
 	await block.selectOption({ label: PLANE });
 	await expect(cards).toHaveCount(2);
 	await expect(rootSearch).toHaveValue('');
@@ -330,8 +407,7 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(block).toHaveValue(plane.id);
 	await expect(cards).toHaveCount(1);
 	await cards.getByRole('link', { name: '1880', exact: true }).click();
-	await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('#1880');
-	await checkChrome();
+	await checkTokenDetail('1880', PLANE);
 	await shots('08-token-detail');
 	await page.getByText('Characters', { exact: true }).click();
 	await page.getByText('Regular Constant fella', { exact: true }).click();
@@ -339,5 +415,12 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(page.getByText('nutmugs t', { exact: true })).toBeVisible();
 	await page.getByText('die dritte generation', { exact: true }).scrollIntoViewIfNeeded();
 	await shots('09-character-fields');
+	await page.goBack();
+	await expect(block).toHaveValue(plane.id);
+	await expect(page).toHaveURL((url) =>
+		url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits).includes(CHAOS + ':Airy')
+	);
+	await expect(cards).toHaveCount(1);
+	await checkChrome();
 	expect(requests).not.toContain('');
 });

@@ -68,7 +68,7 @@
 			{#if viewContext}
 				<CollectionViewPicker
 					context={viewContext}
-					path={viewContext.pickerDestination?.path ?? (page.params.token_ref ? navigation.basePath : page.url.pathname)}
+					path={viewContext.pickerDestination?.path ?? page.url.pathname}
 					query={new URLSearchParams(viewContext.pickerDestination?.query ?? page.url.search)}
 					initialGroup={page.url.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group)}
 				/>
