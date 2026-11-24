@@ -17,6 +17,7 @@ import { getActivityEventPreview, getTokenPreview } from '$lib/backend-api';
 import { isKeyboardTextEntryTarget } from './keyboard-targets';
 import { buildTokenMediaQuery, nextMediaOption, nextMediaMode } from '$lib/media-mode';
 import {
+	observeTokenImageAspectRatio,
 	resolveTokenMediaAspectRatio,
 	resolveTokenMediaIframeSource,
 	tokenMediaTitle,
@@ -168,6 +169,7 @@ export function createTokenPreviewController(
 		canNavigateNext: false
 	});
 	let requestId = 0;
+	let stopImageMeasurement: (() => void) | undefined;
 	let adjacentTokenResolver: TokenPreviewAdjacentResolver | null = null;
 	let lastFailedRequest: TokenPreviewRequest | null = null;
 	const previewCache = new Map<string, CachedTokenPreview>();
@@ -213,6 +215,9 @@ export function createTokenPreviewController(
 			previewContext
 		};
 		const activeRequestId = ++requestId;
+		const ratioHint = resolveTokenMediaAspectRatio(params.previewAspectRatio, null);
+		stopImageMeasurement?.();
+		stopImageMeasurement = undefined;
 		lastFailedRequest = null;
 		state.update((current) => {
 			const keepDisplayedMedia =
@@ -242,10 +247,7 @@ export function createTokenPreviewController(
 				availableMediaVariants: retainsKnownSourceOptions ? current.availableMediaVariants : [],
 				requestedMediaVariant: mediaVariant,
 				previewContext,
-				aspectRatio: resolveTokenMediaAspectRatio(
-					params.previewAspectRatio ?? null,
-					current.aspectRatio
-				),
+				aspectRatio: keepDisplayedMedia ? current.aspectRatio : ratioHint,
 				canNavigatePrevious: adjacentAvailability.canNavigatePrevious,
 				canNavigateNext: adjacentAvailability.canNavigateNext,
 				errorMessage: null
@@ -257,7 +259,7 @@ export function createTokenPreviewController(
 			if (activeRequestId !== requestId) return;
 			if (!preview) {
 				lastFailedRequest = request;
-				setPreviewError('No preview media available');
+				setPreviewError('No preview media available', ratioHint);
 				return;
 			}
 			const tokenMedia = previewContext ? null : (preview.response.media as ApiTokenMediaState);
@@ -275,6 +277,7 @@ export function createTokenPreviewController(
 					open: true,
 					status: TOKEN_PREVIEW_STATUS.Ready,
 					iframeSource: preview.iframeSource,
+					aspectRatio: ratioHint,
 					tokenId: preview.response.token.tokenId,
 					selectedMediaMode: preview.response.media.selectedMode,
 					availableMediaModes: preview.response.media.availableModes,
@@ -292,6 +295,9 @@ export function createTokenPreviewController(
 					errorMessage: null
 				};
 			});
+			stopImageMeasurement = observeTokenImageAspectRatio(token.image, (aspectRatio) => {
+				if (activeRequestId === requestId) state.update((current) => ({ ...current, aspectRatio }));
+			});
 			prefetchAdjacentNeighbors({
 				...request,
 				tokenId: preview.response.token.tokenId,
@@ -301,7 +307,7 @@ export function createTokenPreviewController(
 		} catch {
 			if (activeRequestId !== requestId) return;
 			lastFailedRequest = request;
-			setPreviewError('Unable to load preview');
+			setPreviewError('Unable to load preview', ratioHint);
 		}
 	}
 
@@ -408,6 +414,8 @@ export function createTokenPreviewController(
 
 	function closeTokenPreview(): void {
 		requestId += 1;
+		stopImageMeasurement?.();
+		stopImageMeasurement = undefined;
 		adjacentTokenResolver = null;
 		lastFailedRequest = null;
 		state.update((current) => ({
@@ -487,7 +495,7 @@ export function createTokenPreviewController(
 		return `preview token ${tokenId}`;
 	}
 
-	function setPreviewError(message: string): void {
+	function setPreviewError(message: string, aspectRatio: number | null): void {
 		state.update((current) => ({
 			...current,
 			open: true,
@@ -495,6 +503,7 @@ export function createTokenPreviewController(
 			iframeSource: null,
 			attributes: [],
 			traitSummary: null,
+			aspectRatio,
 			errorMessage: message
 		}));
 	}
@@ -520,7 +529,6 @@ export function createTokenPreviewController(
 			mediaPreference: current.mediaPreference,
 			mediaVariant: current.requestedMediaVariant,
 			previewContext: current.previewContext,
-			previewAspectRatio: current.aspectRatio,
 			adjacentTokenResolver
 		});
 	}

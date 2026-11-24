@@ -121,6 +121,11 @@ Meaning:
 
 This applies to the media box and to the iframe viewport.
 
+Opening a preview uses the thumbnail’s aspect ratio as an initial size hint.
+During adjacent navigation the displayed artwork keeps its size while the next
+request loads. The new frame then fits the new token’s image dimensions within
+the viewport at the selected scale.
+
 ## Iframe Content Contract
 
 There are two fundamentally different content modes:
