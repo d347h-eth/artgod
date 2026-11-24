@@ -70,7 +70,10 @@ export class UpdateCollectionCustomizationUseCase {
                 chainId: number,
                 collectionId: number,
                 owner?: string,
-                options?: { traitContext?: TraitReadContext },
+                options?: {
+                    traitContext?: TraitReadContext;
+                    keys?: readonly string[];
+                },
             ): TraitFacet[];
         },
         readonly customizationWritePort: {
@@ -139,7 +142,7 @@ export class UpdateCollectionCustomizationUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const { traitContext } = resolveTraitScope(
+        const { traitContext, aggregateFacetKeys } = resolveTraitScope(
             this.collectionReadPort,
             collection,
             input,
@@ -149,7 +152,7 @@ export class UpdateCollectionCustomizationUseCase {
                 chain.publicChainId,
                 collection.collectionId,
                 undefined,
-                { traitContext },
+                { traitContext, keys: aggregateFacetKeys },
             )
             .map((facet) => facet.key);
         const previousImageCachePolicy =

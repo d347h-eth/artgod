@@ -75,10 +75,11 @@ export class PreviewBiddingPriceTierReapplyUseCase {
             throw new ReadModelNotFoundError("Unknown bidding price tier");
         }
         // Load declared jobs so the preview is based on authoritative DB state.
-        const traitContext = input.view
-            ? resolveTraitScope(this.collectionReadPort, collection, input)
-                  .traitContext
-            : undefined;
+        const traitContext =
+            input.view || input.viewGroup
+                ? resolveTraitScope(this.collectionReadPort, collection, input)
+                      .traitContext
+                : undefined;
         const jobs = this.biddingJobsRepositoryPort.listCollectionJobs({
             ...(traitContext ? { traitContext } : {}),
             chainId: chain.publicChainId,

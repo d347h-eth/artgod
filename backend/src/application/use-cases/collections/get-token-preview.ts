@@ -97,7 +97,7 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             chain.publicChainId,
             input.collectionRef,
         );
-        const { traitContext } = resolveTraitScope(
+        const { traitContext, view } = resolveTraitScope(
             this.collectionDetailReadPort,
             collection,
             input,
@@ -142,6 +142,8 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 tokenId: presentedToken.tokenId,
                 image: presentedToken.image,
                 animationUrl: presentedToken.animationUrl,
+                ...(view && { catalogScope: { id: view.id, generation: view.generation } }),
+                ...(token.traitTree !== undefined && { traitTree: token.traitTree }),
                 attributes: token.attributes,
                 traitSummary: renderTraitSummaryTemplate(
                     template,

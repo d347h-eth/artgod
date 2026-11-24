@@ -24,11 +24,17 @@ import { resolveCollectionTraitMapper } from "../../collection-extensions/index.
 
 export type CatalogRequest = {
     view?: string;
+    viewGroup?: string;
     traitCatalog?: TraitReadContext["catalog"];
     generation?: number;
 };
 
 export type CatalogScopeReadPort = {
+    hasViewGroup?(
+        chainId: number,
+        collectionId: number,
+        groupId: string,
+    ): boolean;
     readViewStatus?(
         chainId: number,
         collectionId: number,
@@ -53,6 +59,7 @@ function selection(
     if (!mapper) {
         if (
             request.view ||
+            request.viewGroup ||
             request.traitCatalog === TRAIT_CATALOG.Derived ||
             request.generation !== undefined
         )
@@ -71,13 +78,45 @@ function selection(
                   collection.collectionId,
                   tokenId,
               );
-    if (tokenId !== undefined && !membership)
+    if (
+        tokenId !== undefined &&
+        !membership &&
+        (request.view || request.viewGroup)
+    )
         throw new ReadModelNotFoundError("Token has no classified view");
     if (request.view && membership && request.view !== membership)
         throw new ReadModelBadRequestError("Token belongs to a different view");
     const selectedViewId = request.view ?? membership;
+    if (request.viewGroup && request.view)
+        throw new ReadModelBadRequestError("Choose a group or a leaf view");
+    if (
+        request.viewGroup &&
+        !port.hasViewGroup?.(
+            collection.chainId,
+            collection.collectionId,
+            request.viewGroup,
+        )
+    )
+        throw new ReadModelBadRequestError("Unknown collection view group");
+    if (
+        !selectedViewId &&
+        (request.generation !== undefined ||
+            request.traitCatalog === TRAIT_CATALOG.Derived)
+    )
+        throw new ReadModelBadRequestError(
+            "A derived catalog or generation requires a leaf view",
+        );
+    const aggregateFacetKeys = selectedViewId
+        ? undefined
+        : mapper.aggregateFacetKeys;
     if (!allViews && !selectedViewId)
-        throw new ReadModelBadRequestError("Choose a collection view");
+        return {
+            required: true,
+            views: [],
+            selectedViewId,
+            aggregateFacetKeys,
+        };
+
     const views = port.readViewStatus(
         collection.chainId,
         collection.collectionId,
@@ -85,6 +124,14 @@ function selection(
         allViews ? undefined : (selectedViewId ?? undefined),
     );
     const selected = views.find((view) => view.id === selectedViewId);
+    if (
+        request.viewGroup &&
+        membership &&
+        selected?.parent?.id !== request.viewGroup
+    )
+        throw new ReadModelBadRequestError(
+            "Token belongs to a different group",
+        );
     if (selectedViewId && !selected)
         throw new ReadModelBadRequestError("Unknown collection view");
     if (
@@ -94,7 +141,7 @@ function selection(
         throw new ReadModelBadRequestError(
             "Trait catalog changed. Reload this view.",
         );
-    return { required: true, views, selectedViewId };
+    return { required: true, views, selectedViewId, aggregateFacetKeys };
 }
 
 /** Resolve once per application request. The scope is carried to every presentation read. */
@@ -103,7 +150,11 @@ export function resolveTraitScope(
     collection: CollectionListItem,
     request: CatalogRequest,
     tokenId?: string,
-) {
+): {
+    traitContext?: TraitReadContext;
+    view?: CollectionViewStatus;
+    aggregateFacetKeys?: readonly string[];
+} {
     const discovery = selection(port, collection, request, tokenId);
     if (!discovery.required)
         return {
@@ -119,7 +170,17 @@ export function resolveTraitScope(
     const view = discovery.views.find(
         (item) => item.id === discovery.selectedViewId,
     );
-    if (!view) throw new ReadModelBadRequestError("Choose a collection view");
+    if (!view)
+        return {
+            traitContext: {
+                viewId: null,
+                ...(request.viewGroup && { groupId: request.viewGroup }),
+                catalog: TRAIT_CATALOG.Canonical,
+                generation: null,
+            } satisfies TraitReadContext,
+            view: undefined,
+            aggregateFacetKeys: discovery.aggregateFacetKeys,
+        };
     return {
         traitContext: {
             viewId: view.id,
@@ -158,6 +219,7 @@ export function unwrapCatalogCursor(
         }>(cursor);
         if (
             envelope.scope.viewId === context.viewId &&
+            envelope.scope.groupId === context.groupId &&
             envelope.scope.catalog === context.catalog &&
             envelope.scope.generation === context.generation &&
             typeof envelope.cursor === "string"
@@ -234,15 +296,20 @@ export class CollectionViewsUseCase {
         input: ViewRequest,
     ): CollectionViewsResponse & { collection: CollectionListItem } {
         const collection = this.collection(input);
+        const { required, selectedViewId, views } = selection(
+            this.collections,
+            collection,
+            input,
+            input.tokenId,
+            true,
+        );
         return {
             collection,
-            ...selection(
-                this.collections,
-                collection,
-                input,
-                input.tokenId,
-                true,
-            ),
+            required,
+            views,
+            selectedViewId,
+            ...(input.viewGroup &&
+                !selectedViewId && { selectedGroupId: input.viewGroup }),
         };
     }
     rebuild(

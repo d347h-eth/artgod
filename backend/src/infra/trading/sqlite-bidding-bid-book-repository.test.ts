@@ -209,10 +209,17 @@ describe("SqliteBiddingBidBookRepository", () => {
             db.prepare(
                 "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,'fixture','{}')",
             ).run(collectionId);
+            const groupId = "artwork-fixture";
             const seedView = (id: string) => {
                 db.prepare(
-                    "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,'{}')",
-                ).run(collectionId, id);
+                    "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,?)",
+                ).run(
+                    collectionId,
+                    id,
+                    JSON.stringify({
+                        parent: id === viewId ? { id: groupId } : null,
+                    }),
+                );
                 const gen = Number(
                     db
                         .prepare(
@@ -372,7 +379,20 @@ describe("SqliteBiddingBidBookRepository", () => {
                     ],
                 ],
             );
+            const parentScope = {
+                ...input,
+                traitContext: {
+                    catalog: TRAIT_CATALOG.Canonical,
+                    generation: null,
+                    viewId: null,
+                    groupId,
+                },
+            };
             const book = () => repo.listCollectionBidBook(input);
+            assert.deepEqual(
+                repo.listCollectionBidBook(parentScope).bids,
+                book().bids,
+            );
             const status = () =>
                 Object.fromEntries(
                     book().bids.map((row) => [
@@ -428,6 +448,13 @@ describe("SqliteBiddingBidBookRepository", () => {
                         .map((job) => job.jobId),
                 ),
                 new Set(own),
+            );
+            assert.deepEqual(
+                jobs
+                    .listCollectionJobs(parentScope)
+                    .filter((job) => job.tokenId !== null)
+                    .map((job) => job.jobId),
+                [own[0]],
             );
             const tokenBook = repo.listCollectionBidBook({
                 ...input,

@@ -9,6 +9,7 @@ import {
     ensureCatalogToken,
     withTraitReadSnapshot,
     readViewStatus,
+    hasCollectionViewGroup,
     readTokenViewId,
 } from "@artgod/shared/read-models/trait-catalog";
 import type { CollectionListItem } from "@artgod/shared/types/browse";
@@ -16,6 +17,7 @@ import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 
 /** Exact token jobs and native scope matching need local identity and source-owned facts only. */
 export class SqliteNativeTokenRead {
+    readonly hasViewGroup = hasCollectionViewGroup;
     readonly readViewStatus = readViewStatus;
     readonly readTokenViewId = readTokenViewId;
     constructor(

@@ -8,13 +8,15 @@ export type TraitCatalogKind =
     (typeof TRAIT_CATALOG)[keyof typeof TRAIT_CATALOG];
 export const TRAIT_CATALOG_QUERY = {
     View: "view",
+    Group: "view_group",
     Catalog: "trait_catalog",
     Generation: "generation",
 } as const;
 
-/** A null view is valid for explicit canonical reads on ordinary collections. */
+/** Collections and parent groups use canonical facts. A leaf can pin a projection generation. */
 export type TraitReadContext = {
     viewId: string | null;
+    groupId?: string;
     catalog: TraitCatalogKind;
     generation: number | null;
 };
@@ -39,6 +41,7 @@ export type CollectionViewStatus = CollectionViewDescriptor & {
 export type CollectionViewsResponse = {
     required: boolean;
     selectedViewId: string | null;
+    selectedGroupId?: string;
     views: CollectionViewStatus[];
 };
 
@@ -93,6 +96,8 @@ export type TraitProjection = {
 };
 export interface TraitCatalogMapper {
     unclassified: CollectionViewDescriptor;
+    /** Canonical keys to offer in the collection and parent-group filter sidebar. */
+    aggregateFacetKeys: readonly string[];
     classify(pairs: readonly TraitFilter[]): CollectionViewDescriptor;
     /** Ordered, equivalent native keys for a single pinned value. Discovery tests
      * these exact alternatives only when members prefer different source spellings. */
@@ -166,25 +171,35 @@ export function createNativeTraitPresentation(
 /** Translate a view's pinned criteria and ordinary facet choices as a single native target. */
 export function resolveEffectiveNativeTraits(input: {
     catalog: TraitCatalogKind;
-    pinned: readonly TraitFilter[];
+    /** Omit for the whole collection. An empty pin list on a leaf means its scope is unresolved. */
+    pinned?: readonly TraitFilter[];
     traits: readonly TraitFilter[];
     facets: readonly {
         key: string;
-        values: readonly { value: string; native?: TraitFilter | null }[];
+        values: readonly {
+            value: string;
+            native?: TraitFilter | null;
+            marketplaceBiddingSupported?: boolean;
+        }[];
     }[];
 }): TraitFilter[] | null {
-    if (input.pinned.length === 0) return null;
+    if (
+        input.pinned?.length === 0 ||
+        (!input.pinned && input.catalog !== TRAIT_CATALOG.Canonical)
+    )
+        return null;
     const facets = new Map(input.facets.map((facet) => [facet.key, facet]));
     const bindings = input.traits.map((trait) => {
-        const pin = input.pinned.find((scope) => scope.key === trait.key);
+        const pin = input.pinned?.find((scope) => scope.key === trait.key);
         if (pin) return pin.value === trait.value ? pin : null;
-        if (input.catalog === TRAIT_CATALOG.Canonical) return trait;
-        return (
-            facets
-                .get(trait.key)
-                ?.values.find((item) => item.value === trait.value)?.native ??
-            null
-        );
+        const facetValue = facets
+            .get(trait.key)
+            ?.values.find((item) => item.value === trait.value);
+        if (input.catalog === TRAIT_CATALOG.Canonical)
+            return input.pinned || facetValue?.marketplaceBiddingSupported
+                ? trait
+                : null;
+        return facetValue?.native ?? null;
     });
-    return resolveNativeTraitSelection([...input.pinned, ...bindings]);
+    return resolveNativeTraitSelection([...(input.pinned ?? []), ...bindings]);
 }

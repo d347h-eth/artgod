@@ -1,5 +1,8 @@
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
-import { withTraitReadSnapshot } from "@artgod/shared/read-models/trait-catalog";
+import {
+    withTraitReadSnapshot,
+    catalogViewIds,
+} from "@artgod/shared/read-models/trait-catalog";
 import { scopeBidsToCollectionView } from "./sqlite-view-bid-applicability.js";
 import {
     biddingTraitsMatchToken,
@@ -696,6 +699,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
             () => {
+                const views = catalogViewIds(
+                    params.chainId,
+                    params.collectionId,
+                    params.traitContext,
+                );
                 const rows = bidBook.bids.filter(
                     (bid) =>
                         collectionBidMatchesFilters(
@@ -705,18 +713,18 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                             params.selectedTraits,
                             params.selectedTraitRanges,
                         ) ||
-                        (params.traitContext?.viewId &&
+                        (views &&
                             params.scopeFilter ===
                                 COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection &&
                             bid.scopeKind ===
                                 TRADING_BIDDING_BID_SCOPE_KIND.TokenSet),
                 );
                 return sortBidsDesc(
-                    params.traitContext?.viewId
+                    views
                         ? scopeBidsToCollectionView(
                               params.chainId,
                               params.collectionId,
-                              params.traitContext.viewId,
+                              views,
                               rows,
                           )
                         : rows,

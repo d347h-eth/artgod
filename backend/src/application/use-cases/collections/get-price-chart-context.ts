@@ -54,6 +54,7 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    keys?: readonly string[];
                     traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
@@ -77,11 +78,11 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
             chain.publicChainId,
             input.collectionRef,
         );
-        const { traitContext, view: selectedView } = resolveTraitScope(
-            this.collections,
-            collection,
-            input,
-        );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collections, collection, input);
         const ordinaryTraits = ordinaryViewTraits(
             selectedView?.pinnedTraits ?? [],
             input.traits,
@@ -106,7 +107,11 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
                 scope.chainId,
                 scope.collectionId,
                 undefined,
-                { traitContext, rangeOnlyKeys: config.rangeKeys },
+                {
+                    traitContext,
+                    keys: aggregateFacetKeys,
+                    rangeOnlyKeys: config.rangeKeys,
+                },
             ),
             config,
         });

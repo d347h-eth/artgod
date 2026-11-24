@@ -1,5 +1,8 @@
 import { db } from "../database/db.js";
-import { CANONICAL_TRAIT_RELATION_SQL } from "../database/canonical-traits.js";
+import {
+    CANONICAL_TRAIT_RELATION_SQL,
+    CANONICAL_TRAIT_KEYS_RELATION_SQL,
+} from "../database/canonical-traits.js";
 import { getTraitCatalogRebuild } from "../database/trait-catalog-rebuilds.js";
 import type {
     TokenDetailTrait,
@@ -28,6 +31,41 @@ type Scope = {
     traitContext: TraitReadContext;
 };
 type Sql = { sql: string; values: (string | number)[] };
+
+/** Both aggregate reads and offer matching use the same current child-view membership. */
+function groupViewIds(
+    chainId: number,
+    collectionId: number,
+    groupId: string,
+): Sql {
+    return {
+        sql: "SELECT view_id FROM trait_catalog_views WHERE chain_id=? AND collection_id=? AND active_generation IS NOT NULL AND json_extract(descriptor_json, '$.parent.id')=?",
+        values: [chainId, collectionId, groupId],
+    };
+}
+export function hasCollectionViewGroup(
+    chainId: number,
+    collectionId: number,
+    groupId: string,
+): boolean {
+    const views = groupViewIds(chainId, collectionId, groupId);
+    return Boolean(
+        db.prepare(`SELECT 1 FROM (${views.sql}) LIMIT 1`).get(...views.values),
+    );
+}
+
+/** Null means the complete collection, including tokens still awaiting classification. */
+export function catalogViewIds(
+    chainId: number,
+    collectionId: number,
+    context?: TraitReadContext,
+): Sql | null {
+    if (context?.groupId)
+        return groupViewIds(chainId, collectionId, context.groupId);
+    return context?.viewId
+        ? { sql: "SELECT ?", values: [context.viewId] }
+        : null;
+}
 
 export function readTokenViewId(
     chainId: number,
@@ -205,15 +243,22 @@ export function* iterateTraitReadSnapshot<T>(
     }
 }
 
-function viewMembers(scope: Scope): Sql {
-    return {
-        sql: "SELECT token_id FROM trait_catalog_members WHERE chain_id=? AND collection_id=? AND view_id=?",
-        values: [scope.chainId, scope.collectionId, scope.traitContext.viewId!],
-    };
+function viewMembers(scope: Scope): Sql | null {
+    const views = catalogViewIds(
+        scope.chainId,
+        scope.collectionId,
+        scope.traitContext,
+    );
+    return (
+        views && {
+            sql: `SELECT token_id FROM trait_catalog_members WHERE chain_id=? AND collection_id=? AND view_id IN (${views.sql})`,
+            values: [scope.chainId, scope.collectionId, ...views.values],
+        }
+    );
 }
 
 /** The projection FK ties every link to the current source revision. */
-function valuesRelation(scope: Scope): Sql {
+function valuesRelation(scope: Scope, byKeys = false): Sql {
     const { chainId, collectionId, traitContext } = scope;
     if (traitContext.catalog === TRAIT_CATALOG.Derived) {
         if (traitContext.viewId === null || traitContext.generation === null)
@@ -228,9 +273,12 @@ function valuesRelation(scope: Scope): Sql {
             ],
         };
     }
-    const members = traitContext.viewId === null ? null : viewMembers(scope);
+    const members = viewMembers(scope);
+    const canonical = byKeys
+        ? CANONICAL_TRAIT_KEYS_RELATION_SQL
+        : CANONICAL_TRAIT_RELATION_SQL;
     return {
-        sql: `SELECT token_id,key,value,key AS native_key,value AS native_value,key AS native_field_key FROM (${CANONICAL_TRAIT_RELATION_SQL}) WHERE chain_id=? AND collection_id=? ${members ? `AND token_id IN (${members.sql})` : ""}`,
+        sql: `SELECT token_id,key,value,key AS native_key,value AS native_value,key AS native_field_key FROM (${canonical}) WHERE chain_id=? AND collection_id=? ${members ? `AND token_id IN (${members.sql})` : ""}`,
         values: [chainId, collectionId, ...(members?.values ?? [])],
     };
 }
@@ -243,11 +291,11 @@ export function buildCatalogTokenPredicate(
         traitRangeFilterGroups?: TraitRangeFilterGroup[];
     },
 ): Sql {
-    const { tokenColumnSql, traitContext } = params;
+    const { tokenColumnSql } = params;
     const conditions: string[] = [];
     const values: (string | number)[] = [];
-    if (traitContext.viewId !== null) {
-        const members = viewMembers(params);
+    const members = viewMembers(params);
+    if (members) {
         conditions.push(`${tokenColumnSql} IN (${members.sql})`);
         values.push(...members.values);
     }
@@ -322,7 +370,10 @@ export function readCatalogFacets(
         tokenId?: string;
     } = {},
 ): TraitFacet[] {
-    const relation = valuesRelation(scope);
+    const relation = valuesRelation(
+        scope,
+        options.keys !== undefined && scope.traitContext.viewId === null,
+    );
     const where = ["1"];
     const args = [...relation.values];
     if (options.keys || options.excludeKeys?.length) {
@@ -352,12 +403,18 @@ export function readCatalogFacets(
         );
         args.push(options.tokenId);
     }
+    // A canonical pair has one link per token for the metadata source. Projected fields
+    // can instead share a label or a native binding across different source fields.
+    const columns =
+        scope.traitContext.catalog === TRAIT_CATALOG.Canonical
+            ? "COUNT(*) n,key AS native_key,value AS native_value,key AS native_field_key"
+            : `COUNT(DISTINCT token_id) n,
+           CASE WHEN COUNT(native_key)=COUNT(*) AND MIN(native_key)=MAX(native_key) AND COUNT(native_value)=COUNT(*) AND MIN(native_value)=MAX(native_value)
+                THEN MIN(native_key) END native_key, MIN(native_value) native_value,
+           CASE WHEN COUNT(native_field_key)=COUNT(*) AND MIN(native_field_key)=MAX(native_field_key) THEN MIN(native_field_key) END native_field_key`;
     const rows = db.raw
         .prepare(
-            `WITH facts AS NOT MATERIALIZED (${relation.sql}) SELECT key,value,COUNT(DISTINCT token_id) n,
-        CASE WHEN COUNT(native_key)=COUNT(*) AND MIN(native_key)=MAX(native_key) AND COUNT(native_value)=COUNT(*) AND MIN(native_value)=MAX(native_value)
-             THEN MIN(native_key) END native_key, MIN(native_value) native_value,
-          CASE WHEN COUNT(native_field_key)=COUNT(*) AND MIN(native_field_key)=MAX(native_field_key) THEN MIN(native_field_key) END native_field_key
+            `WITH facts AS NOT MATERIALIZED (${relation.sql}) SELECT key,value,${columns}
         FROM facts WHERE ${where.join(" AND ")} GROUP BY key,value ORDER BY key,n,value`,
         )
         .iterate(...args) as Iterable<{
@@ -404,10 +461,12 @@ export function readCatalogFacets(
 }
 
 export function ensureCatalogToken(scope: Scope, tokenId: string): void {
+    const members = viewMembers(scope);
     if (
-        scope.traitContext.viewId !== null &&
-        readTokenViewId(scope.chainId, scope.collectionId, tokenId) !==
-            scope.traitContext.viewId
+        members &&
+        !db
+            .prepare(`SELECT 1 FROM (${members.sql}) WHERE token_id=?`)
+            .get(...members.values, tokenId)
     )
         throw new ReadModelNotFoundError("Token is outside this view");
 }
@@ -436,13 +495,10 @@ export function readCatalogTokenDetailTraits(
     scope: Scope,
     tokenId: string,
 ): TokenDetailTrait[] {
-    const members =
-        scope.traitContext.viewId === null
-            ? {
-                  sql: "SELECT token_id FROM tokens WHERE chain_id=? AND collection_id=?",
-                  values: [scope.chainId, scope.collectionId],
-              }
-            : viewMembers(scope);
+    const members = viewMembers(scope) ?? {
+        sql: "SELECT token_id FROM tokens WHERE chain_id=? AND collection_id=?",
+        values: [scope.chainId, scope.collectionId],
+    };
     const total = db.raw
         .prepare(`SELECT COUNT(*) FROM (${members.sql})`)
         .pluck()

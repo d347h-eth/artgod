@@ -1391,7 +1391,7 @@ describe("backend api routes", () => {
         const view = {
             id: "fixture-view",
             label: "Beanies",
-            parent: null,
+            parent: { id: "headwear", label: "Headwear" },
             pinnedTraits: [pin],
         };
         const mapperVersion = nft111kTraitCatalog.availableVersion(view);
@@ -1445,7 +1445,75 @@ describe("backend api routes", () => {
                 (await resolve("GET", discovery + "?token_id=1")).payload
                     .selectedViewId,
             ).toBe(view.id);
-            expect((await resolve("GET", base)).statusCode).toBe(400);
+            const groupQuery = new URLSearchParams({
+                [TRAIT_CATALOG_QUERY.Group]: view.parent.id,
+            });
+            expect(
+                (await resolve("GET", discovery + "?" + groupQuery)).payload
+                    .selectedGroupId,
+            ).toBe(view.parent.id);
+            const all = await resolve(
+                "GET",
+                base + "?token_status=all&limit=1",
+            );
+            expect(all.statusCode).toBe(200);
+            expect(all.payload.tokens.totalItems).toBeGreaterThan(2);
+            expect(all.payload.traits.facets).toEqual([]); // Hat and Mood belong to individual token views.
+            expect(all.payload.catalogContext).toMatchObject({
+                viewId: null,
+                catalog: TRAIT_CATALOG.Canonical,
+                nativeSelection: [],
+            });
+            const unknownFilter = await resolve(
+                "GET",
+                base + "?token_status=all&traits=Hat:Beanie",
+            );
+            expect(
+                unknownFilter.payload.catalogContext.nativeSelection,
+            ).toBeNull();
+            const group = await resolve(
+                "GET",
+                base + "?" + groupQuery + "&token_status=all",
+            );
+            expect(group.statusCode).toBe(200);
+            expect(group.payload.tokens.totalItems).toBe(2);
+            expect(group.payload.catalogContext).toMatchObject({
+                groupId: view.parent.id,
+                catalog: TRAIT_CATALOG.Canonical,
+                nativeSelection: null,
+            });
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        base +
+                            "?" +
+                            groupQuery +
+                            "&cursor=" +
+                            encodeURIComponent(all.payload.tokens.nextCursor),
+                    )
+                ).statusCode,
+            ).toBe(400);
+            for (const invalid of [
+                new URLSearchParams({ [TRAIT_CATALOG_QUERY.Group]: "unknown" }),
+                new URLSearchParams([...groupQuery, ...query]),
+                new URLSearchParams([
+                    ...groupQuery,
+                    [TRAIT_CATALOG_QUERY.Catalog, TRAIT_CATALOG.Derived],
+                ]),
+                new URLSearchParams({
+                    [TRAIT_CATALOG_QUERY.Generation]: String(generation),
+                }),
+            ])
+                expect(
+                    (await resolve("GET", base + "?" + invalid)).statusCode,
+                ).toBe(400);
+            expect(
+                (await resolve("GET", base + "/1?" + groupQuery)).statusCode,
+            ).toBe(200);
+            expect(
+                (await resolve("GET", base + "/10?" + groupQuery)).statusCode,
+            ).toBe(404);
             const browse = await resolve(
                 "GET",
                 base + "?" + query + "&token_status=all&limit=1",
@@ -1500,10 +1568,12 @@ describe("backend api routes", () => {
                 availableTraitKeys: ["Colour", "Rank"],
                 effectiveConfig: { rangeKeys: ["Rank"] },
             });
-            expect(
-                (await resolve("GET", base + "/1/preview?" + query)).payload
-                    .token.traitSummary,
-            ).toBe("Card quiet");
+            const preview = await resolve("GET", base + "/1/preview");
+            expect(preview.payload.token).toMatchObject({
+                traitSummary: "Card quiet",
+                traitTree: [],
+                catalogScope: { id: view.id, generation },
+            });
             expect(
                 (
                     await resolve(
@@ -1639,20 +1709,35 @@ describe("backend api routes", () => {
             const repository = SqliteBiddingJobsRepository.prototype;
             const write = repository.upsertTokenJobs;
             const commandKinds = listTradingCommandKinds();
-            for (const changeScope of [
-                () =>
-                    db
-                        .prepare(
-                            "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
-                        )
-                        .run(collectionId),
-                () =>
-                    db
-                        .prepare(
-                            "UPDATE trait_catalog_views SET active_generation=? WHERE collection_id=? AND view_id=?",
-                        )
-                        .run(generation + 1, collectionId, view.id),
-            ]) {
+            for (const [scopeQuery, changeScope] of [
+                [
+                    query,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
+                            )
+                            .run(collectionId),
+                ],
+                [
+                    query,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_views SET active_generation=? WHERE collection_id=? AND view_id=?",
+                            )
+                            .run(generation + 1, collectionId, view.id),
+                ],
+                [
+                    groupQuery,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_views SET descriptor_json=json_remove(descriptor_json, '$.parent') WHERE collection_id=? AND view_id=?",
+                            )
+                            .run(collectionId, view.id),
+                ],
+            ] as const) {
                 db.exec("SAVEPOINT changed_batch_scope");
                 const hook = vi
                     .spyOn(repository, "upsertTokenJobs")
@@ -1668,7 +1753,7 @@ describe("backend api routes", () => {
                 try {
                     const rejected = await resolve(
                         "PUT",
-                        batchWrite,
+                        base + "/bidding/jobs/tokens/batch?" + scopeQuery,
                         batchRequest,
                         auth,
                     );

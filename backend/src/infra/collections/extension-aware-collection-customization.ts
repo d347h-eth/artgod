@@ -616,6 +616,8 @@ function assertExtensionConfigAvailable(
 
 /** Preserve a view's settings across generation rebuilds. */
 function scopedFeatureKey(key: string, context?: TraitReadContext): string {
+    if (context?.groupId)
+        return JSON.stringify([key, context.catalog, null, context.groupId]);
     return context
         ? JSON.stringify([key, context.catalog, context.viewId])
         : key;

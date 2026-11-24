@@ -82,6 +82,15 @@ describe("SqliteCollectionsReadModel observability", () => {
                 "utf8",
             ),
         );
+        db.exec(
+            readFileSync(
+                new URL(
+                    "../../database/migrations/047_token_attributes_source_attribute_index.sql",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        );
         const block = { key: NFT111K_METADATA.CollectionBlock, value: "DriMi" };
         const descriptor = nft111kTraitCatalog.classify([block]);
         const version = nft111kTraitCatalog.availableVersion(descriptor);
@@ -214,6 +223,58 @@ describe("SqliteCollectionsReadModel observability", () => {
                 traitContext: { ...traitContext, generation: 2 },
             }),
         ).toThrow("Reload");
+        const groupContext = {
+            viewId: null,
+            generation: null,
+            catalog: TRAIT_CATALOG.Canonical,
+            groupId: descriptor.parent!.id,
+        };
+        // A group combines canonical facts from all child blocks regardless of projection readiness.
+        const second = nft111kTraitCatalog.classify([
+            { ...block, value: "another block" },
+        ]);
+        db.prepare("INSERT INTO trait_catalog_views VALUES(1,1,?,?,2)").run(
+            second.id,
+            JSON.stringify(second),
+        );
+        db.prepare(
+            "INSERT INTO trait_catalog_generations(generation,chain_id,collection_id,view_id,mapper_version) VALUES(2,1,1,?,?)",
+        ).run(second.id, version);
+        db.prepare(
+            "UPDATE trait_catalog_members SET view_id=? WHERE token_id='2'",
+        ).run(second.id);
+        insertTokenTrait("1", block.key, block.value);
+        insertTokenTrait("2", block.key, "another block");
+        const groupTokens = reader.listCollectionTokens({
+            ...params,
+            traitContext: groupContext,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+        });
+        expect(groupTokens.items.map((token) => token.tokenId).sort()).toEqual([
+            "1",
+            "2",
+        ]);
+        expect(
+            reader.listCollectionTokens({
+                ...params,
+                traitContext: { ...groupContext, groupId: undefined },
+                tokenStatus: TOKEN_BROWSER_STATUS.All,
+            }).totalItems,
+        ).toBe(3);
+        expect(
+            reader.listCollectionTraitFacets(1, 1, undefined, {
+                traitContext: groupContext,
+                keys: nft111kTraitCatalog.aggregateFacetKeys,
+            }),
+        ).toMatchObject([
+            {
+                key: block.key,
+                values: [
+                    { value: block.value, tokenCount: 1 },
+                    { value: "another block", tokenCount: 1 },
+                ],
+            },
+        ]);
     });
 
     it("exposes durable OpenSea readiness while current synchronization retries", () => {

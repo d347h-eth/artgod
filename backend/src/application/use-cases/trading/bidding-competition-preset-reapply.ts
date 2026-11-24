@@ -186,10 +186,11 @@ export class BiddingCompetitionPresetReapplyUseCase {
         const preset = requireReapplyCompetitionPreset(
             this.presets.getPreset(scope, input.presetId),
         );
-        const traitContext = input.view
-            ? resolveTraitScope(this.collections, collection, input)
-                  .traitContext
-            : undefined;
+        const traitContext =
+            input.view || input.viewGroup
+                ? resolveTraitScope(this.collections, collection, input)
+                      .traitContext
+                : undefined;
         const jobs = this.jobs
             .listCompetitionPresetJobs({
                 ...scope,
