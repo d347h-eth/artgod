@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
@@ -45,7 +45,7 @@
 	function traitHref(trait: ApiTokenAttribute): string | null {
 		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
 		return buildTokenPreviewTraitHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: $tokenPreviewState.catalogScope,
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			trait,
@@ -57,7 +57,7 @@
 	function customizationHref(): string | null {
 		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
 		return buildTokenPreviewCustomizationHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			mediaMode: $tokenPreviewState.selectedMediaMode,

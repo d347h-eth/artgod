@@ -173,7 +173,7 @@ async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
 }
 
-test('public collection entry waits for a view and exposes read-only browsing', async ({
+test('public collection entry opens All and preserves read-only browsing in a selected view', async ({
 	page
 }, info) => {
 	const path = '/api/ethereum/e2e-bidding';
@@ -278,10 +278,11 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 		link.remove();
 	});
 	await expect(page.getByLabel('Token kind')).toBeVisible();
-	expect(reads).toEqual([]);
 	const kinds = page.getByRole('group', { name: 'Token kind' });
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('All');
+	await expect.poll(() => reads).toContain('');
 	await expect(page.getByRole('link', { name: 'offers', exact: true })).toBeVisible();
-	await page.screenshot({ path: info.outputPath('public-choose.png') });
+	await page.screenshot({ path: info.outputPath('public-all.png') });
 	await kinds.getByRole('link', { name: 'Eggs' }).click();
 	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
 	await expect(page).toHaveURL(
@@ -290,7 +291,7 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 	await expect(page.getByText('type = egg', { exact: true })).toHaveCount(0);
 	await page.screenshot({ path: info.outputPath('public-eggs.png') });
 	expect(new URL(page.url()).pathname).toBe('/');
-	expect(reads).toEqual(['egg']);
+	expect(reads.at(-1)).toBe(view.id);
 	await expect(page.getByRole('link', { name: 'customization', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Rebuild traits' })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'bid on traits' })).toHaveCount(0);

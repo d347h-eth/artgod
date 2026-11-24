@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/env';
@@ -34,7 +34,7 @@
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationDraftFromSelection,
-		canDraftTraitJobFromFilters,
+		canDraftTraitJobFromSnapshot,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -146,13 +146,7 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const canBidOnTraits = $derived.by(() => {
-		const filter = currentBiddingFilterSnapshot();
-		return canDraftTraitJobFromFilters({
-			selectedTraits: filter.catalogScope ? (filter.nativeSelection ?? []) : filter.selectedTraits,
-			selectedTraitRanges: filter.selectedTraitRanges
-		});
-	});
+	const canBidOnTraits = $derived(canDraftTraitJobFromSnapshot(currentBiddingFilterSnapshot()));
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
@@ -227,7 +221,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,
@@ -251,7 +245,7 @@
 
 	function resetTraitsHref(): string {
 		return buildTokenBrowserHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			limit: tokens.limit,
 			displayMode,
@@ -300,7 +294,7 @@
 	): Promise<void> {
 		await goto(
 			buildTokenBrowserHref({
-				catalogScope: selectedCollectionView(collectionViewPage()),
+				catalogScope: selectedCollectionScope(collectionViewPage()),
 				basePath,
 				limit: tokens.limit,
 				displayMode,
@@ -361,7 +355,7 @@
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
 		return buildTokenBrowserBiddingFilterSnapshot({
-			view: selectedCollectionView(collectionViewPage()),
+			collectionView: collectionViewPage(),
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			facets,
@@ -414,7 +408,7 @@
 
 	function panelBidBookContext() {
 		return {
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			fetchFn: fetch,
 			chain,
 			collection,

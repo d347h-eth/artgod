@@ -1,9 +1,9 @@
+import { resolveEffectiveNativeTraits, TRAIT_CATALOG } from '@artgod/shared/types/trait-catalog';
 import {
-	resolveEffectiveNativeTraits,
-	TRAIT_CATALOG,
-	type CollectionViewStatus
-} from '@artgod/shared/types/trait-catalog';
-import type { CatalogScope } from '$lib/collection-view';
+	selectedCollectionScope,
+	type CatalogScope,
+	type CollectionViewPage
+} from '$lib/collection-view';
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import { isTradingNumericTraitRange } from '@artgod/shared/types';
 import type {
@@ -132,7 +132,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 
 // Builds a bidding filter snapshot by injecting backend-declared trait bidding support from facets.
 export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
-	view?: CollectionViewStatus | null;
+	collectionView?: CollectionViewPage | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: ApiTokenAttribute[];
 	facets: ApiTraitFacet[];
@@ -160,8 +160,20 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		ownStateFilter: params.ownStateFilter,
 		priceTierFilter: params.priceTierFilter
 	});
-	if (params.view) {
-		const view = params.view;
+	if (!params.collectionView) return snapshot;
+	const view = selectedCollectionScope(params.collectionView);
+	if (!view) {
+		// Whole-collection filters have no pin. Every selected canonical pair must still bind.
+		snapshot.nativeSelection = resolveEffectiveNativeTraits({
+			catalog: TRAIT_CATALOG.Canonical,
+			traits: params.selectedTraits,
+			facets: params.facets
+		});
+	} else if ('groupId' in view) {
+		// A group can scope an exact-token batch, but its union of blocks has no native trait pin.
+		snapshot.catalogScope = view;
+		snapshot.nativeSelection = null;
+	} else {
 		snapshot.catalogScope = { id: view.id, generation: view.generation };
 		snapshot.nativeSelection = resolveEffectiveNativeTraits({
 			catalog: TRAIT_CATALOG.Derived,
@@ -598,7 +610,7 @@ function resolveDraftTargetFromSelection(
 
 	if (
 		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
-		selection.filter.catalogScope
+		selection.filter.nativeSelection !== undefined
 	) {
 		const native = selection.filter.nativeSelection;
 		if (
@@ -659,6 +671,16 @@ export function canSubmitFilteredTokenBatch(draft: BiddingAutomationDraft): bool
 }
 
 // Allows trait-job drafting only for exact trait criteria that OpenSea can target directly.
+export function canDraftTraitJobFromSnapshot(
+	filter: BiddingAutomationTokenFilterSnapshot
+): boolean {
+	return canDraftTraitJobFromFilters({
+		selectedTraits:
+			filter.nativeSelection === undefined ? filter.selectedTraits : (filter.nativeSelection ?? []),
+		selectedTraitRanges: filter.selectedTraitRanges
+	});
+}
+
 export function canDraftTraitJobFromFilters(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];

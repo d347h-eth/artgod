@@ -20,7 +20,6 @@ import {
 } from '@artgod/shared/types';
 import {
 	COLLECTION_VIEW_PICKER_QUERY,
-	collectionViewPickerHref,
 	resolveCollectionViewPickerDestination,
 	selectCollectionViewHref
 } from './collection-view';
@@ -75,10 +74,55 @@ it('orders sibling blocks by label while preserving case variants and their dist
 	]);
 });
 
+it.each([
+	{ groupId: null, selection: 'All' },
+	{ groupId: 'family', selection: 'Family' }
+])(
+	'shows the selected aggregate and makes the other aggregate reachable',
+	({ groupId, selection }) => {
+		const { body } = render(CollectionViewPicker, {
+			props: {
+				context: {
+					basePath: '/chain/collection',
+					chainRef: 'chain',
+					collectionRef: 'collection',
+					discovery: {
+						collection: BIDDING_E2E_COLLECTION,
+						required: true,
+						selectedViewId: null,
+						...(groupId && { selectedGroupId: groupId }),
+						views: [{ ...view, parent: { id: 'family', label: 'Family' } }]
+					}
+				},
+				path: '/chain/collection/activity',
+				query: new URLSearchParams('kind=sales')
+			}
+		});
+		expect(body).toContain(`aria-current="true">${selection}</span>`);
+		if (groupId) {
+			expect(body).toContain('href="/chain/collection/activity?kind=sales">All</a>');
+			expect(body).toMatch(/<option value="" selected[^>]*>All blocks<\/option>/);
+		} else {
+			expect(body).toContain(`${TRAIT_CATALOG_QUERY.Group}=family">Family</a>`);
+			expect(body).not.toContain('<select');
+		}
+	}
+);
+
 it('retains the complete token selection and blocks a native draft with an unbound field', () => {
 	const selected = { key: 'Decoration', value: 'blue' };
 	const filter = buildBiddingAutomationResolvedTokenFilterSnapshot({
-		view,
+		collectionView: {
+			chainRef: 'chain',
+			collectionRef: 'collection',
+			basePath: '/chain/collection',
+			discovery: {
+				collection: BIDDING_E2E_COLLECTION,
+				required: true,
+				selectedViewId: view.id,
+				views: [view]
+			}
+		},
 		source: Surface.TokenBrowser,
 		selectedTraits: [selected],
 		facets: [
@@ -108,6 +152,59 @@ it('retains the complete token selection and blocks a native draft with an unbou
 	).toBe(Target.UnsupportedTraitJob);
 });
 
+it('keeps aggregate token batches scoped and requires a complete native target for trait bids', () => {
+	const pair = { key: 'Type', value: 'painting' };
+	const group = { groupId: 'family' };
+	for (const [scope, selected, expectedTarget] of [
+		[null, [pair], Target.TraitJob],
+		[null, [pair, { key: 'unknown', value: 'unknown' }], Target.UnsupportedTraitJob],
+		[group, [pair], Target.UnsupportedTraitJob]
+	] as const) {
+		const filter = buildBiddingAutomationResolvedTokenFilterSnapshot({
+			collectionView: {
+				chainRef: 'chain',
+				collectionRef: 'collection',
+				basePath: '/chain/collection',
+				discovery: {
+					collection: BIDDING_E2E_COLLECTION,
+					required: true,
+					views: [],
+					selectedViewId: null,
+					...(scope && { selectedGroupId: scope.groupId })
+				}
+			},
+			source: Surface.TokenBrowser,
+			selectedTraits: [...selected],
+			facets: [
+				{
+					key: pair.key,
+					displayKind: Display.Set,
+					minValue: null,
+					maxValue: null,
+					values: [{ value: pair.value, tokenCount: 2, marketplaceBiddingSupported: true }]
+				}
+			],
+			selectedTraitRanges: [],
+			traitJoinMode: Join.And
+		});
+		expect(filter.catalogScope ?? null).toEqual(scope);
+		const selection = {
+			type: Source.FilteredTokens,
+			filter,
+			tokenCount: 2,
+			state: { kind: State.Clean }
+		} as const;
+		expect(
+			buildBiddingAutomationDraftFromSelection({ ...selection, targetIntent: Intent.TraitJob })
+				?.target.type
+		).toBe(expectedTarget);
+		expect(
+			buildBiddingAutomationDraftFromSelection({ ...selection, targetIntent: Intent.TokenBatch })
+				?.target.type
+		).toBe(Target.FilteredTokenBatch);
+	}
+});
+
 it('clears filters and cursor only when choosing a new view', () => {
 	const url = new URL(
 		selectCollectionViewHref(
@@ -123,13 +220,18 @@ it('clears filters and cursor only when choosing a new view', () => {
 		'https://example.test'
 	);
 	expect([...url.searchParams.keys()].sort()).toEqual(
-		['mode', ...Object.values(TRAIT_CATALOG_QUERY)].sort()
+		[
+			'mode',
+			TRAIT_CATALOG_QUERY.View,
+			TRAIT_CATALOG_QUERY.Catalog,
+			TRAIT_CATALOG_QUERY.Generation
+		].sort()
 	);
 	expect(url.searchParams.get(TRAIT_CATALOG_QUERY.View)).toBe(view.id);
 });
 
 it.each(['https://example.test', 'tauri://localhost'])(
-	'preserves the same section controls across a parent picker and a direct switch on %s',
+	'resumes a bookmarked picker at the requested section and can switch across scopes on %s',
 	async (origin) => {
 		const basePath = '/chain/collection';
 		const path = `${basePath}/activity`;
@@ -140,13 +242,19 @@ it.each(['https://example.test', 'tauri://localhost'])(
 			id: '/[chain_ref]/[collection_ref]/activity',
 			params: { chain_ref: 'chain', collection_ref: 'collection' }
 		});
-		const picker = new URL(collectionViewPickerHref(basePath, path, controls, 'art'), origin);
+		const picker = new URL(basePath + '/views', origin);
+		picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Section, path + '?' + controls);
+		picker.searchParams.set(COLLECTION_VIEW_PICKER_QUERY.Group, 'art');
 		const resume = await resolveCollectionViewPickerDestination(basePath, picker, match);
-		expect(picker.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group)).toBe('art');
-		expect(resume).toEqual({ path, query: 'sort=oldest&limit=25&media_mode=snapshot' });
-		expect(selectCollectionViewHref(resume.path, new URLSearchParams(resume.query), view)).toBe(
-			selectCollectionViewHref(path, controls, view)
+		expect(resume.path).toBe(path);
+		const aggregate = selectCollectionViewHref(path, new URLSearchParams(resume.query), {
+			groupId: 'art'
+		});
+		const all = selectCollectionViewHref(path, new URL(aggregate, origin).searchParams, null);
+		expect(aggregate).toBe(
+			`${path}?sort=oldest&limit=25&media_mode=snapshot&${TRAIT_CATALOG_QUERY.Group}=art`
 		);
+		expect(all).toBe(path + '?sort=oldest&limit=25&media_mode=snapshot');
 	}
 );
 

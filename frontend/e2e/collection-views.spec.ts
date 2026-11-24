@@ -10,7 +10,7 @@ import {
 } from '@artgod/shared/types/trait-catalog';
 import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 
-test('requires a leaf and preserves its native predicate when drafting an artwork bid', async ({
+test('opens the full collection and preserves the selected block when drafting an artwork bid', async ({
 	page
 }, testInfo) => {
 	const pinned = { key: 'collection block', value: 'DriMi' };
@@ -52,10 +52,12 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	);
 	await page.route('**/collection-views*', (route) => {
 		const query = new URL(route.request().url()).searchParams;
+		const groupId = query.get(TRAIT_CATALOG_QUERY.Group);
 		return route.fulfill({
 			json: {
 				required: true,
 				selectedViewId: query.get(TRAIT_CATALOG_QUERY.View),
+				...(groupId && { selectedGroupId: groupId }),
 				collection,
 				views: viewsAvailable ? [{ ...block, generation: publishedGeneration, latestRun }, egg] : []
 			}
@@ -105,7 +107,9 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 		(url) => url.pathname === '/api' + path,
 		(route) => {
 			const query = new URL(route.request().url()).searchParams;
-			dataReads.push(query.get(TRAIT_CATALOG_QUERY.View) ?? '');
+			dataReads.push(
+				query.get(TRAIT_CATALOG_QUERY.View) ?? query.get(TRAIT_CATALOG_QUERY.Group) ?? ''
+			);
 			const data = buildBiddingE2eCollectionDetailData(query);
 			return route.fulfill({
 				json: {
@@ -151,18 +155,18 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 		document.body.append(link);
 		link.click();
 		link.remove();
-	}, `${path}?limit=2&media_mode=snapshot&traits=stale:value&cursor=old`);
+	}, `${path}?limit=2&media_mode=snapshot`);
 	const kinds = page.getByRole('group', { name: 'Token kind' });
 	const blocks = page.getByRole('combobox', { name: 'Collection block' });
 	const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
 	await expect(refresh).toBeVisible();
-	await expect(kinds).toHaveCount(0);
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('All');
 	await page.screenshot({ path: testInfo.outputPath('waiting-for-traits.png') });
 	viewsAvailable = true;
 	await refresh.click();
 	await expect(kinds).toBeVisible();
 	await expect(refresh).toHaveCount(0);
-	expect(dataReads).toEqual([]);
+	expect(dataReads).toContain('');
 	await kinds.getByRole('link', { name: 'Artworks', exact: true }).click();
 	await blocks.selectOption({ label: 'DriMi' });
 	await expect(page).toHaveURL(
@@ -232,7 +236,7 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	const artworkQuery = new URL(page.url()).searchParams;
 	expect(artworkQuery.get('media_mode')).toBe(eggQuery.get('media_mode'));
 	expect(artworkQuery.get('limit')).toBe(eggQuery.get('limit'));
-	expect(dataReads).not.toContain('');
+	expect(dataReads).toContain(block.parent!.id);
 	await page.getByRole('link', { name: 'customization', exact: true }).click();
 	const rebuild = page.getByRole('button', { name: 'Rebuild traits' });
 	await rebuild.click();

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
+	import { appendCatalogScope, selectedCollectionScope } from '$lib/collection-view';
 	import { page } from '$app/state';
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
@@ -107,7 +107,7 @@
 		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
-		canDraftTraitJobFromFilters,
+		canDraftTraitJobFromSnapshot,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -269,7 +269,7 @@
 	// Navigation starts on the first page. Paged reads supply their cursor and
 	// limit explicitly while retaining every current filter.
 	const biddingQueryParams = $derived({
-		catalogScope: selectedCollectionView(collectionViewPage()),
+		catalogScope: selectedCollectionScope(collectionViewPage()),
 		selectedTraits: activeTraits,
 		selectedTraitRanges: activeTraitRanges,
 		bidScope,
@@ -324,13 +324,7 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const canBidOnTraits = $derived.by(() => {
-		const filter = currentBiddingFilterSnapshot();
-		return canDraftTraitJobFromFilters({
-			selectedTraits: filter.catalogScope ? (filter.nativeSelection ?? []) : filter.selectedTraits,
-			selectedTraitRanges: filter.selectedTraitRanges
-		});
-	});
+	const canBidOnTraits = $derived(canDraftTraitJobFromSnapshot(currentBiddingFilterSnapshot()));
 	const canRefineTokenSelectionToVisiblePage = $derived(
 		activeTokenOfferCardsPage.totalPages > 1
 	);
@@ -475,7 +469,7 @@
 		const { selectedTraits, selectedTraitRanges, mediaMode, mediaPreference, ...bidding } =
 			biddingQueryParams;
 		return buildCollectionNavigation({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode,
 			mediaPreference,
@@ -532,7 +526,7 @@
 
 	function tokenOfferCardHref(tokenId: string): string {
 		return buildTokenDetailHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			tokenId,
 			mediaMode,
@@ -646,7 +640,7 @@
 		return buildPaginationWindowSignature([
 			appendCatalogScope(
 				new URLSearchParams(),
-				selectedCollectionView(collectionViewPage())
+				selectedCollectionScope(collectionViewPage())
 			).toString(),
 			basePath,
 			'token-offers',
@@ -913,7 +907,7 @@
 		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
 	} = {}): BiddingAutomationTokenFilterSnapshot {
 		return buildBiddingAutomationResolvedTokenFilterSnapshot({
-			view: selectedCollectionView(collectionViewPage()),
+			collectionView: collectionViewPage(),
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
 			selectedTraits: params.traits ?? activeTraits,
 			facets,

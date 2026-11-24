@@ -1,5 +1,1 @@
-<script lang="ts">
-	import CollectionViewNavigation from '$lib/components/CollectionViewNavigation.svelte';
-</script>
-
-<CollectionViewNavigation />
+<!-- The collection layout redirects legacy picker bookmarks to the selected section. -->

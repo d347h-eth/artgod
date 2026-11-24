@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
 	import TraitCatalogRebuild from './TraitCatalogRebuild.svelte';
-	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
+	import { appendCatalogScope, selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
 	import {
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
@@ -139,7 +139,7 @@
 	const selectedView = $derived(selectedCollectionView(collectionViewPage()));
 	function collectionNavigation() {
 		return buildCollectionNavigation({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode,
 			mediaPreference,
@@ -536,7 +536,7 @@
 				chain.slug,
 				collection.slug,
 				buildCustomizationBody(),
-				appendCatalogScope(new URLSearchParams(), selectedCollectionView(collectionViewPage()))
+				appendCatalogScope(new URLSearchParams(), selectedCollectionScope(collectionViewPage()))
 			);
 			applyCustomizationState(response.customization);
 			tokenPreview.invalidateTokenPreviewCache();

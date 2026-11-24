@@ -1,7 +1,9 @@
 # 111K collection views and trait catalogs
 
-Choose **Artworks** and a collection block to browse revealed work. Eggs, crates,
-warehouses and relics each have their own view. Opening a token directly selects
+The collection opens on **All**, including NFTs awaiting classification.
+**Artworks** opens on **All blocks** and includes artworks from every classified
+block. Choose a block to narrow the results. Eggs, crates, warehouses and
+relics each have their own view. Opening a classified token directly selects
 its current view. **Unclassified** contains accepted metadata whose type or
 block cannot be resolved. A newly observed block appears as soon as the
 indexer accepts its canonical traits.
@@ -50,16 +52,20 @@ chart and facet reads use current membership. Facet counts measure distinct
 NFTs. Historical events use the token's current view. The published generation
 identifies the catalog used by continuations and frontend navigation.
 
-Token kinds use the collection's secondary tabs. Artworks adds a block picker
-in the same toolbar. The picker sorts block names alphabetically regardless
+Token kinds appear above the collection section tabs. Artworks adds a block picker
+in the same row. The picker sorts block names alphabetically regardless
 of case and preserves their original spelling. The selected controls show
 the browsing scope once.
-Opening an NFT resolves its view from its token ID. Token detail opens with
-the artwork and uses that view for traits and links back to the collection.
+Opening an NFT resolves its trait catalog from its token ID. Trait links use
+that catalog. Returning to the collection restores the section and scope from
+which the reader opened the NFT.
 The sidebar lists only traits that can filter the current view. Open an NFT
-to inspect its character, artwork and scene details.
+to inspect its character, artwork and scene details. The token page shows the
+standard trait table first. Below it, the centered projection tree opens its
+first level and lets the reader expand individual entries.
 
-The block or type selector pins its exact canonical criterion. For example,
+A specific block or token type pins its exact canonical criterion when all
+members share one. For example,
 selecting DriMi and a blue background targets both `collection block = DriMi`
 and `01 Background = blue`. Clearing ordinary filters preserves the pin.
 Exact-token actions use the token ID. A native bid-book bucket retains its
@@ -71,7 +77,10 @@ The lowercase and title-case collection-block keys can classify the same block.
 ArtGod prefers `collection block` when every member has that exact pair, then
 checks `Collection Block`. If neither pair is shared across all members, the
 view has no universal pinned criterion. A filter-driven trait bid requires a complete,
-unambiguous native mapping. A view with an unresolved pin remains browsable.
+unambiguous native mapping. All blocks is a union of views with no single
+marketplace criterion. It supports bidding on matching token IDs. In All,
+ordinary native trait filters can target a trait bid if every selected pair is
+supported. A view with an unresolved pin remains browsable.
 Local metadata gaps produce unresolved offer applicability.
 
 ## Offline rebuild
@@ -88,9 +97,12 @@ rollback invalidate dependent rows through the
 ## API and verification
 
 Use `GET /api/:chain_ref/:collection_ref/collection-views` for discovery.
-Pass the returned `view` and `generation` on scoped reads. The 111K default
-is `trait_catalog=derived`. Specify `trait_catalog=canonical` to inspect
-metadata-source facts in the same view. Collections without a view capability
+Omit scope parameters for All. Pass the discovered parent ID as `view_group`
+to browse all its child blocks. Both aggregates use canonical metadata. Their
+default facets are the type and collection-block keys declared by the extension.
+Pass the returned `view` and `generation` for a leaf. Its default catalog is
+`derived`. Specify `trait_catalog=canonical` to inspect metadata-source facts
+in that leaf. Collections without a view capability
 retain their existing default presentation. Local rebuild writes use the
 ordinary mutation checks. Public read-only deployments expose view selection.
 See the [HTTP contract](../backend/openapi.yaml).

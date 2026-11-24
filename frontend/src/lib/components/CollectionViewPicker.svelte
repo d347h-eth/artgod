@@ -2,7 +2,6 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { compareTraitLabels } from '$lib/trait-facet-sorting';
 	import {
-		collectionViewPickerHref,
 		selectedCollectionView,
 		selectCollectionViewHref,
 		type CollectionViewPage
@@ -11,31 +10,28 @@
 	let {
 		context,
 		path,
-		query,
-		initialGroup = null
+		query
 	}: {
 		context: CollectionViewPage;
 		path: string;
 		query: URLSearchParams;
-		initialGroup?: string | null;
 	} = $props();
 
 	let active = $derived(selectedCollectionView(context));
 	let groups = $derived([
+		{ id: null, label: 'All', scope: null },
 		...new Map(
 			context.discovery.views.map((view) => [
 				view.parent?.id ?? view.id,
 				{
 					id: view.parent?.id ?? view.id,
 					label: view.parent?.label ?? view.label,
-					href: view.parent
-						? collectionViewPickerHref(context.basePath, path, query, view.parent.id)
-						: selectCollectionViewHref(path, query, view)
+					scope: view.parent ? { groupId: view.parent.id } : view
 				}
 			])
 		).values()
 	]);
-	let kind = $derived(active?.parent?.id ?? active?.id ?? initialGroup);
+	let kind = $derived(active?.parent?.id ?? active?.id ?? context.discovery.selectedGroupId ?? null);
 	let leaves = $derived(
 		context.discovery.views
 			.filter((view) => view.parent && view.parent.id === kind)
@@ -57,47 +53,48 @@
 	// replacement select so another arrow-key choice starts from the same place.
 	const blockSelectId = 'collection-view-block';
 	async function chooseLeaf(select: HTMLSelectElement): Promise<void> {
-		const leaf = leaves.find((view) => view.id === select.value);
-		if (!leaf) return;
+		if (!kind) return;
+		const value = select.value;
+		const scope = value ? leaves.find((view) => view.id === value) : { groupId: kind };
+		if (!scope) return;
 		const hadFocus = document.activeElement === select;
-		await goto(selectCollectionViewHref(path, query, leaf), { reset: false });
+		await goto(selectCollectionViewHref(path, query, scope), { reset: false });
 		const replacement = document.getElementById(blockSelectId);
-		if (hadFocus && replacement instanceof HTMLSelectElement && replacement.value === leaf.id) {
+		if (hadFocus && replacement instanceof HTMLSelectElement && replacement.value === value) {
 			replacement.focus({ preventScroll: true });
 		}
 	}
 </script>
 
 <div class="panel-top-actions-row collection-view-picker">
-	{#if groups.length}
-		<div class="secondary-tabs" role="group" aria-label="Token kind">
-			{#each groups as group (group.id)}
-				{#if group.id === kind}
-					<span class="secondary-tab-active" aria-current="true">{group.label}</span>
-				{:else}
-					<a href={group.href}>{group.label}</a>
-				{/if}
-			{/each}
-		</div>
-		{#if leaves.length}
-			<label>
-				<span class="panel-top-actions-label">Block</span>
-				<select
-					class="facet-panel-action-button"
-					id={blockSelectId}
-					aria-label="Collection block"
-					title={active?.label}
-					value={active?.id ?? ''}
-					onchange={(event) => void chooseLeaf(event.currentTarget)}
-				>
-					<option value="" disabled>Choose block</option>
-					{#each leaves as leaf (leaf.id)}
-						<option value={leaf.id}>{leaf.label}</option>
-					{/each}
-				</select>
-			</label>
-		{/if}
-	{:else}
+	<div class="secondary-tabs" role="group" aria-label="Token kind">
+		{#each groups as group (group.id)}
+			{#if group.id === kind}
+				<span class="secondary-tab-active" aria-current="true">{group.label}</span>
+			{:else}
+				<a href={selectCollectionViewHref(path, query, group.scope)}>{group.label}</a>
+			{/if}
+		{/each}
+	</div>
+	{#if leaves.length}
+		<label>
+			<span class="panel-top-actions-label">Block</span>
+			<select
+				class="facet-panel-action-button"
+				id={blockSelectId}
+				aria-label="Collection block"
+				title={active?.label}
+				value={active?.id ?? ''}
+				onchange={(event) => void chooseLeaf(event.currentTarget)}
+			>
+				<option value="">All blocks</option>
+				{#each leaves as leaf (leaf.id)}
+					<option value={leaf.id}>{leaf.label}</option>
+				{/each}
+			</select>
+		</label>
+	{/if}
+	{#if !context.discovery.views.length}
 		<div class="panel-top-actions-row">
 			<span class="muted">Waiting for token traits.</span>
 			<button
@@ -122,6 +119,7 @@
 	.collection-view-picker {
 		font-size: 0.72rem;
 		gap: 0.65rem 1.5rem;
+		padding: var(--control-button-gap) var(--panel-content-padding);
 	}
 
 	label {

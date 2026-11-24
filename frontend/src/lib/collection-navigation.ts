@@ -1,6 +1,6 @@
 import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { goto } from '$app/navigation';
-import { buildCollectionChartHref, COLLECTION_CHART_PATH } from '$lib/price-chart/routing';
+import { buildCollectionChartHref } from '$lib/price-chart/routing';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type {
@@ -11,8 +11,6 @@ import {
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_KIND_QUERY_PARAM,
 	formatActivityExtensionEventRef,
-	parseCollectionActivityExtensionEvent,
-	parseCollectionActivityKind,
 	buildCollectionActivityQuery,
 	COLLECTION_ACTIVITY_FILTER_KINDS
 } from '$lib/activity-query';
@@ -32,22 +30,14 @@ import {
 import { buildCollectionBiddingNavigationQuery } from '$lib/bidding-navigation-preferences';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
-import {
-	COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND,
-	type CollectionExtensionNavigationPageTarget
-} from '$lib/collection-extension-navigation';
-import { resolveCollectionExtensionPage } from '$lib/collection-extension-pages';
+import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
 import { appendCollectionMediaParams, type CollectionMediaPreferenceInput } from '$lib/media-mode';
 import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	publicCollectionBlockspacePath
 } from '$lib/runtime/public-deployment';
-import {
-	parseCollectionTokenStatus,
-	TOKEN_STATUS_QUERY_PARAM,
-	type CollectionTokenStatus
-} from '$lib/token-browser-query';
+import { TOKEN_STATUS_QUERY_PARAM, type CollectionTokenStatus } from '$lib/token-browser-query';
 import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 export type CollectionNavigationState = {
@@ -100,58 +90,6 @@ export type CollectionSectionSelection = {
 	activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
 	activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
 };
-
-// The picker is an intermediate stop in the destination section. Keep its tab
-// and breadcrumb active while the user chooses the view that section requires.
-export function resolveCollectionSection(
-	basePath: string,
-	path: string,
-	query: URLSearchParams
-): CollectionSectionSelection & { label?: string; owner?: string } {
-	const [section, first, second] = path.slice(basePath.length).split('/').filter(Boolean);
-	switch (section) {
-		case undefined:
-			return {
-				activeSection: 'tokens',
-				activeTokenStatus: parseCollectionTokenStatus(query.get(TOKEN_STATUS_QUERY_PARAM))
-			};
-		case 'activity': {
-			const event = parseCollectionActivityExtensionEvent(
-				query.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
-			);
-			return {
-				activeSection: 'activities',
-				activeActivityKind: event
-					? null
-					: parseCollectionActivityKind(query.get(ACTIVITY_KIND_QUERY_PARAM)),
-				activeActivityExtensionEvent: event,
-				label: 'events'
-			};
-		}
-		case 'holders':
-			return first
-				? { activeSection: null, owner: first, label: first }
-				: { activeSection: section, label: section };
-		case 'bidding':
-		case COLLECTION_CHART_PATH:
-		case 'customization':
-			return { activeSection: section, label: section };
-		case 'extensions':
-			if (first && second) {
-				const target = {
-					kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
-					extensionKey: decodeURIComponent(first),
-					pageRef: decodeURIComponent(second)
-				};
-				return {
-					activeSection: 'extension-page',
-					activeExtensionPage: target,
-					label: resolveCollectionExtensionPage(target)?.label ?? target.pageRef
-				};
-			}
-	}
-	return { activeSection: null };
-}
 
 export type CollectionRouteTarget = {
 	chainRef: string;

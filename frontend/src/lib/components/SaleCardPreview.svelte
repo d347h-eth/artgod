@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import TokenCardTile from './TokenCardTile.svelte';
 	import { getTokenPreviewController } from './token-preview-controller';
@@ -93,7 +93,7 @@
 	<div inert={!pinned}>
 	{#if token}
 		<TokenCardTile {chain} {collection} {token} {tokenPreview}
-			href={buildTokenDetailHref({ catalogScope: selectedCollectionView(collectionViewPage()), basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
+			href={buildTokenDetailHref({ returnPath: basePath, catalogScope: selectedCollectionScope(collectionViewPage()), basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
 			selectedMediaMode={media.selectedMode} availableMediaModes={media.availableModes}
 			mediaPreference={media.preference} marketPrices={ask ? [ask] : []} />
 	{:else}

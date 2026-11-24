@@ -6,6 +6,7 @@ import {
 	COLLECTION_MEDIA_QUERY_PARAMS
 } from '@artgod/shared/extensions';
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
+import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
 import { get } from 'svelte/store';
 import type {
 	ApiCollectionMediaPreference,
@@ -127,6 +128,18 @@ describe('token-preview-controller', () => {
 		expect(get(controller.state).traitDisplay.mode).toBe(TOKEN_PREVIEW_TRAITS_MODE.Hidden);
 		controller.cycleTokenPreviewTraits();
 		expect(get(controller.state).traitDisplay.mode).toBe(TOKEN_PREVIEW_TRAITS_MODE.Summary);
+	});
+
+	it('uses the token’s own catalog for trait links when previewing a group', async () => {
+		const response = tokenResponse({ media: snapshotMedia() });
+		const leaf = { id: 'block', generation: 3 };
+		response.token.catalogScope = leaf;
+		getTokenPreviewMock.mockResolvedValueOnce(response);
+		const group = { groupId: 'works' };
+		const controller = createTokenPreviewController(() => group);
+		await openSnapshot(controller);
+		expect(tokenPreviewQuery(0).get(TRAIT_CATALOG_QUERY.Group)).toBe(group.groupId);
+		expect(get(controller.state).catalogScope).toEqual(leaf);
 	});
 
 	it('adopts token-local media versions and omits the default preference query value', async () => {

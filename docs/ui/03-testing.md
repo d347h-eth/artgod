@@ -64,7 +64,8 @@ to their owning deterministic suites and optional manual fixtures.
 
 ### Collection views
 
-`yarn test:collection:views` exercises the collection picker, scoped gallery,
+`yarn test:collection:views` exercises collection-wide entry, all artwork
+blocks, individual blocks, the scope controls above the section tabs, the scoped gallery,
 trait bid review, rebuild controls and token detail at 1920 × 1080, 1267 × 712
 and the Pixel 7 viewport. The Plane of Existence fixture uses the 111K mapper.
 Screenshots are written to `tmp/collection-views-playwright/`. To review local
