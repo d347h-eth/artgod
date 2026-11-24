@@ -1768,26 +1768,22 @@ th {
 
 .facet-column-sticky {
 	position: sticky;
-	top: 0.75rem;
+	top: var(--panel-content-padding);
 	align-self: flex-start;
-	max-height: calc(100vh - 1.5rem);
-	min-height: 0;
 }
 
 .facet-column-sticky .facet-panel {
-	flex: 1 1 auto;
-	min-height: 0;
+	/* Keep a usable scroll target even when the controls fill the initial viewport. */
+	max-height: clamp(
+		6rem,
+		calc(var(--facet-available-height, 100dvh) - var(--panel-content-padding)),
+		var(--facet-height-limit, 100dvh)
+	);
 	overflow-y: auto;
 	overflow-x: hidden;
 	overscroll-behavior: contain;
-	scrollbar-width: none;
-	-ms-overflow-style: none;
-}
-
-.facet-column-sticky .facet-panel::-webkit-scrollbar {
-	width: 0;
-	height: 0;
-	display: none;
+	scrollbar-width: thin;
+	scrollbar-color: var(--c-blue) var(--c-bg);
 }
 
 .facet-panel-controls-row {
@@ -4925,8 +4921,12 @@ a.bid-book-own-status:focus-visible {
 	.facet-column {
 		position: relative;
 		top: auto;
-		max-height: none;
 		padding: 0;
+	}
+
+	/* In the stacked layout leave space to scroll the results past the filters. */
+	.facet-column-sticky .facet-panel {
+		--facet-height-limit: 65dvh;
 	}
 
 	.facet-panel {

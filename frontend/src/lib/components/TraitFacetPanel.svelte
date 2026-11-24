@@ -302,11 +302,45 @@
 		event.preventDefault();
 		onRangeApplyClick(key);
 	}
+
+	function fitPanelToViewport(panel: HTMLElement) {
+		const viewport = window.visualViewport;
+		let frame = 0;
+
+		function measure() {
+			frame = 0;
+			const viewportTop = viewport?.offsetTop ?? 0;
+			const top = Math.max(0, panel.getBoundingClientRect().top - viewportTop);
+			const available = Math.floor((viewport?.height ?? window.innerHeight) - top);
+			panel.style.setProperty('--facet-available-height', available + 'px');
+		}
+
+		function scheduleMeasure() {
+			if (!frame) frame = requestAnimationFrame(measure);
+		}
+
+		// The collection controls can wrap or grow while the page stays at the same scroll position.
+		const observer = new ResizeObserver(scheduleMeasure);
+		observer.observe(panel.closest('.panel') ?? document.body);
+		measure();
+		window.addEventListener('scroll', scheduleMeasure, { passive: true });
+		window.addEventListener('resize', scheduleMeasure);
+		viewport?.addEventListener('resize', scheduleMeasure);
+		viewport?.addEventListener('scroll', scheduleMeasure);
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+			window.removeEventListener('scroll', scheduleMeasure);
+			window.removeEventListener('resize', scheduleMeasure);
+			viewport?.removeEventListener('resize', scheduleMeasure);
+			viewport?.removeEventListener('scroll', scheduleMeasure);
+		};
+	}
 </script>
 
 <div class="facet-column" class:facet-column-sticky={sticky && !collapsed}>
 	{#if !collapsed}
-		<aside class="facet-panel">
+		<aside class="facet-panel" {@attach sticky ? fitPanelToViewport : undefined}>
 			<div class="facet-header">
 				<h2>traits</h2>
 			</div>

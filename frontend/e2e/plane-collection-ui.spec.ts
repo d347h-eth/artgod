@@ -163,7 +163,10 @@ const facetsByView = new Map([
 				['Airy', 1],
 				['airy', 1]
 			]),
-			setFacet(MARK_COUNT, [['7', 1]]),
+			setFacet(
+				MARK_COUNT,
+				Array.from({ length: 167 }, (_, i) => [String(i + 1), 1])
+			),
 			setFacet(META.CollectionBlock, [[PLANE, 2]]),
 			setFacet(META.Type, [['painting', 2]])
 		]
@@ -397,6 +400,58 @@ test('trait sidebar selects the exact value from its label, checkbox and keyboar
 	await bucket.getByText('airy', { exact: true }).click();
 	await expect(lower).not.toBeChecked();
 	await expect(cards).toHaveCount(2);
+});
+
+test('trait sidebar scrolls its full list and a shorter search result before the page moves', async ({
+	page
+}, info) => {
+	const sidebar = await openPlaneTraits(page);
+	const bucket = sidebar
+		.locator('details')
+		.filter({ has: page.locator('summary').getByText(MARK_COUNT, { exact: true }) });
+	await bucket.locator('summary').click();
+	const last = bucket.getByRole('checkbox').last();
+
+	async function wheelToEnd() {
+		const box = (await sidebar.boundingBox())!;
+		expect(await page.evaluate(() => window.scrollY)).toBe(0);
+		await page.mouse.move(box.x + 10, box.y + 10);
+		await page.mouse.wheel(0, 10000);
+		await expect.poll(() => sidebar.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		await expect
+			.poll(() => sidebar.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+			.toBeLessThanOrEqual(1);
+		await expect(last).toBeInViewport({ ratio: 1 });
+		await page.mouse.wheel(0, 180);
+		await page.evaluate(
+			() =>
+				new Promise<void>((done) => {
+					requestAnimationFrame(() => requestAnimationFrame(() => done()));
+				})
+		);
+		expect(await page.evaluate(() => window.scrollY)).toBe(0);
+	}
+
+	await expect(bucket.getByRole('checkbox')).toHaveCount(167);
+	await wheelToEnd();
+	await page.screenshot({ path: info.outputPath('trait-sidebar-scrolled.png'), scale: 'css' });
+	await page.mouse.wheel(0, -10000);
+	await expect.poll(() => sidebar.evaluate((el) => el.scrollTop)).toBe(0);
+
+	// The shorter list fits a full viewport, but cannot fit below the collection controls.
+	await bucket.getByRole('searchbox').fill('11');
+	await expect(bucket.getByRole('checkbox')).toHaveCount(11);
+	const contentHeight = await sidebar.evaluate((el) => el.scrollHeight);
+	await page.setViewportSize({ width: page.viewportSize()!.width, height: contentHeight + 48 });
+	await expect
+		.poll(() => sidebar.evaluate((el) => el.scrollHeight - el.clientHeight))
+		.toBeGreaterThan(0);
+	await wheelToEnd();
+
+	// A wheel gesture over the collection chrome still scrolls the results page.
+	await page.mouse.move(4, 4);
+	await page.mouse.wheel(0, 240);
+	await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 });
 
 test('keeps collection navigation and artwork filters usable through block, kind and token changes', async ({
