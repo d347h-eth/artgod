@@ -32,6 +32,8 @@ and [operator procedure](18-order-queue-recovery.md).
 
 - [Storage and schema](05-storage-and-schema.md)
 - [Orders and token sets](07-domain-orders.md)
+- [Multiple orderbooks](21-multiple-orderbooks.md) — proposed venue resolution,
+  publication lifecycle and passive market reads.
 - [Metadata and traits](08-domain-metadata.md)
 - [Permanent pending metadata](20-metadata-pending-backlog.md)
 - [Activities](09-domain-activities.md)

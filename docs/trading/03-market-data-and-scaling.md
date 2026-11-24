@@ -206,6 +206,10 @@ display source as the user's offers. This passive maker identity is separate
 from collection authorization. Own-maker feedback is therefore available on
 the indexed-orders fallback; it is not dependent on a live bot projection.
 
+The [multiple-orderbook design](../indexer/21-multiple-orderbooks.md#bot-snapshot-selection)
+describes how additional venues would enter the passive feed and how the
+existing OpenSea bot snapshot would retain precedence.
+
 ## Why Full Snapshots Are Expensive
 
 The adapter requests every cursor page and retains every returned offer in
