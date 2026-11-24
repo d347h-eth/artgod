@@ -1,4 +1,4 @@
-import type { CollectionViewStatus } from '@artgod/shared/types/trait-catalog';
+import type { CollectionViewPage } from '$lib/collection-view';
 import type {
 	ApiCollectionBiddingTraitFilterJoinMode,
 	ApiTokenAttribute,
@@ -17,7 +17,7 @@ import {
 } from '@artgod/shared/types';
 
 export type TokenBrowserBiddingFilterInput = {
-	view?: CollectionViewStatus | null;
+	collectionView?: CollectionViewPage | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: ApiTokenAttribute[];
 	facets: ApiTraitFacet[];
@@ -34,7 +34,7 @@ export function buildTokenBrowserBiddingFilterSnapshot(
 ): BiddingAutomationTokenFilterSnapshot {
 	return buildBiddingAutomationResolvedTokenFilterSnapshot({
 		source: params.source,
-		view: params.view,
+		collectionView: params.collectionView,
 		selectedTraits: params.selectedTraits,
 		facets: params.facets,
 		selectedTraitRanges: params.selectedTraitRanges,

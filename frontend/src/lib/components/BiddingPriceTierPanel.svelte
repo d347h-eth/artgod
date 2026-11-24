@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import { untrack } from 'svelte';
 	import {
 		isConfirmationActionTarget,
@@ -457,7 +457,7 @@
 				chain.slug,
 				collection.slug,
 				tier.tierId,
-				selectedCollectionView(collectionViewPage())
+				selectedCollectionScope(collectionViewPage())
 			);
 			reapplyTierId = response.tier.tierId;
 			reapplyTierName = response.tier.name;

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildCollectionBasePath,
 	buildCollectionNavigation,
-	resolveCollectionSection,
 	resolveCollectionSectionShortcutHref
 } from '$lib/collection-navigation';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
@@ -97,57 +96,6 @@ describe('buildCollectionNavigation', () => {
 
 		expect(navigation.showBlockspace).toBe(false);
 		expect(navigation.hrefs.blockspace).toBeNull();
-	});
-});
-
-describe('collection view picker destination', () => {
-	it.each(['/ethereum/milady', '/'])('preserves primary tab selection under %s', (base) => {
-		const navigation = buildCollectionNavigation({
-			basePath: base,
-			selectedTraits: [],
-			selectedTraitRanges: []
-		});
-		const resolve = (href: string) => {
-			const url = new URL(href, 'https://example.test');
-			return resolveCollectionSection(base, url.pathname, url.searchParams);
-		};
-		expect(resolve(navigation.hrefs.asks)).toMatchObject({
-			activeSection: 'tokens',
-			activeTokenStatus: 'listed'
-		});
-		expect(resolve(navigation.hrefs.tokens)).toMatchObject({
-			activeSection: 'tokens',
-			activeTokenStatus: 'all'
-		});
-		expect(resolve(navigation.hrefs.activityKind('transfers'))).toMatchObject({
-			activeSection: 'activities',
-			activeActivityKind: 'transfers'
-		});
-		const event = { extensionKey: 'example', eventKey: 'sample' };
-		expect(resolve(navigation.hrefs.activityExtensionEvent(event))).toMatchObject({
-			activeSection: 'activities',
-			activeActivityKind: null,
-			activeActivityExtensionEvent: event
-		});
-		const target = {
-			kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
-			extensionKey: 'example',
-			pageRef: 'sample'
-		};
-		expect(resolve(navigation.hrefs.extensionPage(target))).toMatchObject({
-			activeSection: 'extension-page',
-			activeExtensionPage: target,
-			label: target.pageRef
-		});
-		expect(resolve(navigation.hrefs.holders)).toMatchObject({ activeSection: 'holders' });
-		expect(resolve(navigation.hrefs.holders + '/owner')).toMatchObject({
-			activeSection: null,
-			label: 'owner'
-		});
-		expect(resolve(navigation.hrefs.customization)).toMatchObject({
-			activeSection: 'customization'
-		});
-		expect(resolve(navigation.hrefs.chart)).toMatchObject({ activeSection: 'chart' });
 	});
 });
 

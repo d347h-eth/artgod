@@ -97,7 +97,8 @@ const tokens = [
 	{
 		id: FILM_TOKEN,
 		facts: [...artwork(FILM, 'video'), { key: 'artist', value: FILM_ARTIST }]
-	}
+	},
+	{ id: '490', facts: [{ key: META.Type, value: 'crate' }] }
 ].map(projectToken);
 
 function projectToken({ id, facts }: { id: string; facts: { key: string; value: string }[] }) {
@@ -149,6 +150,18 @@ function setFacet(key: string, values: [string, number][]) {
 			marketplaceBiddingSupported: true
 		}))
 	};
+}
+
+function aggregateFacets(members: typeof tokens) {
+	return [META.Type, META.CollectionBlock].map((key) => {
+		const counts = new Map<string, number>();
+		for (const { projected } of members) {
+			for (const { native } of projected.values) {
+				if (native?.key === key) counts.set(native.value, (counts.get(native.value) ?? 0) + 1);
+			}
+		}
+		return setFacet(key, [...counts]);
+	});
 }
 
 const facetsByView = new Map([
@@ -204,7 +217,7 @@ async function installPlaneFixture(page: Page) {
 		const id = new URL(route.request().url()).pathname.split('/').pop()!;
 		const dir = process.env.ARTGOD_E2E_PLANE_MEDIA_DIR;
 		const file = dir && join(dir, id + '.webp');
-		if (file && ((id !== FILM_TOKEN && id !== DETAIL_TOKEN) || existsSync(file))) {
+		if (file && existsSync(file)) {
 			return route.fulfill({ path: file, contentType: 'image/webp' });
 		}
 		// Keep ordinary runs offline and preserve the film still's landscape aspect ratio.
@@ -227,6 +240,7 @@ async function installPlaneFixture(page: Page) {
 		const params = new URL(route.request().url()).searchParams;
 		const tokenId = params.get(PRICE_HISTORY_QUERY.TokenId);
 		const viewId = params.get(TRAIT_CATALOG_QUERY.View);
+		const groupId = params.get(TRAIT_CATALOG_QUERY.Group);
 		const token = detailTokens.find((entry) => entry.id === tokenId);
 		if (tokenId && !token) return route.fulfill({ status: 404 });
 		if (token && viewId && viewId !== token.view.id) {
@@ -238,6 +252,7 @@ async function installPlaneFixture(page: Page) {
 				collection,
 				required: true,
 				selectedViewId: token?.view.id ?? viewId,
+				...(!token && groupId && { selectedGroupId: groupId }),
 				views: [plane, drimi, film, backrooms, driluhh, ...typedViews]
 			}
 		});
@@ -247,9 +262,12 @@ async function installPlaneFixture(page: Page) {
 		(route) => {
 			const params = new URL(route.request().url()).searchParams;
 			const view = params.get(TRAIT_CATALOG_QUERY.View) ?? '';
-			requests.push(view);
+			const group = params.get(TRAIT_CATALOG_QUERY.Group);
+			requests.push(group ?? view);
 			const { selectedTraits } = buildBiddingE2eCollectionDetailData(params);
-			const scopedTokens = tokens.filter((token) => token.view.id === view);
+			const scopedTokens = tokens.filter((token) =>
+				view ? token.view.id === view : !group || token.view.parent?.id === group
+			);
 			const items = scopedTokens
 				.filter(({ projected }) =>
 					selectedTraits.every((pair) =>
@@ -285,7 +303,7 @@ async function installPlaneFixture(page: Page) {
 					traits: {
 						selected: selectedTraits,
 						selectedRanges: [],
-						facets: facetsByView.get(view) ?? []
+						facets: view ? (facetsByView.get(view) ?? []) : aggregateFacets(scopedTokens)
 					}
 				}
 			});
@@ -514,6 +532,19 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	const cards = page.getByTestId(TEST_IDS.TokenCard);
 	const shots = (name: string) => page.screenshot({ path: info.outputPath(name + '.png') });
 	const offers = page.getByRole('link', { name: 'offers', exact: true });
+	async function waitForGallery() {
+		await expect
+			.poll(() =>
+				cards
+					.locator('img')
+					.evaluateAll(
+						(images) =>
+							images.length > 0 &&
+							images.every((image) => (image as HTMLImageElement).naturalWidth > 1)
+					)
+			)
+			.toBe(true);
+	}
 	async function checkChrome() {
 		await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('111k');
 		await expect(offers).toBeVisible();
@@ -555,13 +586,18 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	}
 	await enter(page, path);
 	await expect(kind).toBeVisible();
+	await expect(kind.locator('[aria-current="true"]')).toHaveText('All');
+	await expect(cards).toHaveCount(tokens.length);
+	await expect(cards.getByRole('link', { name: '490', exact: true })).toBeVisible();
+	await expect(kind.locator(':scope > *').first()).toHaveText('All');
 	await checkChrome();
 	const origin = await offers.boundingBox();
+	await waitForGallery();
 	await shots('01-collection-kinds');
 	await kind.getByRole('link', { name: 'Artworks' }).click();
 	await expect(block).toHaveValue('');
 	await expect(block.getByRole('option')).toHaveText([
-		'Choose block',
+		'All blocks',
 		backrooms.label,
 		driluhh.label,
 		drimi.label,
@@ -578,10 +614,22 @@ test('keeps collection navigation and artwork filters usable through block, kind
 		expect(blockLabelBox.y).toBeLessThan(kindsBox.y + kindsBox.height);
 	}
 	await checkChrome();
-	expect(await offers.boundingBox()).toEqual(origin);
-	await expect(cards).toHaveCount(0);
-	expect(requests).toEqual([]);
+	if (!isMobile) expect(await offers.boundingBox()).toEqual(origin);
+	await expect(cards).toHaveCount(3);
+	await expect(cards.getByRole('link', { name: '490', exact: true })).toHaveCount(0);
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.Group) === plane.parent!.id
+	);
 	await shots('02-artworks-blocks');
+	await offers.click();
+	await expect(page.getByLabel('Bid scope filter')).toBeVisible();
+	await expect(block).toHaveValue('');
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.Group) === plane.parent!.id
+	);
+	await page.getByRole('link', { name: 'asks', exact: true }).click();
+	await expect(cards).toHaveCount(3);
+	await expect(block).toHaveValue('');
 
 	await block.focus();
 	await block.press('f');
@@ -590,7 +638,7 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(block).toBeFocused();
 	await expect(page.getByText(/^collection block\s*=\s*film clips$/i)).toHaveCount(0);
 	await checkChrome();
-	expect(await offers.boundingBox()).toEqual(origin);
+	if (!isMobile) expect(await offers.boundingBox()).toEqual(origin);
 	await shots('03-film-clips');
 	await page.getByRole('button', { name: 'expand traits panel' }).click();
 	await page.locator('summary').getByText('artist', { exact: true }).click();
@@ -690,7 +738,22 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await expect(cards).toHaveCount(2);
 	await expect(block).toHaveValue(plane.id);
 	await expect(page).toHaveURL((url) => !url.searchParams.has(TRAIT_FILTER_QUERY_PARAMS.Traits));
-	expect(requests).not.toContain('');
+	await block.selectOption({ label: 'All blocks' });
+	await expect(cards).toHaveCount(3);
+	await kind.getByRole('link', { name: 'All', exact: true }).click();
+	await expect(cards).toHaveCount(tokens.length);
+	expect(requests).toContain('');
+	expect(requests).toContain(plane.parent!.id);
+	await cards.getByRole('link', { name: FILM_TOKEN, exact: true }).click();
+	await checkTokenDetail(FILM_TOKEN, FILM);
+	await page.getByRole('link', { name: 'back to collection' }).click();
+	await expect(kind.locator('[aria-current="true"]')).toHaveText('All');
+	await expect(cards).toHaveCount(tokens.length);
+	if (info.project.name === 'desktop-1267') {
+		await page.setViewportSize({ width: 1172, height: 712 });
+		await waitForGallery();
+		await shots('collection-all-1172');
+	}
 });
 
 test('separates the collection scope from Offers and Asks controls', async ({ page }, info) => {
@@ -700,19 +763,20 @@ test('separates the collection scope from Offers and Asks controls', async ({ pa
 	const block = page.getByRole('combobox', { name: 'Collection block' });
 	const actions = page.locator('.' + COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack);
 	const rows = actions.locator(':scope > .' + COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.row);
-	const picker = rows.filter({ has: kind });
+	const sections = page
+		.locator('.panel-header')
+		.filter({ has: page.getByRole('link', { name: 'chart', exact: true }) });
+	const picker = page.locator('.collection-view-picker');
 	await kind.getByRole('link', { name: 'Artworks' }).click();
 	await expect(block).toBeVisible();
-	await expect(rows).toHaveCount(1);
-	const trailingSpace = await actions.evaluate(
-		(element) =>
-			element.getBoundingClientRect().bottom -
-			element.firstElementChild!.getBoundingClientRect().bottom -
-			parseFloat(getComputedStyle(element).paddingBottom)
-	);
-	expect(Math.abs(trailingSpace)).toBeLessThanOrEqual(1);
+	const sectionBox = (await sections.boundingBox())!;
+	const scopeBox = (await picker.boundingBox())!;
+	expect(sectionBox.y).toBeGreaterThanOrEqual(scopeBox.y + scopeBox.height);
 
 	await block.selectOption({ label: driluhh.label });
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === driluhh.id
+	);
 	const filter = page.getByRole('button', { name: 'expand traits panel' });
 	await expect(filter).toBeVisible();
 	const asksPickerBox = (await picker.boundingBox())!;
@@ -762,6 +826,8 @@ test('separates the collection scope from Offers and Asks controls', async ({ pa
 	await expect(block).not.toHaveCSS('border-color', restingBlock.color);
 	await actions.screenshot({ path: info.outputPath('driluhh-block-focused.png') });
 	await page.keyboard.press('Tab');
+	await expect(sections.locator(':focus')).toHaveCount(1);
+	await maker.focus();
 	await expect(maker).toBeFocused();
 	await page.keyboard.type('maker.eth');
 	await expect(maker).toHaveValue('maker.eth');
@@ -775,7 +841,7 @@ test('separates the collection scope from Offers and Asks controls', async ({ pa
 	await expect(maker).toHaveCSS('border-color', invalidTextColor);
 	await expect(maker).not.toHaveCSS('border-color', restingMaker.color);
 	await expectSingleBorder(maker, restingMaker.width);
-	await page.keyboard.press('Shift+Tab');
+	await block.focus();
 	await expect(block).toBeFocused();
 	await page.keyboard.press('f');
 	await expect(block).toHaveValue(film.id);

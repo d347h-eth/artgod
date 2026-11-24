@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
+	import { appendCatalogScope, selectedCollectionScope } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import type {
@@ -201,7 +201,7 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		return buildTokenDetailHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: collectionBasePath,
 			tokenId,
 			mediaMode: media.selectedMode,
@@ -214,7 +214,7 @@
 	function buildReturnQuery(): string {
 		const query = appendCatalogScope(
 			new URLSearchParams(),
-			selectedCollectionView(collectionViewPage())
+			selectedCollectionScope(collectionViewPage())
 		);
 		query.set('limit', String(tokens.limit));
 		query.set('mode', displayMode);
@@ -276,7 +276,7 @@
 		nextTokenStatus: 'listed' | 'all' | 'listed_then_unlisted' = tokenStatus
 	): string {
 		return buildTokenBrowserHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode: mode,
@@ -301,7 +301,7 @@
 		return buildPaginationWindowSignature([
 			appendCatalogScope(
 				new URLSearchParams(),
-				selectedCollectionView(collectionViewPage())
+				selectedCollectionScope(collectionViewPage())
 			).toString(),
 			browserBasePath,
 			limit,
@@ -366,7 +366,7 @@
 
 	function mediaModeHref(nextMediaMode: string): string {
 		return buildTokenBrowserHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
@@ -382,7 +382,7 @@
 	function mediaPreferenceHref(): string | null {
 		if (!media.preference) return null;
 		return buildTokenBrowserHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,

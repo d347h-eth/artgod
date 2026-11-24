@@ -5,7 +5,7 @@
 		createNativeTraitPresentation,
 		VIEW_OFFER_APPLICABILITY
 	} from '@artgod/shared/types/trait-catalog';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import {
 		formatTradingTraitCriterionLabel,
 		isTradingNumericTraitRange
@@ -381,7 +381,7 @@
 			makerBidHref?.(bid) ??
 			makerFilterHref?.(makerAddress) ??
 			buildOwnerTokensHref({
-				catalogScope: selectedCollectionView(collectionViewPage()),
+				catalogScope: selectedCollectionScope(collectionViewPage()),
 				basePath: joinPath(basePath, `holders/${encodeURIComponent(makerAddress)}`),
 				selectedTraits: [],
 				selectedTraitRanges: [],

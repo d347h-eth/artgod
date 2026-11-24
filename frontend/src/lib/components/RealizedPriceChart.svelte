@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
+	import { appendCatalogScope, selectedCollectionScope } from '$lib/collection-view';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, pushState, replaceState } from '$app/navigation';
@@ -194,7 +194,7 @@
 				mediaPreference: media.preference,
 				mediaVariant: null
 			}),
-			selectedCollectionView(collectionViewPage())
+			selectedCollectionScope(collectionViewPage())
 		);
 		revision; // Refresh the current ask and card presentation with the history.
 		const instance = createSaleMediaLoader(
@@ -237,7 +237,7 @@
 				traitRanges: scope.traitRanges
 			},
 			abort.signal,
-			selectedCollectionView(collectionViewPage())
+			selectedCollectionScope(collectionViewPage())
 		)
 			.then((result) => {
 				if (!abort.signal.aborted) history = result;

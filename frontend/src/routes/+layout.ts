@@ -3,15 +3,16 @@ import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { match } from '$app/paths';
 import type { LayoutLoad } from './$types';
 import { error, redirect } from '@sveltejs/kit';
-import { TRAIT_CATALOG, TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
+import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
 import { BackendApiError, getCollectionViews } from '$lib/backend-api';
 import {
 	appendCatalogScope,
-	collectionViewPickerHref,
+	COLLECTION_VIEW_PICKER_QUERY,
 	isCollectionViewPickerRoute,
 	isPublicCollectionViewRoute,
 	resolveCollectionViewPickerDestination,
-	selectedCollectionView
+	selectCollectionViewHref,
+	selectedCollectionScope
 } from '$lib/collection-view';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import {
@@ -37,13 +38,20 @@ export const load: LayoutLoad = async ({ route, params, url, fetch }) => {
 	) {
 		scope = { chainRef: params.chain_ref, collectionRef: params.collection_ref };
 	}
-	if (IS_ADMIN_FRONTEND_TARGET || !scope) return { collectionViewPage: null };
+	if (IS_ADMIN_FRONTEND_TARGET || !scope) {
+		if (pickerRoute) throw error(404, 'This collection has no views.');
+		return { collectionViewPage: null };
+	}
 
 	const query = new URLSearchParams();
 	const view = url.searchParams.get(TRAIT_CATALOG_QUERY.View);
+	const group = url.searchParams.get(TRAIT_CATALOG_QUERY.Group);
 	// A bookmarked token can move to another view when its metadata changes.
 	if (params.token_ref) query.set(PRICE_HISTORY_QUERY.TokenId, params.token_ref);
-	else if (view) query.set(TRAIT_CATALOG_QUERY.View, view);
+	else if (!pickerRoute) {
+		if (view) query.set(TRAIT_CATALOG_QUERY.View, view);
+		if (group) query.set(TRAIT_CATALOG_QUERY.Group, group);
+	}
 	const basePath = publicRoute
 		? '/'
 		: '/' + encodeURIComponent(scope.chainRef) + '/' + encodeURIComponent(scope.collectionRef);
@@ -54,25 +62,32 @@ export const load: LayoutLoad = async ({ route, params, url, fetch }) => {
 			return { collectionViewPage: null };
 		}
 		const context = { ...scope, basePath, discovery };
-		const selected = selectedCollectionView(context);
 		if (pickerRoute) {
-			const pickerDestination = await resolveCollectionViewPickerDestination(basePath, url, match);
-			return { collectionViewPage: { ...context, pickerDestination } };
+			const destination = await resolveCollectionViewPickerDestination(basePath, url, match);
+			const legacyGroup = url.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group);
+			const group = discovery.views.find((item) => item.parent?.id === legacyGroup)?.parent;
+			throw redirect(
+				307,
+				selectCollectionViewHref(
+					destination.path,
+					new URLSearchParams(destination.query),
+					group ? { groupId: group.id } : null
+				)
+			);
 		}
 
-		if (!selected) {
-			if (view || params.token_ref)
-				throw error(404, 'This token or collection view is unavailable.');
-			throw redirect(307, collectionViewPickerHref(basePath, url.pathname, url.searchParams));
-		}
+		const selected = selectedCollectionScope(context);
+		if (!selected && !params.token_ref && (view || group))
+			throw error(404, 'This collection view is unavailable.');
+		const normalized = appendCatalogScope(new URLSearchParams(), selected);
 		if (
-			view !== selected.id ||
-			url.searchParams.get(TRAIT_CATALOG_QUERY.Generation) !== String(selected.generation) ||
-			url.searchParams.get(TRAIT_CATALOG_QUERY.Catalog) !== TRAIT_CATALOG.Derived
+			Object.values(TRAIT_CATALOG_QUERY).some(
+				(key) => url.searchParams.get(key) !== normalized.get(key)
+			)
 		) {
-			const query = new URLSearchParams(url.searchParams);
-			query.delete(PAGINATION_QUERY_PARAMS.Cursor);
-			throw redirect(307, withQuery(url.pathname, appendCatalogScope(query, selected)));
+			const next = appendCatalogScope(new URLSearchParams(url.searchParams), selected);
+			next.delete(PAGINATION_QUERY_PARAMS.Cursor);
+			throw redirect(307, withQuery(url.pathname, next));
 		}
 		return { collectionViewPage: context };
 	} catch (cause) {

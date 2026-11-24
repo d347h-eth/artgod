@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView } from '$lib/collection-view';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import {
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
@@ -56,7 +56,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,

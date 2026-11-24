@@ -89,6 +89,7 @@ export type TokenPreviewAdjacentResolver = (step: -1 | 1, currentTokenId: string
 export type TokenPreviewIframeSource = TokenMediaIframeSource;
 
 export type TokenPreviewState = {
+	catalogScope?: CatalogScope | null;
 	open: boolean;
 	status: TokenPreviewStatus;
 	iframeSource: TokenPreviewIframeSource | null;
@@ -291,6 +292,7 @@ export function createTokenPreviewController(
 					availableMediaVariants: tokenMedia?.availableVariants ?? [],
 					requestedMediaVariant: mediaVariant,
 					previewContext,
+					catalogScope: 'catalogScope' in token ? token.catalogScope : request.catalogScope,
 					traitTree,
 					attributes,
 					traitSummary,
@@ -764,8 +766,7 @@ function buildRenderModeQuery(renderMode: string): URLSearchParams {
 
 function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 	return JSON.stringify([
-		request.catalogScope?.id,
-		request.catalogScope?.generation,
+		appendCatalogScope(new URLSearchParams(), request.catalogScope).toString(),
 		request.chainRef.trim().toLowerCase(),
 		request.collectionRef.trim().toLowerCase(),
 		request.tokenId.trim(),

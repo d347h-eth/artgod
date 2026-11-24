@@ -180,12 +180,9 @@
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
-		const base =
-			data.backPath ??
-			(IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-				? publicCollectionTokensPath()
-				: `/${data.chain.slug}/${data.collection.slug}`);
-		if (data.backQuery) return `${base}?${data.backQuery}`;
+		const base = data.backPath ?? collectionTokensBasePath();
+		// An explicitly saved path with an empty query returns to the collection-wide scope.
+		if (data.backPath || data.backQuery) return withQuery(base, new URLSearchParams(data.backQuery ?? ''));
 		const query = appendCatalogScope(
 			new URLSearchParams(),
 			selectedCollectionView(collectionViewPage())

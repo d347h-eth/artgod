@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { appendTraitCatalogKeys } from '@artgod/shared/http/trait-query';
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView, appendCatalogScope } from '$lib/collection-view';
+	import { selectedCollectionScope, selectedCollectionView, appendCatalogScope } from '$lib/collection-view';
 	import { TRAIT_CATALOG_QUERY, TRAIT_CATALOG } from '@artgod/shared/types/trait-catalog';
 	import { untrack } from 'svelte';
 	import {
@@ -173,7 +173,7 @@
 	function presetCatalogParams(keys: string[]) {
 		const params = appendCatalogScope(
 			new URLSearchParams(),
-			selectedCollectionView(collectionViewPage())
+			selectedCollectionScope(collectionViewPage())
 		);
 		if (selectedCollectionView(collectionViewPage()))
 			params.set(TRAIT_CATALOG_QUERY.Catalog, TRAIT_CATALOG.Canonical);
@@ -335,7 +335,7 @@
 				chain.slug,
 				collection.slug,
 				preset.presetId,
-				selectedCollectionView(collectionViewPage())
+				selectedCollectionScope(collectionViewPage())
 			);
 			if (generation !== requestGeneration) return;
 			reapplyPreview = response;
@@ -407,7 +407,7 @@
 					chainRef,
 					collectionRef,
 					reviewed.preset.presetId,
-					selectedCollectionView(collectionViewPage())
+					selectedCollectionScope(collectionViewPage())
 				);
 				if (generation !== requestGeneration) return;
 				reapplyPreview = preview;

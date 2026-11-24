@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionView, appendCatalogScope } from '$lib/collection-view';
+	import { selectedCollectionScope, appendCatalogScope } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import {
@@ -131,7 +131,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode: selectedMediaMode,
 			mediaPreference: selectedMediaPreference,
@@ -159,7 +159,7 @@
 
 	function holderHref(owner: string): string {
 		return buildOwnerTokensHref({
-			catalogScope: selectedCollectionView(collectionViewPage()),
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: `${holdersPath()}/${encodeURIComponent(owner)}`,
 			selectedTraits: [],
 			selectedTraitRanges: [],
@@ -177,7 +177,7 @@
 		const query = new URLSearchParams();
 		query.set('limit', String(holders.limit));
 		query.set('cursor', tailNextCursor);
-		appendCatalogScope(query, selectedCollectionView(collectionViewPage()));
+		appendCatalogScope(query, selectedCollectionScope(collectionViewPage()));
 		appendCollectionMediaParams(query, {
 			mediaMode: selectedMediaMode,
 			mediaPreference: selectedMediaPreference

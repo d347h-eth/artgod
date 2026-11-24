@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { COLLECTION_VIEW_PICKER_QUERY } from '$lib/collection-view';
 	import { useCollectionView } from '$lib/collection-view-context';
 	import { page } from '$app/state';
 	import CollectionViewPicker from './CollectionViewPicker.svelte';
@@ -40,6 +39,14 @@
 		{@render breadcrumbs()}
 	</nav>
 
+	{#if viewContext}
+		<CollectionViewPicker
+			context={viewContext}
+			path={page.url.pathname}
+			query={new URLSearchParams(page.url.search)}
+		/>
+	{/if}
+
 	<header class="panel-header">
 		<div class="panel-header-main">
 			{#if collectionAvailable}
@@ -63,17 +70,9 @@
 		{/if}
 	</header>
 
-	{#if viewContext || topActions}
+	{#if topActions}
 		<div class={`${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root} ${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}`}>
-			{#if viewContext}
-				<CollectionViewPicker
-					context={viewContext}
-					path={viewContext.pickerDestination?.path ?? page.url.pathname}
-					query={new URLSearchParams(viewContext.pickerDestination?.query ?? page.url.search)}
-					initialGroup={page.url.searchParams.get(COLLECTION_VIEW_PICKER_QUERY.Group)}
-				/>
-			{/if}
-			{@render topActions?.()}
+			{@render topActions()}
 		</div>
 	{/if}
 

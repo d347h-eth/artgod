@@ -532,6 +532,11 @@ colors and controls remain ArtGod's existing visual system.
 
 ## Trait Panel Behavior
 
+On collections with a view picker, place it between the collection breadcrumb
+and the section tabs. The first choice, **All**, opens the current section for
+the whole collection. Choosing a group opens that section across all its
+children. Picking a specific child narrows it further.
+
 On token detail, show the standard traits table before the structured tree.
 Center both within the page gutters. The tree starts with its top-level groups
 open and nested entries collapsed.

@@ -172,11 +172,13 @@ export function buildTokenDetailHref(params: {
 		mediaMode: params.mediaMode ?? null,
 		mediaPreference: params.mediaPreference ?? null
 	});
+	// Token pages resolve their own view. The collection return link uses the original browsing scope.
+	const returnQuery = params.returnQuery ?? (params.returnPath ? query.toString() : null);
 	if (params.returnPath?.trim()) {
 		query.set('returnPath', params.returnPath.trim());
 	}
-	if (params.returnQuery?.trim()) {
-		query.set('returnQuery', params.returnQuery.trim());
+	if (returnQuery?.trim()) {
+		query.set('returnQuery', returnQuery.trim());
 	}
 	const suffix = query.toString();
 	return withQuery(

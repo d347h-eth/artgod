@@ -25,9 +25,9 @@ export type CollectionViewPage = {
 	collectionRef: string;
 	basePath: string;
 	discovery: CollectionViewsResponse & { collection: ApiCollection };
-	pickerDestination?: { path: string; query: string };
 };
-export type CatalogScope = Pick<CollectionViewStatus, 'id' | 'generation'>;
+export type CollectionGroupScope = { groupId: string };
+export type CatalogScope = Pick<CollectionViewStatus, 'id' | 'generation'> | CollectionGroupScope;
 
 export function selectedCollectionView(
 	context?: CollectionViewPage | null
@@ -37,11 +37,24 @@ export function selectedCollectionView(
 	);
 }
 
+/** The unqualified collection is All. A group spans each of its child views. */
+export function selectedCollectionScope(
+	context?: CollectionViewPage | null
+): CollectionViewStatus | CollectionGroupScope | null {
+	const leaf = selectedCollectionView(context);
+	if (leaf) return leaf;
+	const groupId = context?.discovery.selectedGroupId;
+	return groupId ? { groupId } : null;
+}
+
 export function appendCatalogScope(
 	query: URLSearchParams,
 	scope?: CatalogScope | null
 ): URLSearchParams {
-	if (scope) {
+	for (const key of Object.values(TRAIT_CATALOG_QUERY)) query.delete(key);
+	if (scope && 'groupId' in scope) {
+		query.set(TRAIT_CATALOG_QUERY.Group, scope.groupId);
+	} else if (scope) {
 		query.set(TRAIT_CATALOG_QUERY.View, scope.id);
 		query.set(TRAIT_CATALOG_QUERY.Catalog, TRAIT_CATALOG.Derived);
 		query.set(TRAIT_CATALOG_QUERY.Generation, String(scope.generation));
@@ -57,42 +70,22 @@ export function copyCatalogScope(query: URLSearchParams, source: URLSearchParams
 	return query;
 }
 
-// Preserve section controls while clearing selections and continuations tied to the old view.
-function collectionSectionControls(query: URLSearchParams): URLSearchParams {
-	const next = new URLSearchParams(query);
+// Preserve section controls while clearing selections and continuations tied to the old scope.
+export function selectCollectionViewHref(
+	path: string,
+	query: URLSearchParams,
+	scope: CatalogScope | null
+): string {
+	const next = appendCatalogScope(new URLSearchParams(query), scope);
 	for (const key of [
 		...Object.values(TRAIT_FILTER_QUERY_PARAMS),
-		...Object.values(TRAIT_CATALOG_QUERY),
 		PAGINATION_QUERY_PARAMS.Cursor,
 		'returnPath',
 		'returnQuery',
 		'returnCursor'
 	])
 		next.delete(key);
-	return next;
-}
-
-export function selectCollectionViewHref(
-	path: string,
-	query: URLSearchParams,
-	scope: CatalogScope
-): string {
-	return withQuery(path, appendCatalogScope(collectionSectionControls(query), scope));
-}
-
-export function collectionViewPickerHref(
-	basePath: string,
-	path: string,
-	query: URLSearchParams,
-	group?: string
-): string {
-	const params = new URLSearchParams();
-	params.set(
-		COLLECTION_VIEW_PICKER_QUERY.Section,
-		withQuery(path, collectionSectionControls(query))
-	);
-	if (group) params.set(COLLECTION_VIEW_PICKER_QUERY.Group, group);
-	return withQuery(joinPath(basePath, PICKER_ROUTE), params);
+	return withQuery(path, next);
 }
 
 // Bookmarked picker URLs can outlive a route. Only resume a section of this collection.
