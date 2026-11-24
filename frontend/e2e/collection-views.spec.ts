@@ -39,6 +39,9 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	const collection = { ...fixture.collection, extensions: [], activityEventFeeds: [] };
 	let latestRun: TraitCatalogRebuild | null = null;
 	let publishedGeneration = 1;
+	let viewsAvailable = false;
+	let interruptStart = true;
+	let interruptProgress = true;
 	const rebuildRequests: unknown[] = [];
 	await page.route('**/api/**', (route) =>
 		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
@@ -54,7 +57,7 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 				required: true,
 				selectedViewId: query.get(TRAIT_CATALOG_QUERY.View),
 				collection,
-				views: [{ ...block, generation: publishedGeneration, latestRun }, egg]
+				views: viewsAvailable ? [{ ...block, generation: publishedGeneration, latestRun }, egg] : []
 			}
 		});
 	});
@@ -63,6 +66,10 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 		(route) => route.fulfill({ json: { chain: fixture.chain, collection, customization: null } })
 	);
 	await page.route('**/trait-catalog/rebuilds?*', (route) => {
+		if (interruptStart) {
+			interruptStart = false;
+			return route.fulfill({ status: 503, json: { message: 'fixture unavailable' } });
+		}
 		expect(new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View)).toBe(
 			block.id
 		);
@@ -80,6 +87,10 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 		return route.fulfill({ json: { rebuild: latestRun } });
 	});
 	await page.route('**/trait-catalog/rebuilds/9', (route) => {
+		if (interruptProgress) {
+			interruptProgress = false;
+			return route.fulfill({ status: 429, json: { message: 'fixture rate limit' } });
+		}
 		const completed = rebuildRequests.length === 2;
 		if (completed) publishedGeneration = 2;
 		latestRun = {
@@ -143,7 +154,14 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	}, `${path}?limit=2&media_mode=snapshot&traits=stale:value&cursor=old`);
 	const kinds = page.getByRole('group', { name: 'Token kind' });
 	const blocks = page.getByRole('combobox', { name: 'Collection block' });
+	const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+	await expect(refresh).toBeVisible();
+	await expect(kinds).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('waiting-for-traits.png') });
+	viewsAvailable = true;
+	await refresh.click();
 	await expect(kinds).toBeVisible();
+	await expect(refresh).toHaveCount(0);
 	expect(dataReads).toEqual([]);
 	await kinds.getByRole('link', { name: 'Artworks', exact: true }).click();
 	await blocks.selectOption({ label: 'DriMi' });
@@ -216,9 +234,19 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	expect(artworkQuery.get('limit')).toBe(eggQuery.get('limit'));
 	expect(dataReads).not.toContain('');
 	await page.getByRole('link', { name: 'customization', exact: true }).click();
-	await page.getByRole('button', { name: 'Rebuild traits' }).click();
-	await expect(page.getByRole('status').filter({ hasText: 'running' })).toBeVisible();
+	const rebuild = page.getByRole('button', { name: 'Rebuild traits' });
+	await rebuild.click();
+	await expect(page.getByRole('alert')).toHaveText('Could not start the rebuild.');
 	const retry = page.getByRole('button', { name: 'Retry rebuild' });
+	await retry.click();
+	await expect(page.getByRole('status').filter({ hasText: 'running' })).toBeVisible();
+	const interrupted = page
+		.getByRole('alert')
+		.filter({ hasText: 'Could not load rebuild progress.' });
+	await expect(interrupted).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('retry-rebuild-progress.png') });
+	await interrupted.getByRole('button', { name: 'Retry', exact: true }).click();
+	await expect(interrupted).toHaveCount(0);
 	await expect(retry).toBeEnabled();
 	await page.screenshot({ path: testInfo.outputPath('failed-rebuild.png') });
 	await retry.click();

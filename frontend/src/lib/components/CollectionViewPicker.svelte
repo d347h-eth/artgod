@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, refreshAll } from '$app/navigation';
 	import { compareTraitLabels } from '$lib/trait-facet-sorting';
 	import {
 		collectionViewPickerHref,
@@ -41,6 +41,17 @@
 			.filter((view) => view.parent && view.parent.id === kind)
 			.sort((left, right) => compareTraitLabels(left.label, right.label))
 	);
+	let refreshing = $state(false);
+
+	async function refreshViews(): Promise<void> {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			await refreshAll();
+		} finally {
+			refreshing = false;
+		}
+	}
 
 	// A scope change remounts the results. Return keyboard focus to the
 	// replacement select so another arrow-key choice starts from the same place.
@@ -87,7 +98,17 @@
 			</label>
 		{/if}
 	{:else}
-		<span class="muted">Waiting for indexed token traits.</span>
+		<div class="panel-top-actions-row">
+			<span class="muted">Waiting for token traits.</span>
+			<button
+				type="button"
+				class="facet-panel-action-button"
+				disabled={refreshing}
+				onclick={refreshViews}
+			>
+				{refreshing ? 'Refreshing…' : 'Refresh'}
+			</button>
+		</div>
 	{/if}
 	{#if active && active.ready < active.classified}
 		<span class="muted">Traits ready for {active.ready} of {active.classified} NFTs</span>

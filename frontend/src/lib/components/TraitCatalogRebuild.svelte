@@ -51,7 +51,7 @@
 			);
 			if (active) run = response.rebuild;
 		} catch {
-			if (active) error = 'Could not start the rebuild. Try again.';
+			if (active) error = 'Could not start the rebuild.';
 		} finally {
 			if (active) submitting = false;
 		}
@@ -76,7 +76,7 @@
 				error = '';
 			}
 		} catch {
-			if (active) error = 'Could not load rebuild progress. Retry.';
+			if (active) error = 'Could not load rebuild progress.';
 		}
 	}
 
@@ -104,7 +104,7 @@
 			disabled={submitting || run?.status === Status.Running}
 			onclick={start}
 		>
-			{retryRunId ? 'Retry rebuild' : 'Rebuild traits'}
+			{retryRunId || (error && run?.status !== Status.Running) ? 'Retry rebuild' : 'Rebuild traits'}
 		</button>
 		{#if run}
 			<span class="muted" role="status">{run.status} · {run.processed} of {run.total} NFTs</span>
