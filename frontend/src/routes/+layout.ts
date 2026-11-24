@@ -1,4 +1,5 @@
 import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
+import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { match } from '$app/paths';
 import type { LayoutLoad } from './$types';
 import { error, redirect } from '@sveltejs/kit';
@@ -40,8 +41,9 @@ export const load: LayoutLoad = async ({ route, params, url, fetch }) => {
 
 	const query = new URLSearchParams();
 	const view = url.searchParams.get(TRAIT_CATALOG_QUERY.View);
-	if (view) query.set(TRAIT_CATALOG_QUERY.View, view);
+	// A bookmarked token can move to another view when its metadata changes.
 	if (params.token_ref) query.set(PRICE_HISTORY_QUERY.TokenId, params.token_ref);
+	else if (view) query.set(TRAIT_CATALOG_QUERY.View, view);
 	const basePath = publicRoute
 		? '/'
 		: '/' + encodeURIComponent(scope.chainRef) + '/' + encodeURIComponent(scope.collectionRef);
@@ -69,7 +71,7 @@ export const load: LayoutLoad = async ({ route, params, url, fetch }) => {
 			url.searchParams.get(TRAIT_CATALOG_QUERY.Catalog) !== TRAIT_CATALOG.Derived
 		) {
 			const query = new URLSearchParams(url.searchParams);
-			query.delete('cursor');
+			query.delete(PAGINATION_QUERY_PARAMS.Cursor);
 			throw redirect(307, withQuery(url.pathname, appendCatalogScope(query, selected)));
 		}
 		return { collectionViewPage: context };
