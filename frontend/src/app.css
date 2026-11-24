@@ -2040,7 +2040,13 @@ th {
 	gap: 0.35rem;
 }
 
+.trait-search-field {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+}
+
 .trait-search-input {
+	grid-area: 1 / 1;
 	width: 100%;
 	font-family: inherit;
 	font-size: 0.78rem;
@@ -2048,6 +2054,18 @@ th {
 	color: var(--c-ice);
 	border: 1px solid var(--c-blue);
 	padding: 0.25rem 0.45rem;
+}
+
+.trait-search-input:not(:placeholder-shown) {
+	padding-inline-end: calc(20px + 0.9rem);
+}
+
+.trait-search-clear {
+	grid-area: 1 / 1;
+	place-self: center end;
+	width: 20px;
+	padding: 0;
+	margin-inline-end: 0.45rem;
 }
 
 .trait-sort-button {

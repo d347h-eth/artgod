@@ -61,7 +61,7 @@
 	let traitValueSortMode = $state<Record<string, TraitFacetValueSortMode>>({});
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
 	let openTraitGroups = $state<Record<string, boolean>>({});
-	const traitSearchInputs = new Map<string, HTMLInputElement>();
+	const traitSearchInputs = new Map<string | null, HTMLInputElement>();
 	let activeTraitSet = $derived(
 		new Set(selectedTraits.map((item) => JSON.stringify([item.key, item.value])))
 	);
@@ -103,28 +103,19 @@
 		return activeTraitSet.has(JSON.stringify([key, value]));
 	}
 
-	function onRootTraitSearchInput(event: Event): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-
-		rootTraitValueSearch = target.value;
+	function setTraitSearchValue(key: string | null, value: string): void {
+		if (key === null) {
+			rootTraitValueSearch = value;
+		} else {
+			traitValueSearch = { ...traitValueSearch, [key]: value };
+		}
 	}
 
-	function onTraitSearchInput(key: string, event: Event): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-
-		traitValueSearch = {
-			...traitValueSearch,
-			[key]: target.value
-		};
+	function traitSearchValue(key: string | null): string {
+		return key === null ? rootTraitValueSearch : traitValueSearch[key] ?? '';
 	}
 
-	function traitSearchValue(key: string): string {
-		return traitValueSearch[key] ?? '';
-	}
-
-	function registerTraitSearchInput(node: HTMLInputElement, key: string): { destroy(): void } {
+	function registerTraitSearchInput(node: HTMLInputElement, key: string | null): { destroy(): void } {
 		traitSearchInputs.set(key, node);
 		return {
 			destroy() {
@@ -142,6 +133,8 @@
 			if (!details.open) details.open = true;
 			return;
 		}
+		// Restoring groups after a search can also dispatch toggle. Keep focus in the search field.
+		if (details.open === traitGroupOpen(facet)) return;
 
 		openTraitGroups = {
 			...openTraitGroups,
@@ -152,9 +145,14 @@
 		void focusTraitSearchInput(facet.key);
 	}
 
-	async function focusTraitSearchInput(key: string): Promise<void> {
+	async function focusTraitSearchInput(key: string | null): Promise<void> {
 		await tick();
 		traitSearchInputs.get(key)?.focus();
+	}
+
+	function clearTraitSearch(key: string | null): void {
+		setTraitSearchValue(key, '');
+		void focusTraitSearchInput(key);
 	}
 
 	function traitSortMode(key: string): TraitFacetValueSortMode {
@@ -201,10 +199,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 
-		traitValueSearch = {
-			...traitValueSearch,
-			[key]: rootTraitValueSearch
-		};
+		setTraitSearchValue(key, rootTraitValueSearch);
 		openTraitGroups = { [key]: true };
 		rootTraitValueSearch = '';
 		void focusTraitSearchInput(key);
@@ -338,6 +333,40 @@
 	}
 </script>
 
+{#snippet traitSearchField(key: string | null)}
+	{@const value = traitSearchValue(key)}
+	{@const clearLabel = key === null ? 'clear trait search' : `clear ${key} search`}
+	<div class="trait-search-field">
+		<input
+			class="trait-search-input"
+			type="text"
+			role="searchbox"
+			enterkeyhint="search"
+			aria-label={key === null ? 'search all traits' : `search ${key} values`}
+			placeholder={key === null ? 'search all' : 'search'}
+			{value}
+			use:registerTraitSearchInput={key}
+			oninput={(event) => setTraitSearchValue(key, event.currentTarget.value)}
+			onkeydown={(event) => {
+				if (event.key === 'Escape' && !event.isComposing && value.length > 0) {
+					clearTraitSearch(key);
+				}
+			}}
+		/>
+		{#if value.length > 0}
+			<button
+				type="button"
+				class="facet-panel-action-button facet-reset-button trait-search-clear"
+				title={clearLabel}
+				aria-label={clearLabel}
+				onclick={() => clearTraitSearch(key)}
+			>
+				x
+			</button>
+		{/if}
+	</div>
+{/snippet}
+
 <div class="facet-column" class:facet-column-sticky={sticky && !collapsed}>
 	{#if !collapsed}
 		<aside class="facet-panel" {@attach sticky ? fitPanelToViewport : undefined}>
@@ -349,14 +378,7 @@
 				<p class="muted">no trait filters available</p>
 			{:else if hasSearchableFacets}
 				<div class="trait-root-search">
-					<input
-						class="trait-search-input"
-						type="search"
-						aria-label="search all traits"
-						placeholder="search all"
-						value={rootTraitValueSearch}
-						oninput={onRootTraitSearchInput}
-					/>
+					{@render traitSearchField(null)}
 				</div>
 			{/if}
 
@@ -472,14 +494,7 @@
 							{:else}
 								{#if !rootTraitValueSearchActive}
 									<div class="trait-search-row">
-										<input
-											class="trait-search-input"
-											type="search"
-											placeholder="search"
-											value={traitSearchValue(facet.key)}
-											use:registerTraitSearchInput={facet.key}
-											oninput={(event) => onTraitSearchInput(facet.key, event)}
-										/>
+										{@render traitSearchField(facet.key)}
 										<button
 											type="button"
 											class="facet-panel-action-button trait-sort-button"
