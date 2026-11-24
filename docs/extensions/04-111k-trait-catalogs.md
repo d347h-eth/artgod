@@ -51,7 +51,9 @@ NFTs. Historical events use the token's current view. The published generation
 identifies the catalog used by continuations and frontend navigation.
 
 Token kinds use the collection's secondary tabs. Artworks adds a block picker
-in the same toolbar. The selected controls show the browsing scope once.
+in the same toolbar. The picker sorts block names alphabetically regardless
+of case and preserves their original spelling. The selected controls show
+the browsing scope once.
 Opening an NFT resolves its view from its token ID. Token detail opens with
 the artwork and uses that view for traits and links back to the collection.
 The sidebar lists only traits that can filter the current view. Open an NFT
