@@ -1,144 +1,146 @@
-# VVV as an orderbook venue
+# VVV orderbook adapter
 
-**Proposed venue adapter.** Register VVV once. Its adapter owns VVV's market
-references, acquisition and wire format. The same core projection serves VVV,
-OpenSea and subsequent venues. The observed market exercises fee-inclusive
-prices, directed offers and multi-asset exchanges. To add another VVV market,
-resolve its locator and verify its asset coverage. [Multiple orderbooks in ArtGod](21-multiple-orderbooks.md)
+**Proposed adapter.** VVV supplies market locations and signed order data to the
+same local indexer that reads OpenSea. The adapter’s job ends after it
+identifies a market, reads its public book, and translates its records. The
+order domain decides what changed and what price users see.
+[Shared orderbook design](21-multiple-orderbooks.md) ·
+[Discovery notes](23-orderbook-discovery.md)
 
-## What the saved responses establish
+## Find and read a VVV market
 
-The evidence comes from the `feature/vvv-orderbook-access` worktree. Its
-tracked tree matched `main` at `938ece5c`. The capture files are local
-research artifacts. The 24 November 2026 response is
-`tmp/vvv-orderbook-20261124/state-orders.json` in that worktree, SHA-256
-`ff890ff37693fb3f020e8377c9a1cd88792874a6841a9ec6bb46a2cb31ad1c65`.
-Its companion `results.json` records an anonymous browser read of
-`GET /api/111k/state?orders=1` on `www.vvv.so` at 17:49 UTC. The response
-identified Ethereum mainnet, NFT contract
-`0x08cded8258730bda384ff198001e47a1b50f7f9d` and block 26,486,617.
+The reference worktree contains a saved anonymous read of
+`GET /api/111k/state?orders=1` on `www.vvv.so`. The response identifies Ethereum
+chain ID 1 and NFT contract `0x08cded8258730bda384ff198001e47a1b50f7f9d`. Store
+those values and that locator as one entry in the VVV adapter’s market catalog.
+Verify the response against the entry on each read. The `111k` path identifies
+this market on VVV. Another verified locator can be added to the same adapter.
+ArtGod collection names, extensions and OpenSea slugs play no part in finding or
+running it.
 
-The 11,455,722-byte decoded response contained 3,196 distinct order hashes.
-Every row had VVV status `active`. Counting the signed asset legs gives the
-following breakdown. The last column is VVV's own availability flag.
+Use the public `orders` array as the read boundary. The same response carries
+`myOrders`, fills, activity and 42,759 inventory items in the 24 November
+capture. Reading those into the orderbook would mix different data and, for
+`myOrders`, a different audience. Decode orders in bounded batches and keep only
+the terms needed by the order pipeline. Validate the response identity, JSON
+structure and end of the read before accepting a new book. A response over the
+reader’s configured limit fails the read. A partial array cannot replace the
+previous book.
 
-| Published terms                                                           | Orders | VVV reported fillable |
-| ------------------------------------------------------------------------- | -----: | --------------------: |
-| One ERC-721 offered for native ETH                                        |  2,953 |                 2,344 |
-| WETH offered for one ERC-721, with WETH fee consideration                 |    122 |                    20 |
-| One or more NFTs offered for one NFT, with native fee consideration       |    116 |                    60 |
-| NFTs and WETH offered for one NFT, with native and WETH fee consideration |      5 |                     2 |
+An anonymous browser received HTTP 200 and JSON on 16 and 24 November. Ordinary
+HTTP clients received HTTP 429 on 16 November. These are saved results for this
+exact URL. They establish that an automated browser could read the public book
+on those dates. Whether the shipped ArtGod worker can keep reading it at its
+configured interval, including after a restart, still needs a test with the
+actual worker. Keep transport in the adapter and use the existing scheduler,
+timeout and retry handling. A challenge or failed request records a failed run.
+The app keeps serving the last applied book subject to normal order expiry and
+chain changes.
+[Capture records](23-orderbook-discovery.md#checks-completed-on-25-november)
 
-All 243 offers carried a `counterparty`. All used the open order type and
-zero zone in this capture. Preserve the address as VVV's description of the
-intended counterparty. Inferring a protocol-enforced taker restriction or
-public availability requires additional evidence.
+## Read the signed terms
 
-The saved VVV client identifies the Seaport 1.6 domain at
-`0x0000000000000068f116a894984e2db1123eb395`. Using that domain and chain ID
-1, ArtGod's existing `computeSeaportOrderHash` reproduced all 3,196 published
-hashes, and `recoverSeaportSigner` recovered the declared maker for all 3,196.
-The check used each row's original components and full signature, including
-bulk proofs. This establishes signed identity for these rows. Executability
-also depends on current counter, cancellations, fills, balances and approvals.
-[ArtGod Seaport implementation](../../indexer/src/application/offchain/seaport-protocol.ts) · [Seaport order models](https://docs.opensea.io/docs/seaport-models) · [Seaport status interface](https://docs.opensea.io/docs/seaport-interface)
+The public response for 24 November contains 3,196 distinct orders. The counts
+below come from the Seaport offer and consideration arrays. Every row had VVV
+status `active`. VVV’s separate `fillable` flag varied.
+[Capture identity and checks](23-orderbook-discovery.md#checks-completed-on-25-november)
 
-## Resolve and acquire a market
+| What the maker offers and requests           |  Rows | VVV reported fillable | How ArtGod handles it                                                                     |
+| -------------------------------------------- | ----: | --------------------: | ----------------------------------------------------------------------------------------- |
+| One ERC-721 for native ETH                   | 2,953 |                 2,344 | A currency-priced listing. Compare the total the buyer pays.                              |
+| WETH for one ERC-721, with WETH fees         |   122 |                    20 | A currency-priced token offer. Compare gross WETH per NFT on the existing bid-book scale. |
+| NFTs for an NFT, with currency fees          |   116 |                    60 | Deferred barter. Skip it.                                                                 |
+| NFTs and WETH for an NFT, with currency fees |     5 |                     2 | Deferred barter. Skip it.                                                                 |
 
-- The initial market entry can pair VVV's opaque reference `111k` with the
-  evidenced URL, Ethereum chain ID and NFT contract. The reference is data
-  inside the VVV adapter. Compare the response identity with the binding
-  before admitting rows, then match individual legs against tracked token
-  scopes. The same matcher works for another contract, a local range or an
-  explicit token set. A local slug, extension install or OpenSea association
-  carries no evidence of VVV coverage.
-- Support verified provider catalog entries as VVV exposes them. Until then,
-  an adapter-owned catalog or explicit verified market reference is sufficient.
-  A configured market produces at most one in-flight crawl per partition
-  regardless of the number of local collections it covers. The evidence
-  establishes one locator. Interpolating arbitrary ArtGod slugs into that
-  path would invent endpoints.
-- Prefer a documented, machine-readable venue feed for scheduled refresh.
-  Saved captures show successful anonymous browser reads and an earlier HTTP
-  429 challenge on direct clients. A browser-backed reader is a separate
-  VVV transport candidate if the venue supports that use. Qualify its
-  lifecycle, resource use and availability in each shipped runtime before
-  declaring automatic refresh supported. Use saved snapshots to exercise
-  the exact same decoder offline. A challenged or unavailable fetch records
-  a failed refresh with backoff. The API and UI continue to read local data.
-- Stream or incrementally decode the public `orders` array with time, byte
-  and row limits. The November response also contained 42,759 inventory
-  items, recent fills and other page state. Leave those with their owning
-  domains. Keep one order or bounded batch in a queue message. Production
-  diagnostics need counts, scope and
-  failure reasons. Persist normalized terms required for validation under the
-  domain's storage policy.
-- Start with **partial coverage** for listings and offers. The 15 November
-  capture `browser/state-orders-051.json` in `tmp/vvv-orderbook-20261115/`
-  contained exactly 5,000 listings and 217 offers. The 24 November capture
-  returned fewer and supplied neither a total for the orderbook nor a next
-  cursor. Neither response establishes a cap, exhaustive traversal or an
-  authoritative deletion boundary. Upsert positively observed rows. An
-  omitted row retains its own last-seen time and ages out of current results.
-  Promote a partition to absence-based reconciliation only when VVV's
-  coverage contract supports it.
+Classify the exchange before admission. A cash offer with a fee stays a cash
+offer. Giving an NFT in exchange for another NFT makes it barter even if one
+side also pays WETH. The 121 barter offers create no order, validation work,
+price or offer count in this design.
 
-## Decode terms once
+- **Order identity.** The adapter reads `order.parameters` and the full
+  signature, including bulk proofs. The parameters supply the original offer,
+  consideration, counter and validity window. The response omits
+  `protocol_address` and `totalOriginalConsiderationItems`. Use the signing
+  domain established for the market. Reuse ArtGod’s Seaport component decoder,
+  hash and signer checks for both venues. Refactor the existing OpenSea envelope
+  reader so only envelope extraction is venue-specific. The component hash uses
+  the signed consideration array directly. If an existing DTO needs its original
+  length, derive it only from the full array that reproduced the published hash.
+  Convert source timestamps in milliseconds separately from the signed times in
+  seconds. Parse asset IDs and amounts as exact integers.
+  [Seaport envelope reader](../../indexer/src/application/offchain/seaport-order-data.ts)
+  ·
+  [Seaport identity](../../indexer/src/application/offchain/seaport-protocol.ts)
+- **Price.** The first listing’s summary is 0.13 ETH. Its signed amounts pay the
+  maker 0.129415 ETH and other recipients 0.00117 ETH, so the buyer pays
+  **0.130585 ETH**. The first cash offer has `priceWei = 0` and `giveWeth`
+  equivalent to 0.091 WETH. The signed maker amount is **0.0914095 WETH** and
+  the required fees are 0.000819 WETH. The seller would receive **0.0905905
+  WETH** after those fees. After classifying cash orders, reuse
+  `extractSeaportSellTerms` for fixed asks. Factor the existing WETH unit
+  calculation out of its OpenSea envelope reader so both venues use the same
+  signed amounts. The summary field alone would lose this bid or misprice it.
+  [Listing terms](../../indexer/src/application/offchain/seaport-order-data.ts)
+  · [Bid-price calculation](../../shared/trading/open-sea-bidding-offers.ts)
+- **Who the offer is for.** The public book includes a `counterparty` on all 243
+  offers. Each uses an open Seaport order type and a zero zone. Keep the
+  intended counterparty reported by VVV with the publication and the signed
+  target token with the order. Of the 20 cash offers VVV marked fillable, six
+  named someone other than the target NFT’s owner in that same response. The
+  public token book shows an otherwise eligible offer against its signed target.
+  Treating VVV’s address as a signed taker restriction would hide offers based
+  on an assumption. A claim that a particular person can accept an offer
+  requires evidence about ownership and the actual restrictions.
+  [Token targets and combined offers](21-multiple-orderbooks.md#read-one-combined-book)
+- **Availability.** Apply VVV’s `fillable` flag to its publication. The same
+  signed order can still be published by OpenSea. For supported orders use the
+  existing order validator for signature, counter, status, balances, ownership
+  and approval. Every captured order used a zero conduit key. The existing
+  Seaport validator resolves direct approval to the verifying contract in that
+  case.
+  [Seaport validator](../../indexer/src/application/offchain/seaport-validate.ts)
 
-1. Decode the venue envelope into a publication observation. Normalize
-   millisecond creation/update timestamps separately from signed start/end
-   seconds, and record local sighting time. Validate addresses, exact uint256
-   IDs and amounts losslessly. Check outer maker, side and token summaries
-   against the signed legs. Keep venue status, `fillable` and any reason as
-   separate fields. VVV reported 770 active rows as unfillable.
-2. Split the OpenSea envelope reader from the reusable Seaport components
-   decoder. VVV supplies `order.parameters` with a counter and the full
-   signed offer/consideration arrays. Its response omits a protocol address
-   and `totalOriginalConsiderationItems`. Resolve the expected signing
-   domain from the verified market configuration. The signed components
-   suffice for hashing. If a protocol DTO needs the original consideration
-   count, derive it from an established full signed array whose hash
-   matches. Keep fulfillment-only fields out of the identity contract.
-   A domain, hash or signature mismatch cannot create a verified quote.
-   [Current Seaport envelope reader](../../indexer/src/application/offchain/seaport-order-data.ts)
-3. Derive the economic terms from both legs and every recipient. For a
-   simple ask, rank the buyer's total required consideration. For a simple
-   fixed WETH offer, use the maker's gross WETH per NFT on the existing
-   comparable bid scale and expose fees/net proceeds distinctly. Keep the
-   currency and quantity basis with the number. Reserve public best-price
-   ranking for offers with proven audience eligibility. [OpenSea unit-price semantics](../../shared/trading/open-sea-bidding-offers.ts)
-4. For an exchange, render the maker's offered assets, requested assets and
-   additional fees on the collection and relevant token pages. Preserve
-   everything the other party must supply. The core can display complete
-   observed terms while local fillability is unknown. The current validator
-   requires a positive scalar price and selects one sell or buy balance path.
-   Reuse its identity, status and pinned-RPC machinery. Qualifying compound
-   orders requires checks for every required maker asset, amount and
-   approval. All captured orders used the zero conduit key. The validator
-   already handles direct approval to the verifying Seaport contract for
-   that case. Until compound validation is supported, show the exchanges'
-   observed status and terms outside cash rankings. [Current validator](../../indexer/src/application/offchain/seaport-validate.ts)
+Using the saved client’s Seaport 1.6 verifying contract
+`0x0000000000000068f116a894984e2db1123eb395` on chain 1, ArtGod reproduced every
+published order hash and recovered its maker in the later capture. This is an
+offline identity check. Fillability depends on chain state at validation time.
+[Verification results](23-orderbook-discovery.md#checks-completed-on-25-november)
 
-Two rows illustrate why the distinction matters. The first listing reports
-`priceWei` equivalent to 0.13 ETH. Its signed consideration sends 0.129415 ETH
-to the maker and 0.00117 ETH to other recipients. The comparable buyer cost is
-**0.130585 ETH**. The first WETH offer reports `priceWei = 0` and
-`giveWeth = 0.091 WETH` in display units. The signed maker leg offers
-**0.0914095 WETH** and the order requires 0.000819 WETH in fee consideration,
-leaving **0.0905905 WETH** after those fees. Reading either summary field as
-the bid-book price would misprice the offer. A cash fee on an NFT-for-NFT
-exchange is likewise a fee, never a valuation of the NFTs.
+## Reconcile the public book
 
-## Qualify the adapter
+Pass each successful read to the shared source-state comparison. If an ID was
+present in the previous public VVV book and is missing now, record a removal
+immediately and withdraw the VVV quote. The VVV response can shrink, grow, or
+return an empty `orders` array. OpenSea can continue to supply the same order.
+If the VVV ID reappears, record an addition and use the normal eligibility
+checks. If the ID stays present while `fillable` changes, record an update.
 
-| Exercise                                                                                                 | Required outcome                                                                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Replay representative listing, WETH offer, NFT swap and mixed rows through the real adapter              | Preserve fees, recipients, roles, counterparty and time units. Direct and bulk signatures resolve to the expected identity. Tampered terms, an unsupported signing domain or an unsafe numeric ID cannot enter verified rankings. |
-| Compare a shared signature and two independent orders on the same token across VVV and OpenSea           | The shared order has both venue links and is counted once. Different signatures over different terms keep their own rows. Local best ask uses exact buyer cost. Every offer type can be inspected.                                |
-| Run the same captured page twice, then return a clipped page, a 429 and a newer positive sighting        | One idempotent publication per remote identity. Coverage and age remain truthful. Repeated positive sighting refreshes only the observed publication. OpenSea continues independently.                                            |
-| Browse an enabled VVV market without an OpenSea key, then open its listings and offers from token detail | The local market is usable. Link to a verified order or token destination when known. The saved client establishes a market page at `/111k/floor`, which can be labeled as a market destination.                                  |
-| Exercise the normal bot display transition and a collection without any VVV market                       | OpenSea bot selection, counts and controls follow their existing evidence. Ordinary OpenSea browsing works with a single bound venue.                                                                                             |
+The earlier saved response had exactly 5,000 listings. Neither saved response
+gave a total for all VVV orders or a next-page cursor. The captures cannot tell
+us whether VVV also hosts orders it never returns in this public book. It has no
+bearing on removing a previously published ID. Comparing the two saved books
+yielded 4,610 currency-priced orders removed, 2,638 added and 44 still-present
+listings whose availability changed.
+[Measured differences](23-orderbook-discovery.md#two-saved-vvv-books) ·
+[Shared reconciliation rules](21-multiple-orderbooks.md#apply-each-book-change)
 
-The capture qualifies the decoder design and local identity checks. Scheduled
-transport, complete enumeration, freshness limits, per-order navigation and
-current onchain availability each need their own evidence.
+## Adapter acceptance
+
+1. Feed a saved listing and WETH offer through the actual venue reader, Seaport
+   decoder, order worker and local market queries. Assert the verified identity,
+   exact unit price, audience and local collection. Include a bulk signature, a
+   tampered order and both barter shapes. Check that only eligible cash orders
+   contribute to a price.
+2. Read two known VVV books in sequence, including an empty book, then replay
+   the last run. Insert a challenge or malformed response between two successful
+   reads. Assert the per-order changes and the price visible on the next local
+   read. Repeat with an OpenSea publication for the same order.
+3. Bind this adapter to a second verified or fixture market on another contract,
+   with OpenSea disabled and no collection extension installed. Check that a
+   collection with no matching VVV market keeps its own book and that two local
+   collections sharing the same remote market cause one fetch.
+4. In the packaged worker, exercise repeated anonymous reads, a normal restart
+   and a failed request followed by recovery. Check request rate and memory on a
+   response the size of the saved one. The working transport and observed
+   refresh results belong in the run record. The existing UI continues to read
+   its local projection throughout.

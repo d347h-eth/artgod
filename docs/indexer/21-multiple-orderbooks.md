@@ -1,287 +1,315 @@
 # Multiple orderbooks in ArtGod
 
-**Proposed design for passive market data.** A user browsing a collection or
-token should see the best comparable prices across indexed venues, inspect the
-other listings and offers, and open the venue that published each one. OpenSea
-and VVV are independent orderbooks. An ArtGod collection determines which
-assets the user is browsing. Several venues can cover those assets, and a venue
-can cover any number of collections.
+**Proposed design.** Collection and token pages show one local book of
+currency-priced listings and offers from every matching marketplace. If a token
+is listed for 1 ETH on OpenSea and 0.8 ETH on VVV, its card shows 0.8 ETH. When
+that listing disappears from VVV, ArtGod records its removal and the card shows
+1 ETH. If VVV publishes it again and it is still fillable, the card returns to
+0.8 ETH. The user stays on the same page throughout.
 
-The first adapter assessment covers fees, swaps, partial coverage and link
-targets in saved venue data. [VVV orderbook adapter](22-vvv-orderbook-adapter.md)
-
-## Decision
-
-Give the indexer a registry of venue adapters. Each adapter resolves the
-markets its venue serves and delivers observations. ArtGod owns the association
-with tracked assets, the protocol order, and the local read model. Store the
-fact that a venue publishes an order separately from the order's terms and
-chain state. One signature published on two venues should produce one economic
-quote with two places to find it.
+Marketplace identity belongs to each quote. That lets a later update explain
+price differences on a focused token card. Collection and token browsing always
+use the combined projection when showing indexed orders. The bidding bot has its
+own OpenSea feed. NFT-for-NFT and NFT-plus-currency trades are deferred.
 
 ```mermaid
 flowchart LR
-    OpenSea[OpenSea adapter] --> Ingest[Indexer admission and reconciliation]
-    VVV[VVV adapter] --> Ingest
-    Registry[Venue markets and local collection scopes] --> Ingest
-    Ingest --> Publications[(Venue publications)]
-    Ingest --> Orders[(Protocol orders and asset legs)]
-    Chain[Chain lifecycle and validation] --> Orders
-    Publications --> Passive[Local market reads]
-    Orders --> Passive
-    Passive --> Asks[Listings and token cards]
-    Passive --> Select[Bid-book display selection]
+    OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
+    VVV[VVV public book] --> Sync
+    Sync --> Local[(Local listings and offers)]
+    Local --> Listings[Token cards and listing prices]
+    Local --> Select{Bid-book selection}
     Bot[OpenSea bot snapshot] --> Select
     Select --> Offers[Collection and token offers]
 ```
 
-| Approach considered                                          | Consequence                                                                                                                                                            |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Query each venue when a page opens                           | A provider timeout affects the page. Grouping, price ranking and pagination depend on independently moving responses. Offline browsing loses its data source.          |
-| Keep separate order tables per venue and union them on reads | Ingestion is easy to isolate. Each reader must then resolve duplicate signatures, order validity and price semantics. A fill or rollback has several copies to update. |
-| Add a venue column to the existing order row                 | One publication can overwrite another. Making the primary key include the venue preserves both rows but duplicates validation and lifecycle state.                     |
-| Shared protocol orders with venue publications               | Adds an identity migration and a join. Each venue can withdraw or go stale independently, while a verified chain event applies once. This is the recommended design.   |
+## Build on the OpenSea path
 
-## What needs to move on main
+OpenSea bootstrap and periodic reconciliation already use the same reader. It
+walks both sides of the book, records the order IDs it saw, and sends orders
+through the offchain queue. After the last page succeeds, SQLite compares the
+seen IDs with active local orders for that source. For each eligible missing
+order it changes the source status, advances the order revision and refreshes
+the affected seller’s existing daily price in the same transaction. A newer
+stream observation can take precedence over a crawl that started earlier.
+[OpenSea reader](../../indexer/src/application/offchain/opensea-orderbook-sync.ts)
+·
+[SQLite comparison](../../indexer/src/infra/offchain/sqlite-order-source-state.ts)
+· [Order processing](07-domain-orders.md)
 
-| Current owner                                                                                                                                                                                                                           | Consequence for the change                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The collection registry stores one OpenSea slug, readiness, stream gate and reconcile timestamps. The OpenSea slug probe already verifies external identity using a contract and sample token.                                          | Keep that verification inside the OpenSea adapter. Move passive market associations and health to records keyed by venue and market. [Collection schema](../../database/migrations/007_collections_schema.sql) · [Slug probe](../../backend/src/application/use-cases/bootstrap/probe-opensea-collection-slug.ts)                                                                                                                         |
-| OpenSea snapshot and stream producers publish to JetStream. The raw envelope requires a local collection ID. Full reconciliation tracks seen IDs and marks missing rows inactive for one source and collection.                         | Extend the existing queue and domain workflow to admit a market-scoped observation once and attribute its assets locally. Keep snapshot traversal and stream decoding in the adapter. [Queue contract](../../indexer/src/domain/offchain-jobs.ts) · [Snapshot producer](../../indexer/src/application/offchain/opensea-orderbook-sync.ts) · [Missing-order reconciliation](../../indexer/src/infra/offchain/sqlite-order-source-state.ts) |
-| SQLite keys `orders` by `id`. Its upsert conflicts on that ID, and one row carries the source, source status and local collection. Validation demand references the same ID. Cleanup also consults a collection-wide observation clock. | Introducing a second writer here would lose provenance or make one venue refresh another. Migrate identity, validation, retirement and freshness together. [Order storage](../../indexer/src/infra/domain/orders.ts) · [Validation demand](../../database/migrations/058_order_validation_demand.sql) · [Retention queries](../../indexer/src/infra/storage/sqlite-market-order-queries.ts)                                               |
-| Cards, listed sorting and daily seller prices share a current-ask selector. The collection read model returns price and currency. The bidding page can turn that ask into an OpenSea token link.                                        | Carry the winning order and its eligible publications through the same selector. Add a paged all-listings read for users who want the other asks. [Current asks](../../shared/database/current-asks.ts) · [Collection reads](../../shared/read-models/collections.ts) · [Bidding view](../../frontend/src/lib/components/CollectionBiddingView.svelte)                                                                                    |
-| The bid-book repository chooses between bot rows and indexed buy orders. The passive SQL requires a scalar price, and both the response and row use the display-feed vocabulary.                                                        | Delegate the indexed branch to the passive market reader. Keep the feed discriminator and give venue provenance its own field. [Bid-book repository](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts) · [Feed types](../../shared/types/trading.ts)                                                                                                                                                                 |
+Extend that reader’s observation and reconciliation contract to accept a market
+from any registered venue. The venue adapter finds the market, reads its pages
+or stream, recognizes its IDs, and decodes the venue’s fields. The existing
+indexer owns comparison, order admission, validation, projection and recovery
+for every venue. The backend and frontend continue to read locally. Two
+independent projectors would have to agree on fills, duplicates, price, and what
+to do when one venue withdraws an order. Fetching venues when a page opens would
+also make the same token show different prices depending on which request
+finished. One local projection resolves both problems.
+[Worker and queue ownership](00-overview.md) ·
+[Ports and adapters](12-ports-and-adapters.md)
 
-## Resolve venues, markets and assets
+## Map a market to tracked assets
 
-1. **Register a venue once.** A bundled adapter owns a stable venue ID, display
-   name, supported networks, market lookup, supported observation modes, and
-   safe outbound links. Give snapshot, stream and link capabilities separate
-   narrow ports. A snapshot-only venue can participate fully in browsing.
-   The indexer composition root wires the implementations. Shared market-data
-   contracts own identifiers consumed across packages. Collection extensions
-   continue to own collection-specific presentation and inventory.
-2. **Resolve a remote market.** Start from the selected public network,
-   contract and declared token scope. An adapter can verify a provider catalog
-   result, an adapter-maintained market entry, or an operator-supplied
-   provider locator. Verify the returned network and asset coverage. A slug or
-   matching display name alone proves nothing. Return verified, unsupported,
-   ambiguous, or temporarily unavailable, with candidate identities where a
-   choice is possible. Record unknown coverage when a venue has no discovery
-   contract. Persist the verified market, its coverage evidence and the
-   operator's enablement separately from sync health.
-3. **Associate tracked collections.** A market can feed two local ranges on a
-   shared contract, and a local collection can intersect two markets on one
-   venue. Store these associations many-to-many. Schedule one fetch per remote
-   coverage partition. Route each concrete NFT leg by chain, contract and
-   canonical token ID through the existing scope resolver, including token
-   zero, ranges and explicit sets. Attribute each unambiguous leg to its local
-   scope. On overlap, ask for disambiguation or retain an unresolved
-   attribution. Keep untracked counterpart legs in the terms so the local
-   asset still has the correct consideration. [CollectionTokenScope](../../shared/collections/token-scope.ts) · [Scope resolver](../../indexer/src/infra/collections/sqlite.ts)
-4. **Preserve the scope of broad offers.** A contract-wide wildcard, a
-   marketplace collection, a trait and a signed criteria root describe
-   different sets. Keep the original criterion. Apply it to a local token
-   only with evidence of membership, using the current token-set
-   resolution/mismatch rules. Two projects on one contract must never inherit
-   each other's collection bids. Resolve again when scope, membership or
-   provider coverage changes. A disabled OpenSea integration or a missing
-   OpenSea slug still permits a VVV-only collection. [Token-set materialization](07-domain-orders.md#token-set-materialization)
+- Register each venue once in the indexer composition root. When a collection is
+  added or its scope changes, ask each enabled adapter for markets covering its
+  chain and contract. Use the venue’s catalog or a verified configured
+  reference. If the venue is temporarily unavailable, retry its lookup
+  independently. Its adapter verifies each match against the public chain and
+  NFT contract it serves. OpenSea can use its existing slug probe. VVV can start
+  with the verified market entry in its adapter. A display name or ArtGod
+  collection slug alone cannot identify a remote book. Record a verified binding
+  and its revision independently of the outcome of the last refresh.
+  [OpenSea slug probe](../../backend/src/application/use-cases/bootstrap/probe-opensea-collection-slug.ts)
+  ·
+  [VVV market evidence](22-vvv-orderbook-adapter.md#find-and-read-a-vvv-market)
+- Allow several markets to cover one local collection and one market to cover
+  several local collections. Schedule each distinct public book once. Route each
+  exact token by chain, contract and token ID through
+  `resolveTokenScopedCollectionId`. It understands token zero, ranges and
+  explicit lists. If one market covers IDs 0–999 and the local collections split
+  at 500, an ask for #700 belongs to the second collection. An ambiguous or
+  untracked token can be reconsidered after the local scope changes.
+  [Collection scope](../../shared/collections/token-scope.ts) ·
+  [SQLite scope resolver](../../indexer/src/infra/collections/sqlite.ts)
+- Keep the signed target and the venue’s description of a collection or trait
+  offer. Use the existing token-set membership and mismatch handling before
+  attributing it to a local collection or token. A wildcard for a whole
+  contract, a venue collection on part of that contract and a signed criteria
+  root each cover different assets. Removing a binding or purging one collection
+  drops its local association and rejects delayed work for that association.
+  Another collection using that market keeps its association. When a new local
+  scope joins an already indexed market, match the current publications to it as
+  part of setup. Stop polling when the last enabled association is removed.
+  [Token-set materialization](07-domain-orders.md#token-set-materialization)
+- Have the bootstrap planner schedule the first read for each verified market.
+  The periodic scheduler then uses each market’s last successful run to decide
+  when it is due. Today both paths select OpenSea by collection slug. Generalize
+  that selection and the worker configuration so a VVV-only collection can sync
+  with OpenSea disabled and without a collection extension. OpenSea still owns
+  its API key, slug and stream toggle.
+  [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
+  ·
+  [Reconcile scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts)
 
-For example, if a single venue market covers token IDs 0–999 and two tracked
-collections cover 0–499 and 500–999, fetch it once. An ask on #700 belongs in
-the second collection. An offer to give #12 for #700 can link both local token
-pages, with the requested and offered roles intact. A quote from a second venue
-on #700 appears alongside it without a change to either collection.
+## Identify the order and each place that publishes it
 
-## Persistence and authority
+Today `orders.id` is the primary key. The upsert writes a single source, local
+collection and source status. If two venues submit the same hash, one can
+overwrite the other’s evidence. Giving each venue a copy of the whole order
+would make chain validation, fills and rollbacks apply twice. Preserve these
+facts separately in the existing order domain.
+[Orders schema](../../database/migrations/003_orders_schema.sql) ·
+[Order writer](../../indexer/src/infra/domain/orders.ts) ·
+[Validation demand](../../database/migrations/058_order_validation_demand.sql)
 
-These are logical records for the existing order domain. The keys below state
-the required uniqueness and lifecycle, leaving physical index selection to
-measured SQLite queries.
+| Fact                     | Identity and owner                                                                                                                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| What was signed          | One internal order ID. For Seaport, identify it by public chain ID, protocol family, verifying contract and verified order hash. It owns maker, target, currency, quantity, validity and settlement state. One order has one validation demand.                                                                          |
+| Where the order was seen | A publication identified by venue, chain, remote market and native order ID. It refers to the signed order once verified. It owns presence, reported availability, any venue-specific audience, and its last applied revision. The same signed order can have several publications.                                      |
+| Which book was read      | A run belongs to the public market and the side or partition the adapter actually read. Store its order in that series, outcome and last successful read. A wallet’s private view or another market is a different series.                                                                                               |
+| What changed             | Record each added, changed or removed publication under its run and native ID, including the previous and new source state or their revisions. Replaying an accepted run produces the same changes once. Keep change records and removal revisions through the existing queue recovery and market-data retention window. |
 
-| Record                   | Identity and contents                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Venue market and binding | Unique market by venue, network and provider-native market reference. A binding joins a local collection to a market with verified coverage, enablement and a revision that fences queued work after edits or purge.                                                                                                                                                                                     |
-| Protocol order           | Stable internal order key. For Seaport, unique verified public chain ID, protocol family, verifying contract and order hash. Keep original maker, validity, protocol terms and canonical validation revision. Use the registry to translate local chain references at the boundary. Each future protocol defines its own equivalent identity.                                                            |
-| Publication              | Unique remote market and native order reference. Optionally links to one verified protocol order. Holds venue status, reported availability/reason, directed audience, source timestamps and link reference. Conflicting signed terms under one identity go to diagnostics. Rows lacking proof stay source-local and identifiable. Reconcile them onto the verified order atomically when proof arrives. |
-| Asset legs and targets   | Internal order key or source-local identity, side of exchange and ordinal, asset type, contract, exact ID or criterion, start/end amount and consideration recipient. Index local collection/token attributions by role. Preserve maker-gives and maker-requests legs. Signed terms own asset movements. Venue-only scope labels and visibility remain attributable to their publication.                |
-| Observation and coverage | Market, side/partition, run generation, admitted sightings and watermark. Store last successful transport, coverage result and last applied observation separately. A marketing page, stream and snapshot describing the same order can share a publication. Only the documented scope of an observation can withdraw it.                                                                                |
+Different salts can identify two genuine orders for the same seller, token and
+price. Two valid signatures for the same order can identify one quote.
+Conflicting terms under a native ID need a diagnostic and cannot overwrite a
+verified order. Use the original protocol hash and verifying contract on
+chain-facing calls. Existing validation decides balances, approvals, counters,
+fills and cancellations. A confirmed protocol cancellation or full fill applies
+to every publication of that order. For a partial fill, a quote for the
+remaining units needs evidence of the quantity still available. On rollback,
+invalidate the affected chain evidence and revalidate against the canonical
+chain. An explicit OpenSea offchain cancellation keeps the OpenSea publication
+closed under its existing rules. An ordinary disappearance is reversible and
+affects only that publication.
+[Seaport verification](../../indexer/src/application/offchain/seaport-protocol.ts)
+· [Reorg handling](06-reorg-handling.md)
 
-Merge two publications when their protocol identities and terms agree. Equal
-prices, maker addresses, token IDs or bare hashes cannot establish equality.
-Two orders with different salts remain separately inspectable. Different valid
-signatures over the same order can establish the same identity. One verified
-order uses one validation demand across all its venues.
-Use the protocol hash on chain-facing calls and links, and the internal key for
-SQL references, cursors and UI row identity.
+Keep a legacy order with incomplete protocol evidence under its source's own
+identity. Preserve OpenSea’s current admission and optimistic fillability rules.
+Only merge two publications once their protocol identities agree. If stronger
+evidence arrives later, link the publications and their existing references in
+one transaction so the user never sees a duplicate. A second publication for an
+already validated order can reuse the existing validation result while it is
+current.
+[Order admission and validation](07-domain-orders.md#processing-ownership-and-retained-state)
 
-**A venue controls its publication.** An offchain cancellation on OpenSea
-withdraws the OpenSea publication. A VVV availability flag applies to VVV. For
-a current quote, require a publication eligible under its venue, audience and
-freshness rules, a valid time window and the applicable local protocol checks.
-Keep reported availability, unverified protocol state and a local validation
-result distinguishable. A bad signature supplied by one venue cannot poison a
-verified copy from another. A negative chain result for the common order
-suppresses the current quote across venues. A verified full fill or onchain
-cancellation closes it globally. A partial fill requires remaining-quantity evidence before quoting
-the remainder. On reorg, invalidate chain-derived proof, revalidate against
-the canonical chain and reapply each publication's own visibility.
+## Apply each book change
 
-## Ingestion and reconciliation
+Compare IDs from successive successful reads of the same book. For VVV the
+public `orders` array is that book. For OpenSea the read finishes after its
+listings and offers traversal succeeds. Compare membership even for supported
+orders still awaiting validation or currently reported unfillable.
 
-- Place remote I/O behind the indexer's venue ports. OpenSea contributes its
-  REST and stream adapters. Other venues can supply paged feeds, deltas or one
-  bounded snapshot. Normalize once at ingestion. Share protocol decoding,
-  validation, prices and local attribution through their owners. Use the
-  existing durable queues, domain worker, SQLite transactions and retry
-  policy. Admit the publication, its order and attributions, and any new
-  validation requirement atomically. ACK after commit. A second venue
-  publishing already validated terms can reuse the current proof. The backend
-  serves materialized data, including offline.
-- Identify work by venue, market, partition, run/event and remote identity.
-  Capture receipt time separately from provider event time and source
-  revision. Replay is idempotent. A repeated event or late page cannot
-  resurrect a withdrawn publication. Allocate a monotonically increasing run
-  generation and use a per-partition lease/fence. A stream update newer than
-  the crawl boundary wins even if its queue delivery is delayed. Use a provider
-  sequence when available. Preserve a publication when event ordering is too
-  uncertain to justify withdrawal.
-- Admit positive observations in bounded batches. For a complete snapshot,
-  record the exact covered partition, visited pages/cursors, seen IDs and a
-  terminal receipt. Fence the missing-ID sweep until admitted rows have a
-  durable outcome. A queue publish ACK alone establishes neither application
-  nor completeness. Persist the sweep cursor and recheck generation and
-  observation order in each short write transaction. A crash can resume the
-  sweep or supersede it with a later complete generation.
-- An adapter may declare complete coverage only under a known enumeration
-  contract. Caps, repeated cursors, failed pages, skipped unidentifiable rows
-  and unknown coverage permit positive observations only. Only a complete
-  generation can deactivate absent publications in the same covered set.
-  Overlapping feeds retain their own presence evidence. With partial feeds,
-  age each unseen publication using its own last positive sighting and the
-  venue's configured freshness horizon. Expose last-known rows as stale and
-  exclude them from current-price ranking after that horizon. A healthy
-  OpenSea refresh cannot extend a VVV quote.
-- Coalesce unchanged terms and validation demand. Fence proofs by order
-  revision, chain revision and block. Keep source retirement markers scoped
-  to their publication and protocol retirement markers scoped to the order.
-  Clean up observations and orphaned orders in bounded passes. Collection
-  purge removes its bindings and attributions. Other tracked scopes keep
-  their publications and validation state. Delayed jobs cannot recreate a
-  purged binding. [Recovery and admission](07-domain-orders.md#processing-ownership-and-retained-state) · [Storage policy](../development/03-sqlite-storage-and-recovery.md)
+| Previous read | Next read                | Change to record and apply                                                                                                                                                                                                           |
+| ------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Absent        | Present                  | Add the publication, normalize its terms and admit it for the existing order checks. An order that disappeared and returned gets a new addition. Existing explicit cancellation or full-fill evidence still governs its eligibility. |
+| Present       | Present, different state | Record an update. For example, changing `fillable` to false removes that venue’s quote from the current price while keeping the publication present.                                                                                 |
+| Present       | Missing                  | Record a removal for that native ID and withdraw its contribution immediately. The next eligible price takes its place. If another venue publishes the same eligible order, keep the quote once with its remaining source.           |
+| Present       | Present, same state      | Record a successful observation. The quote and its change history stay the same.                                                                                                                                                     |
 
-## Passive reads and navigation
+A shorter book, two equally sized books with different IDs, and a valid empty
+book all follow these rules. Empty removes every previous member of that scope.
+A timeout, an HTTP challenge, a missing array, an unreadable order identity, a
+wrong market or a failed page supplies no comparison set. Keep the previous
+accepted membership and retry. An identified row with invalid price or signature
+still has a known ID. Record its presence and the validation failure, and
+exclude that publication from eligible quotes. A skipped barter row contributes
+no cash order. Regular expiry, chain updates and independent markets continue
+while a fetch is failing.
 
-The backend market read port takes chain, tracked collection, optional token,
-side, optional venue, eligibility, sort and cursor. It returns typed terms,
-order identity, applicable venues and links, and coverage per venue. The
-default market selection is **All**. Apply scope, venue, currency,
-availability and user filters before grouping, counts, best-price selection
-and keyset pagination. Group identical verified orders once, then page the
-existing token-card view by token. Use exact integer amounts, the existing
-supported native/wrapped ask currencies and deterministic identity ties.
-Bind cursors and cache keys to the selected feed, venue, scope and sorting
-policy. Reset the visible window if the feed or filter changes.
+### Ordering, retries and restart
 
-- **Listings.** On a card show the best eligible simple ask with its venue.
-  Token detail lists all asks, including a more expensive one on another venue.
-  A cross-posted ask lists both eligible destinations. The shared
-  current-ask owner also supplies listed filters, sort, counts and refreshes
-  of existing daily seller rows. Only a real listing event creates daily
-  history. Discovering the order on a second venue via a snapshot creates
-  no historical listing or sale.
-- **Offers.** Keep comparable cash offers in the numeric bid-book groups.
-  Return structured exchanges in an additional passive section with the
-  requested assets, the maker's offered assets, fees and any directed
-  audience. Token detail distinguishes offers for this token from orders
-  giving this token. Directed or unpriced offers remain discoverable. They
-  contribute to a public best bid only when the audience and price basis
-  actually qualify. Preserve the existing trait, scope and low-signal
-  filtering for comparable offers.
-- **Navigation.** From the collection or token, select a venue to see its own
-  book and coverage. In local mode, a venue's market list links back to its
-  tracked collections with that filter applied. Persist venue selection in
-  the URL for deep links and back/forward. Build external links from verified
-  adapter link capabilities for the order, token or market. Label the
-  destination at its actual granularity. A venue with no external link can
-  still be browsed locally. Hosted reads retain the existing public collection
-  guard and expose only markets and rows associated with that scope. Source
-  labels, outbound links and UI selectors all need the actual venue. Today
-  the price cell emits an OpenSea order-hash attribute for every market bid.
-  [BidBookPriceCell](../../frontend/src/lib/components/BidBookPriceCell.svelte)
-- **Health.** Distinguish a verified empty book, a book with partial coverage,
-  a failed refresh with last-known rows, and an unbound market. Expose the
-  last successful observation per venue. One failing venue leaves other
-  venues' listings, offers and navigation available. Manage bindings,
-  retries and stream settings through local Admin.
+1. Run one read at a time per public book. Give each read an increasing run
+   number and the version of the **remote market definition** it read. Stage the
+   IDs and required terms in bounded SQLite batches as the pages arrive. An
+   interrupted read can be discarded. A change to the remote definition
+   invalidates work for that version. A change to one **local collection
+   binding** only requires checking that collection’s attribution again.
+2. After the read succeeds, use the existing SQLite set comparison against the
+   last accepted source membership. Include IDs still awaiting an order upsert
+   or validation. Prepare the per-order changes in bounded batches under the run
+   ID. One commit marks the set ready to apply. A crash before that commit
+   leaves the previous book intact. A crash afterwards leaves the changes to
+   finish. Finish this run before applying the next read of the same book.
+3. Apply the changes in the existing source-state completion step. For each
+   batch, one transaction records the transitions, writes publication status,
+   refreshes affected existing daily seller prices and advances the affected
+   collections’ market revisions. Persist the progress cursor in that write. The
+   next local read sees the updated quotes. If writing a seller price fails, the
+   corresponding removal rolls back and is retried. The last batch marks the
+   refresh complete. A removal takes effect even with an order upsert queue
+   backlog. It never waits for a second miss or for expiry.
+4. For changes that need normalization or order admission, use the existing
+   SQLite queue outbox to commit the follow-up with the publication. Its
+   publisher delivers the work to the existing order pipeline. Include venue,
+   market, native order ID and run or stream event in the job identity. Check
+   the current publication revision at the write. Yesterday’s queued upsert
+   cannot recreate a withdrawn quote. A restart or a lost acknowledgement cannot
+   repeat a transition. Admission still commits the signed order and any
+   validation demand together under the existing domain contract.
+   [Offchain dispatch](../../indexer/src/application/offchain/dispatch.ts) ·
+   [Transactional queue outbox](05-storage-and-schema.md#metadata-refresh-follow-ups-and-queue-outbox)
+   · [Queue recovery](18-order-queue-recovery.md)
+5. Keep OpenSea’s existing treatment of stream orders. Include active orders
+   first seen on the stream in the missing-ID sweep. Recheck at each write for
+   stream evidence newer than the start of the crawl, allowing for the way
+   unchanged stream timestamps are grouped today. Retain the difference between
+   the two returned books even if a newer stream event determines the current
+   quote. Compare event time and local receipt separately. For two VVV reads
+   seconds apart the later set wins immediately.
+   [Source-state comparison](../../indexer/src/infra/offchain/sqlite-order-source-state.ts)
+   · [Current completion semantics](00-overview.md#eventual-consistency-notes)
+
+A successful identical read advances that book’s observation time. Existing
+expiry and periodic revalidation rules still apply to its present orders. One
+market’s success cannot refresh a missing publication or another market that
+failed. Record each market’s last successful read, any failure and the counts
+added, changed and removed on its run. Compact applied changes under the
+existing retention policy only after outstanding work can no longer reverse
+their result.
+
+## Read one combined book
+
+- **Listings.** Extend the shared current-ask selector once. An eligible order
+  needs a present publication that offers it to this audience, supported
+  currency and scope, and the order domain’s existing time and fillability
+  checks. Keep price, currency and quantity together. Compare exact integer
+  prices per unit within the existing supported currencies. Keep the existing
+  stable tie-break for equal prices and retain the winning order and eligible
+  sources. Cards, listed sorting and collection counts use that price. On
+  removal, refresh today's existing seller activity row to the next ask. If the
+  last ask disappears, the next read shows the token as unlisted. The historical
+  activity row keeps the seller’s last observed price, as it does today. A
+  refresh never creates a listing activity for a disappearance.
+  [Current asks](../../shared/database/current-asks.ts) ·
+  [Daily seller prices](../../indexer/src/infra/storage/sqlite-daily-listing-prices.ts)
+  · [Collection reads](../../shared/read-models/collections.ts)
+- **Offers.** The indexed branch of the existing bid-book repository reads the
+  same eligible orders, deduplicates by verified order before counting and
+  paging, and keeps the established currency, token, trait and collection scope
+  rules. Place an eligible public cash offer in its target token’s book and
+  collection even when the viewer has no wallet connected. A token-specific or
+  directed offer must not set a floor bid available to every holder. Use known
+  target and ownership evidence for prices advertised as available to a seller.
+  A venue’s intended recipient and a restriction enforced by the signed order
+  are different facts.
+  [Bid-book repository](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
+  · [VVV offer terms](22-vvv-orderbook-adapter.md#read-the-signed-terms)
+- **Refresh and navigation.** Use the current collection and token routes,
+  including their public single-collection scope and private-context rules. Keep
+  the API’s display source (bot or indexed) separate from the marketplaces
+  publishing a quote. The passive feed label must describe the combined book.
+  Read each price-bearing response and the local collection market revision from
+  the same SQLite snapshot. Check the revision on a cache hit and refuse to
+  install an older background refresh over a newer result. Use the revision in
+  the frontend’s refresh signal. This catches a removal even when the latest
+  surviving order timestamp stays the same or the result becomes empty.
+  Validation, ownership and chain changes that affect a quote advance the same
+  revision. Bound a cached result by the next relevant order start or expiry
+  time so a price cannot outlive its signed window. A non-winning publication
+  can also disappear while the best price holds. Retain that change and its
+  attribution. Apply the same link rule on collection cards, token cards and
+  sale previews. A price link must identify a verified destination for its
+  source, or use the local token detail. Future hints on a focused card can use
+  the saved attribution.
+  [Collection detail cache](../../backend/src/application/use-cases/collections/cached-get-collection-detail.ts)
+  ·
+  [Bidding view](../../frontend/src/lib/components/CollectionBiddingView.svelte)
+  · [Price cell](../../frontend/src/lib/components/BidBookPriceCell.svelte)
+
+In SQLite, test whether at least one eligible publication exists for an order
+before counting, sorting or paging. Index that lookup by order and active
+publication, and the reconciliation comparison by market and native ID. Fetch
+the winning price’s sources after selecting the order. Verify the query plans
+with books the size of the captures. This avoids sorting a second copy of each
+order every time another marketplace publishes it.
 
 ### Bot snapshot selection
 
-Keep the backend as the single owner of feed selection on both collection
-and token bid-book routes. Enabled collection jobs, a fresh running bot
-heartbeat and a fresh projected snapshot select `bot_snapshot`. Return the
-existing OpenSea bot rows, including a valid empty snapshot. Otherwise
-`orders` delegates to the core passive projection. Its numeric rows keep
-their existing contract, with venue attribution and a separate typed section
-for exchange offers. Listings always use the core ask projection.
+The existing collection and token bid-book routes select the bot snapshot when
+the collection has an enabled bidding job, the running heartbeat is fresh and
+the snapshot is fresh. A valid empty bot snapshot displays zero offers. When the
+selector falls back to indexed orders, the user sees the combined offers.
+Listings always use the local projection. The bot’s inputs, bids, cancellations
+and snapshot writer continue to use OpenSea. A maker address can mark an own
+offer from either venue. Attach an OpenSea job, cancellation or action only when
+its OpenSea identity matches.
+[Display selection and trading authority](../trading/03-market-data-and-scaling.md#bid-book-display-selection)
 
-Apply venue filters only inside passive market reads. A venue query parameter
-cannot force either bid-book route out of bot mode. Suspend the passive
-filter/control in bot mode and restore it when the bid book falls back. Keep
-direct OpenSea competition, streaming, wallet authorization, placement,
-cancellation and snapshot tables inside the existing trading runtime. A
-matching maker can identify the user's passive offer. An OpenSea job overlay,
-cancellation tombstone or action additionally requires evidence for that
-OpenSea order/publication. A VVV-only row confers no trading capability.
-[Display selection and authority](../trading/03-market-data-and-scaling.md#bid-book-display-selection) · [Bot snapshot adapter](../../trading/src/adapters/opensea/open-sea-collection-offer-source.ts)
+## Migration and acceptance
 
-## Migration and review order
-
-1. **Introduce the identities under OpenSea alone.** Add schema, typed venue
-   contracts and the core reader. Import the existing OpenSea slug, stream gate
-   and sync state. Mark the binding verified where scope evidence exists and
-   run the existing probe for an unverified locator. Keep legacy reads
-   available until parity. Backfill current rows and protocol keys in
-   resumable, bounded transactions using the project's supervised recovery
-   path. Retain original protocol hashes and a legacy-ID mapping for
-   outstanding work. Preserve unknown provenance as unknown.
-2. **Move every lifecycle consumer before enabling a second writer.** Translate
-   legacy OpenSea queue envelopes at admission. Move exact-ID updates, maker
-   scans, validation demand and receipts, retirement markers, purge,
-   reorg handling, daily-price refresh and cleanup to the new identities.
-   Recover a legacy onchain hash using its chain and emitting contract where
-   available. Revalidate ambiguous candidates individually. Only proven
-   protocol-terminal facts may fan out globally. Ship matching runtime
-   artifacts and a stopped-runtime SQLite/JetStream restore point for rollback.
-   Record the cutover version so a restarted worker resumes with the correct
-   writer. Deliver incompatible envelopes on versioned subjects and require
-   the matching worker set before producers switch.
-3. **Cut over passive reads and controls.** Compare the old and new projections
-   on an OpenSea-only database, including optimistic validation state, pending
-   jobs, own-order overlays, counts, best asks, expiry and pagination. Derive
-   legacy OpenSea status/API fields from the OpenSea binding at cutover. Keep
-   OpenSea-specific bidding inputs explicit. Wire typed config, supervisor
-   and hosted workers so each venue can be enabled independently. Use a
-   shared polling scheduler with independent rate budgets and backoff.
-4. **Enable the second venue.** Qualify resolution, acquisition, terms,
-   completeness and freshness independently for each market. A third test
-   adapter on an unrelated contract must plug into the same ports and appear
-   through the same UI. Registration plus provider-specific decoding and
-   capabilities should be the only venue-specific work.
-
-| Acceptance scenario                                                                  | Observable result                                                                                                                                                                                                  |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Same verified order on two venues, then OpenSea delists                              | One quote initially lists both venues. The VVV publication remains visible. A verified full fill removes both. A replayed old page cannot reopen either publication.                                               |
-| Equal token/price from two different orders, or equal hash on two chains/deployments | Distinct stable identities, rows and cursors. The price and link on each card belong to the same eligible quote.                                                                                                   |
-| Two local ranges share one market, then one collection is purged mid-crawl           | One acquisition. Correct token/criteria attribution. Replay cannot repopulate the deleted scope. The surviving range continues to refresh.                                                                         |
-| One feed is capped or fails while the other completes                                | Preserve sightings, show per-venue freshness, and retire by absence only inside the completed partition. Expiry and chain cancellation still apply.                                                                |
-| Bot starts, snapshot is fresh but empty, then its heartbeat expires                  | The bid book shows the empty bot snapshot and then returns to passive offers. Listings include both eligible venues throughout. No VVV publication generates a bot read, command, cancellation or signing request. |
-| Navigation, restart and upgrade                                                      | A shared link reopens the filtered book. An offline restart shows last-known data. An interrupted migration resumes without duplicate economic orders or lost validation work.                                     |
-
-Exercise these cases through the SQLite adapters, durable job redelivery,
-HTTP `app.inject()` in local and hosted modes, and the project-owned Playwright
-collection/token journeys. Inspect rendered source attribution, structured
-offers and empty/degraded states. Measure query plans, memory, queue backlog,
-SQLite write rate and validation RPC volume with two populated venues before
-turning on automatic refresh.
+1. Introduce the identities, binding and run records with OpenSea as the sole
+   writer. Import its known slug, stream gate and sync state. Reuse its probe
+   where coverage needs verification. Backfill legacy orders, known provenance,
+   validation demand and retirement markers in resumable batches. Preserve an ID
+   mapping for queued work and existing reads. Keep unknown provenance explicit.
+   Use the existing supervised migration and recovery facilities.
+   [Market-data lifecycle](../../database/migrations/055_market_data_storage_lifecycle.sql)
+   · [Order queue recovery](18-order-queue-recovery.md)
+2. Move snapshot and stream ingestion, source-status updates, purge, cleanup,
+   validation, onchain fills and reorgs to their respective keys. Match chain
+   events by deployment and hash, retain local bootstrap anchor checks, and keep
+   an inactive publication’s replay marker separate from a protocol-terminal
+   marker. Translate older queue envelopes at admission. Coordinate
+   producer/consumer versions before enabling the second writer. Verify stopping
+   and resuming with pending work and a restore using matching database, queues
+   and binaries. Compare old and new readers on an OpenSea-only database,
+   including prices, counts, sorting, criteria, daily rows and the bot selector.
+3. Enable the VVV adapter through the same scheduler and order worker. Replay
+   smaller, equal-sized and empty books, a failed read followed by a successful
+   empty one, a changed availability flag, duplicate delivery and withdrawal
+   followed by reappearance. Delay the first upsert until after the second read.
+   Interrupt a comparison and an apply batch. In each case assert individual
+   changes, final membership, projection, and daily price. Test a newer OpenSea
+   stream sighting during a crawl and two VVV reads a second apart.
+4. Verify with two unrelated collections, two ranges on one contract, and one
+   market bound to both ranges. Exercise one venue alone, both publishing one
+   signed order, identical hashes on different chains or deployments,
+   independently signed orders on one token, a last-publication removal and a
+   shared onchain cancellation and reorg. Check source attribution, exact
+   fee-inclusive prices, directed offers, a warm cached page becoming empty, and
+   a trade contributing zero bids. Exercise both bid-book routes through
+   indexed, fresh bot, empty bot and back to indexed, with an OpenSea
+   cancellation overlay present.
+   [Capture evidence and existing test coverage](23-orderbook-discovery.md)
