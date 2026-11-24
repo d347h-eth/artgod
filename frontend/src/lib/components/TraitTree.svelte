@@ -4,23 +4,19 @@
 	import type { TraitLeaf } from '$lib/trait-tree';
 	import TraitTree from './TraitTree.svelte';
 
-	const PAGE_SIZE = 24;
+	const MIN_SEARCHABLE_ENTRIES = 25;
 
 	let {
 		nodes,
 		leafValue,
 		initiallyExpanded = false
 	}: { nodes: TraitNode[]; leafValue?: Snippet<[TraitLeaf]>; initiallyExpanded?: boolean } = $props();
-	let offset = $state(0);
 	let search = $state('');
 	let open = $state<Record<string, boolean>>({});
 	const matches = $derived.by(() => {
 		const term = search.trim().toLocaleLowerCase();
 		return term ? nodes.filter((node) => contains(node, term)) : nodes;
 	});
-	const pageStart = $derived(
-		Math.min(offset, Math.floor(Math.max(0, matches.length - 1) / PAGE_SIZE) * PAGE_SIZE)
-	);
 	const fieldsOnly = $derived(nodes.every((node) => node.kind === TRAIT_NODE_KIND.Leaf));
 
 	function contains(node: TraitNode, term: string): boolean {
@@ -28,11 +24,6 @@
 		return node.kind === TRAIT_NODE_KIND.Leaf
 			? node.value.toLocaleLowerCase().includes(term)
 			: node.children.some((child) => contains(child, term));
-	}
-
-	function searchTraits(value: string): void {
-		search = value;
-		offset = 0;
 	}
 
 	function visibleChildren(node: Exclude<TraitNode, TraitLeaf>): TraitNode[] {
@@ -50,17 +41,16 @@
 </script>
 
 <div class="trait-tree">
-	{#if nodes.length > PAGE_SIZE}
+	{#if nodes.length >= MIN_SEARCHABLE_ENTRIES}
 		<input
 			class="trait-search-input"
 			aria-label="Search traits"
 			placeholder="Search traits"
-			value={search}
-			oninput={(event) => searchTraits(event.currentTarget.value)}
+			bind:value={search}
 		/>
 	{/if}
 	<ul class:field-list={fieldsOnly}>
-		{#each matches.slice(pageStart, pageStart + PAGE_SIZE) as node (node.id)}
+		{#each matches as node (node.id)}
 			<li class:field={node.kind === TRAIT_NODE_KIND.Leaf}>
 				{#if node.kind === TRAIT_NODE_KIND.Leaf}
 					<dl class="trait-tree-field">
@@ -96,27 +86,6 @@
 	</ul>
 	{#if matches.length === 0 && search}
 		<p class="muted">No matching traits</p>
-	{/if}
-	{#if matches.length > PAGE_SIZE}
-		<div class="pagination-summary">
-			<button
-				type="button"
-				class="button-link"
-				disabled={pageStart === 0}
-				onclick={() => (offset = pageStart - PAGE_SIZE)}
-			>
-				Previous
-			</button>
-			<span>{pageStart + 1}–{Math.min(matches.length, pageStart + PAGE_SIZE)} of {matches.length}</span>
-			<button
-				type="button"
-				class="button-link"
-				disabled={pageStart + PAGE_SIZE >= matches.length}
-				onclick={() => (offset = pageStart + PAGE_SIZE)}
-			>
-				Next
-			</button>
-		</div>
 	{/if}
 </div>
 
@@ -197,7 +166,7 @@
 		padding-block: 0.25rem;
 	}
 
-	dt, .pagination-summary {
+	dt {
 		color: var(--c-sand);
 	}
 
@@ -208,10 +177,5 @@
 	.trait-search-input {
 		width: min(25ch, 100%);
 		margin-block: 0.3rem;
-	}
-
-	.pagination-summary {
-		gap: 0.4rem;
-		margin-block: 0.35rem;
 	}
 </style>
