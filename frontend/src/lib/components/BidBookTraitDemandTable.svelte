@@ -132,7 +132,6 @@
 										browseCriterion={group.browseCriterion}
 										traitValueHref={group.traitValueHref}
 									/>{/if}
-									{#if group.viewUnresolved}<span class="muted">View match unknown</span>{/if}
 								</span>
 								{#if group.showFilterAction || group.showBidAction}
 									<div class="bid-book-demand-group-controls">
@@ -201,6 +200,7 @@
 								price={row.price}
 							/>
 							<BidBookMakerCell
+								showViewMatch
 								bid={row.bid}
 								href={row.makerHref}
 								highlighted={row.makerHighlighted}

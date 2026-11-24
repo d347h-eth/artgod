@@ -28,7 +28,11 @@ import {
 import { parseSelectedTraits } from '../src/lib/trait-filters';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
 import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
-import { TRAIT_CATALOG_QUERY, type CollectionViewStatus } from '@artgod/shared/types/trait-catalog';
+import {
+	TRAIT_CATALOG_QUERY,
+	VIEW_OFFER_APPLICABILITY,
+	type CollectionViewStatus
+} from '@artgod/shared/types/trait-catalog';
 import { buildTokenDetailHref } from '../src/lib/token-browser-query';
 import { MEDIA_MODE_QUERY_PARAM } from '../src/lib/media-mode';
 import { selectCollectionViewHref } from '../src/lib/collection-view';
@@ -921,6 +925,61 @@ test('shows native trait offer targets in All when the catalog has no matching f
 	await expect(page.getByRole('button', { name: 'remove Pose=Curled sleeping' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'remove type=painting' })).toBeVisible();
 	await page.screenshot({ path: info.outputPath('all-trait-offers-filtered.png'), fullPage: true });
+});
+
+test('marks only unresolved orders in a scoped trait offer bucket', async ({ page }, info) => {
+	const query = new URLSearchParams({
+		[BID_SCOPE_QUERY_PARAM]: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+	});
+	const base = buildBiddingE2eCollectionBiddingData(query).bidBook.bids.find(
+		(bid): bid is ApiBiddingMarketBidBookRow =>
+			!bid.maker.isOwn &&
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid
+	)!;
+	const offers = ['0.03', '0.025', '0.001'].map((eth, index) => {
+		const scope = {
+			...base.scope,
+			traits: [{ type: CHAOS, value: 'Calm' }],
+			encodedTokenIds: index === 0 ? tokens[0].id : '99999',
+			viewApplicability:
+				index === 0 ? VIEW_OFFER_APPLICABILITY.Matched : VIEW_OFFER_APPLICABILITY.Unresolved
+		};
+		return {
+			...base,
+			orderId: 'scoped-' + index,
+			scope: { ...scope, label: formatTradingBiddingBidScopeLabel(scope) },
+			price: {
+				kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+				eth,
+				wei: parseEther(eth).toString()
+			}
+		};
+	});
+	const { path } = await installPlaneFixture(page, (params) => {
+		const data = buildBiddingE2eCollectionBiddingData(params);
+		if (data.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits) return data;
+		const bids =
+			data.ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own ? [] : offers;
+		return {
+			...data,
+			bidBook: { ...data.bidBook, bids, state: { ...data.bidBook.state, rowCount: bids.length } }
+		};
+	});
+	await enter(page, selectCollectionViewHref(path + '/bidding', query, plane));
+	await page.getByLabel('Own bid filter').getByRole('link', { name: 'all bids' }).click();
+	const heading = page.locator('.bid-book-demand-group-row');
+	await expect(heading).toHaveCount(1);
+	await expect(heading).toContainText(/Chaos\s*=\s*Calm/);
+	const warning = 'View match unknown';
+	const order = (index: number) =>
+		page.locator(`tr:has([data-open-sea-order-hash="scoped-${index}"])`);
+	await expect(heading).not.toContainText(warning);
+	await expect(order(0)).toBeVisible();
+	await expect(order(0)).not.toContainText(warning);
+	await expect(order(1).getByText(warning, { exact: true })).toBeVisible();
+	await expect(order(2)).toBeHidden();
+	await expect(page.getByText(warning, { exact: true }).filter({ visible: true })).toHaveCount(1);
+	await page.screenshot({ path: info.outputPath('scoped-offer-match.png'), fullPage: true });
 });
 
 test('separates the collection scope from Offers and Asks controls', async ({ page }, info) => {

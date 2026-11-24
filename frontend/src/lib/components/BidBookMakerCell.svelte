@@ -1,17 +1,20 @@
 <script lang="ts">
 	import type { ApiBiddingBidBookRow } from '$lib/api-types';
+	import BidBookViewMatch from '$lib/components/BidBookViewMatch.svelte';
 	import { ownBidStatusBadges } from '$lib/bidding-bid-book-own-status';
 
 	let {
 		bid,
 		href,
 		highlighted = false,
+		showViewMatch = false,
 		onSetHighlighted,
 		onClearHighlighted
 	}: {
 		bid: ApiBiddingBidBookRow;
 		href: string | null;
 		highlighted?: boolean;
+		showViewMatch?: boolean;
 		onSetHighlighted: (bid: ApiBiddingBidBookRow) => void;
 		onClearHighlighted: () => void;
 	} = $props();
@@ -42,4 +45,7 @@
 			{badge.label}
 		</span>
 	{/each}
+	{#if showViewMatch}
+		<BidBookViewMatch applicability={bid.scope.viewApplicability} />
+	{/if}
 </td>
