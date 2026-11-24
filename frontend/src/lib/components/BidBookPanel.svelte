@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { canDraftNativeBidScope } from '$lib/bidding-automation';
 	import { useCollectionView } from '$lib/collection-view-context';
-	import {
-		createNativeTraitPresentation,
-		VIEW_OFFER_APPLICABILITY
-	} from '@artgod/shared/types/trait-catalog';
+	import { createNativeTraitPresentation } from '@artgod/shared/types/trait-catalog';
 	import { selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
 	import {
 		formatTradingTraitCriterionLabel,
@@ -917,9 +914,6 @@
 				startsNewGroup: shouldShowDemandGroupSpacer(groups, groupIndex),
 				traits: sortDemandTraitsForDisplay(group.traits, activeDemandTraitKey),
 				browseCriterion,
-				viewUnresolved: group.bids.some(
-					(b) => b.scope.viewApplicability === VIEW_OFFER_APPLICABILITY.Unresolved
-				),
 				traitValueHref,
 				showFilterAction: shouldShowTraitFilterAction(group.traits),
 				filterLabel: `filter ${group.label}`,

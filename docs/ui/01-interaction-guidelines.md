@@ -713,6 +713,7 @@ Scope rules:
 - hide the scope column when the current view can only contain one obvious scope
 - token detail bid books should keep the scope column because the token can receive collection, trait, token, and token-set offers
 - trait scope views group individual bids under canonical trait-combination buckets; do not replace the individual bid list with aggregate-only rows
+- show `View match unknown` on each offer whose match to the selected view is unresolved
 - trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
 - show every criterion in a trait bucket title or token-detail offer scope, including traits absent from the sidebar
 - All and parent group views filter by marketplace traits directly. In a derived view, link an exact value through its matching catalog filter. Show the original marketplace criterion as plain text when no unambiguous mapping exists
