@@ -25,7 +25,6 @@ export async function resolveCollectionJumpHref(
 		return buildTokenDetailHref({
 			basePath: input.basePath,
 			tokenId: nextValue,
-			catalogScope: input.catalogScope,
 			mediaMode: input.mediaMode,
 			mediaPreference: input.mediaPreference
 		});
