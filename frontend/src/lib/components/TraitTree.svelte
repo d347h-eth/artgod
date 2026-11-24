@@ -17,6 +17,7 @@
 	const pageStart = $derived(
 		Math.min(offset, Math.floor(Math.max(0, matches.length - 1) / PAGE_SIZE) * PAGE_SIZE)
 	);
+	const fieldsOnly = $derived(nodes.every((node) => node.kind === TRAIT_NODE_KIND.Leaf));
 
 	function contains(node: TraitNode, term: string): boolean {
 		if (node.label.toLocaleLowerCase().includes(term)) return true;
@@ -54,9 +55,9 @@
 			oninput={(event) => searchTraits(event.currentTarget.value)}
 		/>
 	{/if}
-	<ul>
+	<ul class:field-list={fieldsOnly}>
 		{#each matches.slice(pageStart, pageStart + PAGE_SIZE) as node (node.id)}
-			<li>
+			<li class:field={node.kind === TRAIT_NODE_KIND.Leaf}>
 				{#if node.kind === TRAIT_NODE_KIND.Leaf}
 					<dl class="trait-tree-field">
 						<dt>{node.label}</dt>
@@ -116,9 +117,10 @@
 
 <style>
 	.trait-tree {
+		container-type: inline-size;
 		min-width: 0;
 		font-size: 0.78rem;
-		line-height: 1.35;
+		line-height: 1.5;
 		overflow-wrap: anywhere;
 		word-break: normal;
 	}
@@ -128,8 +130,35 @@
 	}
 
 	ul {
+		display: grid;
+		grid-template-columns: fit-content(44%) minmax(0, 1fr);
+		column-gap: 1rem;
 		list-style: none;
 		padding: 0;
+	}
+
+	li {
+		grid-column: 1 / -1;
+		min-width: 0;
+	}
+
+	.field,
+	.trait-tree-field {
+		display: grid;
+		grid-template-columns: subgrid;
+	}
+
+	/* Keep each name with its value. A long list can use two pairs across
+	   when the tree itself is wide enough, including inside nested groups. */
+	@container (min-width: 68rem) {
+		.field-list:has(> :nth-child(8)) {
+			grid-template-columns: repeat(2, fit-content(21%) minmax(0, 1fr));
+			column-gap: 1.25rem;
+		}
+
+		.field-list:has(> :nth-child(8)) > .field {
+			grid-column: span 2;
+		}
 	}
 
 	summary {
@@ -155,10 +184,8 @@
 	}
 
 	.trait-tree-field {
-		display: grid;
-		grid-template-columns: minmax(0, min(13ch, 42%)) minmax(0, 1fr);
-		gap: 0.6rem;
-		padding: 0.16rem 0;
+		grid-column: 1 / -1;
+		padding-block: 0.25rem;
 	}
 
 	dt, .pagination-summary {
