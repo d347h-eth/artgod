@@ -144,7 +144,6 @@ export function readViewStatus(
                 failed: row.failed,
                 generation: row.active_generation,
                 activeMapperVersion: row.mapper_version,
-                structure: mapper.structure?.(descriptor, row.mapper_version),
                 availableMapperVersion: mapper.availableVersion(descriptor),
                 latestRun:
                     (row.latest &&

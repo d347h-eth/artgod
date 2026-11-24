@@ -4,7 +4,6 @@ import {
     sourceLeaf,
     projectPlane,
     projectBackrooms,
-    structuredSchema,
 } from "./111k-structured-traits.js";
 import type { TraitFilter } from "../types/browse.js";
 import type {
@@ -75,7 +74,6 @@ const structuredBlocks = new Map([
     [
         JSON.stringify(["block", STRUCTURED_BLOCK.Plane]),
         {
-            block: STRUCTURED_BLOCK.Plane,
             version: "plane-1",
             project: projectPlane,
         },
@@ -83,7 +81,6 @@ const structuredBlocks = new Map([
     [
         JSON.stringify(["block", STRUCTURED_BLOCK.Backrooms]),
         {
-            block: STRUCTURED_BLOCK.Backrooms,
             version: "backrooms-1",
             project: projectBackrooms,
         },
@@ -97,12 +94,6 @@ export const nft111kTraitCatalog: TraitCatalogMapper = {
         isNft111kBlockKey(view.pinnedTraits[0]?.key) ? NFT111K_BLOCK_KEYS : [],
     availableVersion: (view) =>
         structuredBlocks.get(view.id)?.version ?? IDENTITY_VERSION,
-    structure(view, version) {
-        const mapping = structuredBlocks.get(view.id);
-        return mapping?.version === version
-            ? structuredSchema(mapping.block)
-            : [];
-    },
     project(view, version, pairs) {
         // Existing identity generations keep receiving their own version until publication.
         if (version === IDENTITY_VERSION) return identity(pairs);

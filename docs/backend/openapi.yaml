@@ -2721,16 +2721,6 @@ components:
                 ready: { type: integer }
                 activeMapperVersion: { type: string }
                 availableMapperVersion: { type: string }
-                structure:
-                    type: array
-                    items:
-                        type: object
-                        required: [label, fields]
-                        properties:
-                            label: { type: string }
-                            fields:
-                                type: array
-                                items: { type: string }
                 latestRun:
                     type: object
                     nullable: true

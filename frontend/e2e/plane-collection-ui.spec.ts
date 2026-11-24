@@ -48,8 +48,7 @@ function viewFor(pairs: { key: string; value: string }[], size: number): Collect
 		activeMapperVersion: version,
 		availableMapperVersion: version,
 		classified: size,
-		ready: size,
-		structure: mapper.structure?.(view, version)
+		ready: size
 	};
 }
 
@@ -373,15 +372,10 @@ test('keeps collection navigation and artwork filters usable through block, kind
 	await shots('04-plane-gallery');
 	await page.getByRole('button', { name: 'expand traits panel' }).click();
 	const chaos = page.locator('summary').getByText(CHAOS, { exact: true });
-	const reference = page.getByText('Token detail fields', { exact: true });
 	await expect(chaos).toBeVisible();
-	await expect(reference).toBeVisible();
-	await expect(page.getByText('Mini drif', { exact: true })).toBeHidden();
-
+	await expect(page.getByText('Token detail fields', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('Mini drif', { exact: true })).toHaveCount(0);
 	await shots('04-plane-facets');
-	await reference.click();
-	await expect(page.getByText('Mini drif', { exact: true })).toBeVisible();
-	await shots('05-token-field-reference');
 	const rootSearch = page.getByRole('searchbox', { name: 'search all traits' });
 	await rootSearch.fill('Calm');
 	await block.selectOption({ label: FILM });
