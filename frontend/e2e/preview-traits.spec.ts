@@ -100,7 +100,9 @@ test('links flat room properties and keeps painting instances searchable inside 
 	const link = output(page).getByRole('link', { name: 'Ceiling: High' });
 	await expect(link).toHaveAttribute('href', /Ceiling.+High/);
 	await output(page).getByText('Paintings', { exact: true }).click();
-	await output(page).getByRole('textbox', { name: 'Search traits' }).fill('Artist 40');
+	const search = output(page).getByRole('textbox', { name: 'Search traits' });
+	await search.pressSequentially('Artist 40');
+	await expect(search).toHaveValue('Artist 40');
 	await output(page).getByText('Painting 40', { exact: true }).click();
 	await expect(output(page).getByText('Artist 40', { exact: true })).toBeVisible();
 	await expect(output(page).getByRole('link', { name: /Artist 40/ })).toHaveCount(0);

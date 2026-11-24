@@ -15,6 +15,7 @@ import type {
 	TokenPreviewApiResponse
 } from '$lib/api-types';
 import { getActivityEventPreview, getTokenPreview } from '$lib/backend-api';
+import { isKeyboardTextEntryTarget } from './keyboard-targets';
 import { buildTokenMediaQuery, nextMediaOption, nextMediaMode } from '$lib/media-mode';
 import {
 	resolveTokenMediaAspectRatio,
@@ -453,6 +454,7 @@ export function createTokenPreviewController(
 			closeTokenPreview();
 			return;
 		}
+		if (isKeyboardTextEntryTarget(event.target)) return;
 
 		if (event.key === 'v' || event.key === 'V') {
 			event.preventDefault();

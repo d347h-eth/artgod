@@ -21,6 +21,8 @@
 	} from '$lib/trait-facet-sorting';
 
 	const collectionViewPage = useCollectionView();
+	const view = $derived(selectedCollectionView(collectionViewPage()));
+	const detailFields = $derived(view?.structure ?? []);
 
 	type MaybePromise<T> = T | Promise<T>;
 	type TraitRangeDraft = {
@@ -29,7 +31,7 @@
 	};
 
 	let {
-		facets,
+		facets: catalogFacets,
 		selectedTraits,
 		selectedRanges,
 		collapsed = false,
@@ -67,6 +69,20 @@
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
 	);
+	// The view picker already owns its exact native criterion. Keep explicit URL filters removable.
+	const facets = $derived.by(() => {
+		const pins = view?.pinnedTraits;
+		if (!pins?.length) return catalogFacets;
+		return catalogFacets.filter((facet) => {
+			if (
+				facet.displayKind !== TRAIT_FILTER_DISPLAY_KIND.Set ||
+				facet.values.length !== 1 ||
+				traitGroupActive(facet.key)
+			) return true;
+			const native = facet.values[0].native;
+			return !native || !pins.some((pin) => pin.key === native.key && pin.value === native.value);
+		});
+	});
 	let rootTraitValueSearchActive = $derived(hasRootTraitValueSearch(rootTraitValueSearch));
 	let hasSearchableFacets = $derived(facets.some(isTraitFacetValueSearchable));
 	let visibleFacets = $derived(
@@ -294,11 +310,8 @@
 				<h2>traits</h2>
 			</div>
 
-			{#each selectedCollectionView(collectionViewPage())?.structure ?? [] as group}
-				<details class="trait-group"><summary>{group.label}</summary><ul>{#each group.fields as field}<li>{field}</li>{/each}</ul></details>
-			{/each}
 			{#if facets.length === 0}
-				<p class="muted">no trait facets yet</p>
+				<p class="muted">{catalogFacets.length ? 'no additional trait filters' : 'no trait facets yet'}</p>
 			{:else if hasSearchableFacets}
 				<div class="trait-root-search">
 					<input
@@ -469,6 +482,56 @@
 					{/each}
 				{/if}
 			{/if}
+			{#if detailFields.length}
+				<details class="token-field-reference">
+					<summary>Token detail fields</summary>
+					<dl>
+						{#each detailFields as group (group.label)}
+							<div>
+								<dt>{group.label}</dt>
+								<dd>{group.fields.join(', ')}</dd>
+							</div>
+						{/each}
+					</dl>
+				</details>
+			{/if}
 		</aside>
 	{/if}
 </div>
+
+<style>
+	.token-field-reference {
+		border-top: 1px solid var(--c-blue);
+		padding-top: 0.45rem;
+		font-size: 0.75rem;
+		line-height: 1.4;
+	}
+
+	.token-field-reference summary {
+		width: fit-content;
+		padding: 0.2rem 0;
+		cursor: pointer;
+		color: var(--c-cyan);
+	}
+
+	.token-field-reference summary:hover,
+	.token-field-reference summary:focus-visible {
+		color: var(--c-yellow);
+	}
+
+	.token-field-reference dl {
+		display: grid;
+		gap: 0.5rem;
+		padding-inline-start: 1rem;
+		margin: 0.35rem 0 0;
+	}
+
+	.token-field-reference dt {
+		color: var(--c-ice);
+	}
+
+	.token-field-reference dd {
+		margin: 0;
+		color: var(--c-sand);
+	}
+</style>
