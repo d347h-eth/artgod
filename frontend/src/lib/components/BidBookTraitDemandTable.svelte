@@ -129,6 +129,7 @@
 								<span class="bid-book-demand-group-title">
 									{#if group.traits.length === 0}Trait offer{:else}<BidBookTraitList
 										traits={group.traits}
+										browseCriterion={group.browseCriterion}
 										traitValueHref={group.traitValueHref}
 									/>{/if}
 									{#if group.viewUnresolved}<span class="muted">View match unknown</span>{/if}

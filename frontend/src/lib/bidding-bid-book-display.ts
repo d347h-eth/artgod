@@ -26,6 +26,10 @@ export function trimBidBookTraitText(value: string): string {
 }
 
 export type BidBookScopeTraits = ApiBiddingBidBookRow['scope']['traits'];
+// A missing browse mapping still leaves the native order criterion available for display and drafting.
+export type BidBookBrowseCriterion = (
+	native: BidBookScopeTraits[number]
+) => BidBookScopeTraits[number] | null;
 
 // Existing browse ranges accept unsigned integers. Preserve the whole scope or
 // omit the filter action when marketplace bounds cannot be represented there.

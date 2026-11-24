@@ -1,6 +1,6 @@
 import { TEST_IDS } from '$lib/test-ids';
 import { render } from 'svelte/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
@@ -13,6 +13,8 @@ import {
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
+import * as collectionViewContext from '$lib/collection-view-context';
+import { BIDDING_E2E_COLLECTION } from '$lib/e2e/bidding-automation-fixtures';
 import BidBookPanel from './BidBookPanel.svelte';
 
 const BASE_BID: ApiBiddingBidBookRow = {
@@ -59,33 +61,89 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	};
 }
 
+function singleOfferBook(bid: ApiBiddingBidBookRow): ApiBiddingBidBook {
+	return {
+		state: {
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+			updatedAt: null,
+			snapshotRefreshedAtMs: null,
+			projectedAt: null,
+			rowCount: 1,
+			durationMs: null,
+			lastError: null
+		},
+		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+		biddingAuthorization: null,
+		ownMakerAddress: null,
+		bids: [bid]
+	};
+}
+
 describe('BidBookPanel', () => {
-	it('offers range-only filter navigation without drafting an unsupported trait job', () => {
-		const bidBook: ApiBiddingBidBook = {
-			state: {
-				source: 'orders',
-				updatedAt: null,
-				snapshotRefreshedAtMs: null,
-				projectedAt: null,
-				rowCount: 1,
-				durationMs: null,
-				lastError: null
-			},
-			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
-			biddingAuthorization: null,
-			ownMakerAddress: null,
-			bids: [
-				{
-					...BASE_BID,
-					scope: {
-						kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
-						tokenId: null,
-						label: 'Level=1–2',
-						traits: [{ type: 'Level', min: 1, max: 2 }]
-					}
+	it.each([
+		{ view: 'trait-demand', bid: TEST_IDS.BidBookTraitBucketBid, filter: TEST_IDS.BidBookTraitBucketFilter },
+		{ view: 'rows', bid: TEST_IDS.BidBookRowBid, filter: TEST_IDS.BidBookRowFilter }
+	] as const)(
+		'shows the complete native offer and links only its mapped value on a derived view ($view)',
+		({ view, bid, filter }) => {
+			const leaf = {
+				id: 'landscapes',
+				label: 'Landscapes',
+				parent: null,
+				pinnedTraits: [],
+				generation: 1,
+				activeMapperVersion: '1',
+				availableMapperVersion: '1',
+				classified: 1,
+				ready: 1
+			};
+			vi.spyOn(collectionViewContext, 'useCollectionView').mockReturnValueOnce(() => ({
+				chainRef: 'ethereum',
+				collectionRef: BIDDING_E2E_COLLECTION.slug,
+				basePath: '/ethereum/' + BIDDING_E2E_COLLECTION.slug,
+				discovery: {
+					collection: BIDDING_E2E_COLLECTION,
+					required: true,
+					selectedViewId: leaf.id,
+					views: [leaf]
 				}
-			]
-		};
+			}));
+			const { body } = render(BidBookPanel, {
+				props: {
+					bidBook: singleOfferBook(BASE_BID),
+					view,
+					showScope: true,
+					traitBindings: [
+						{
+							key: 'Landscape',
+							values: [{ value: 'Ground', native: { key: 'Mode', value: 'Terrain' } }]
+						}
+					],
+					traitValueHref: ({ key, value }) => '/browse/' + key + '/' + value,
+					onSelectBid: () => {},
+					onFilterTraitDemandGroup: () => {}
+				}
+			});
+			expect(body).toContain('>Landscape</span>');
+			expect(body).toContain('href="/browse/Landscape/Ground"');
+			expect(body).toContain('>Biome</span>');
+			expect(body).toContain('>42</span>');
+			expect(body).not.toContain('href="/browse/Biome/42"');
+			expect(body).toContain(bid);
+			expect(body).not.toContain(filter);
+		}
+	);
+
+	it('offers range-only filter navigation without drafting an unsupported trait job', () => {
+		const bidBook = singleOfferBook({
+			...BASE_BID,
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				tokenId: null,
+				label: 'Level=1–2',
+				traits: [{ type: 'Level', min: 1, max: 2 }]
+			}
+		});
 		const { body } = render(BidBookPanel, {
 			props: {
 				bidBook,
