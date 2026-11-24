@@ -5,14 +5,15 @@
 
 	let { nodes }: { nodes: TraitNode[] } = $props();
 
-	let allOpenByDefault = $state(false);
+	// Before the first bulk action, only top-level groups start open.
+	let bulkExpansion = $state<boolean | null>(null);
 	// IDs are local to their branch. Keep a manual toggle scoped to its full path.
 	const manualExpansion = new SvelteMap<string, boolean>();
+	const allExpanded = $derived(!hasCollapsedBranch(nodes, []));
 
 	function isExpanded(path: string[]): boolean {
 		return (
-			manualExpansion.get(JSON.stringify(path)) ??
-			(allOpenByDefault || path.length === 1)
+			manualExpansion.get(JSON.stringify(path)) ?? bulkExpansion ?? (path.length === 1)
 		);
 	}
 
@@ -24,9 +25,9 @@
 		});
 	}
 
-	function expandAll(): void {
+	function toggleAll(): void {
+		bulkExpansion = !allExpanded;
 		manualExpansion.clear();
-		allOpenByDefault = true;
 	}
 
 	function visibleChildren(node: Exclude<TraitNode, TraitLeaf>): TraitNode[] {
@@ -84,10 +85,11 @@
 		<button
 			type="button"
 			class="facet-panel-action-button"
-			disabled={!hasCollapsedBranch(nodes, [])}
-			onclick={expandAll}
+			class:facet-collapse-button-active={allExpanded}
+			aria-expanded={allExpanded}
+			onclick={toggleAll}
 		>
-			Expand all
+			{allExpanded ? 'Collapse all' : 'Expand all'}
 		</button>
 	{/if}
 	{@render list(nodes, [])}
@@ -179,6 +181,9 @@
 	}
 
 	.facet-panel-action-button {
+		display: flex;
+		width: fit-content;
+		margin-inline: auto;
 		margin-block-end: var(--control-button-gap);
 	}
 </style>

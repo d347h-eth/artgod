@@ -539,9 +539,10 @@ children. Picking a specific child narrows it further.
 
 On token detail, show the standard traits table before the structured tree.
 Center both within the page gutters. The tree starts with its top-level groups
-open and nested entries collapsed. Place **Expand all** immediately above the
-tree to open every level. Expanding a branch renders all its immediate entries.
-Collapsing it removes its descendants from the page.
+open and nested entries collapsed. The button immediately above the tree shows
+**Expand all** whenever any branch is closed. When every branch is open, the
+same button shows **Collapse all** and closes every level. Expanding a branch
+renders all its immediate entries. Collapsing it removes its descendants from the page.
 
 Trait panel behavior is centralized in `trait-facet-panel-controller.ts`.
 
