@@ -402,6 +402,56 @@ test('trait sidebar selects the exact value from its label, checkbox and keyboar
 	await expect(cards).toHaveCount(2);
 });
 
+test('trait sidebar clears only the chosen search and returns focus to it', async ({
+	page
+}, info) => {
+	const sidebar = await openPlaneTraits(page);
+	const rootSearch = sidebar.getByRole('searchbox', { name: 'search all traits' });
+	const clearRoot = sidebar.getByRole('button', { name: 'clear trait search' });
+	const chaosSearch = sidebar.getByRole('searchbox', { name: 'search ' + CHAOS + ' values' });
+	const clearChaos = sidebar.getByRole('button', { name: 'clear ' + CHAOS + ' search' });
+	const markSearch = sidebar.getByRole('searchbox', { name: 'search ' + MARK_CHAOS + ' values' });
+	const clearMark = sidebar.getByRole('button', { name: 'clear ' + MARK_CHAOS + ' search' });
+	await sidebar.locator('summary').getByText(CHAOS, { exact: true }).click();
+	await sidebar.getByText('Calm', { exact: true }).click();
+	const selected = sidebar.getByRole('checkbox', { name: /^Calm\s+1$/ });
+	await expect(selected).toBeChecked();
+	await sidebar.locator('summary').getByText(MARK_CHAOS, { exact: true }).click();
+	await expect(clearRoot).toHaveCount(0);
+	await expect(clearChaos).toHaveCount(0);
+	await expect(clearMark).toHaveCount(0);
+
+	await chaosSearch.fill('c');
+	await markSearch.fill('Air');
+	await rootSearch.fill('a');
+	await expect(clearRoot).toBeVisible();
+	await expect(clearChaos).toBeVisible();
+	await expect(clearMark).toBeVisible();
+	await page.screenshot({ path: info.outputPath('trait-search-clear.png'), scale: 'css' });
+
+	await clearChaos.press('Enter');
+	await expect(chaosSearch).toBeFocused();
+	await expect(chaosSearch).toHaveValue('');
+	await expect(clearChaos).toHaveCount(0);
+	await expect(rootSearch).toHaveValue('a');
+	await expect(markSearch).toHaveValue('Air');
+	await expect(selected).toBeChecked();
+
+	await rootSearch.fill('nonexistent');
+	await expect(sidebar.getByText('no matches', { exact: true })).toBeVisible();
+	await clearRoot.click();
+	await expect(rootSearch).toBeFocused();
+	await expect(rootSearch).toHaveValue('');
+	await expect(clearRoot).toHaveCount(0);
+	await expect(selected).toBeChecked();
+	await expect(markSearch).toHaveValue('Air');
+	await clearMark.click();
+	await expect(markSearch).toBeFocused();
+	await expect(markSearch).toHaveValue('');
+	await expect(clearMark).toHaveCount(0);
+	await expect(selected).toBeChecked();
+});
+
 test('trait sidebar scrolls its full list and a shorter search result before the page moves', async ({
 	page
 }, info) => {

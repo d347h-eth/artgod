@@ -547,7 +547,7 @@ The split of responsibilities is:
 
 - `TraitFacetPanel.svelte`
     - independently scrollable trait list sized to the space below the collection controls
-    - local trait-value search
+    - search across traits or within a single trait, with an in-field clear button that preserves other searches and selected filters
     - checkbox and label activation for the exact discrete trait value, including its capitalization
     - inclusive `from` / `to` range UI for scalar traits
 - `TraitFacetPanelControls.svelte`
