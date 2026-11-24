@@ -67,7 +67,9 @@ Top-action rows are page chrome and should stay compact.
 Rules:
 
 - top-action rows stack vertically under the primary section tabs
-- every top-action row should use the same vertical gap
+- keep a compact vertical gap between action rows for the same page section
+- leave a larger gap between the collection's type/block picker and the first
+  section-specific row, including when the picker wraps
 - controls inside one row should use the same compact horizontal gap
 - left-side controls stay aligned to the left edge of the page content
 - do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width

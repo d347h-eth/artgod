@@ -3000,6 +3000,10 @@ a.bid-book-own-status:focus-visible {
 	gap: var(--control-button-gap);
 }
 
+.panel-top-actions-stack > .collection-view-picker:not(:last-child) {
+	margin-block-end: var(--panel-content-padding);
+}
+
 .panel-top-actions-row {
 	display: flex;
 	align-items: center;
