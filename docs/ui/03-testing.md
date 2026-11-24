@@ -62,6 +62,18 @@ The [bootstrap regression cases](../indexer/11-testing.md#bootstrap-regression-c
 map standard, shared-contract, partially minted, and late OpenSea setup flows
 to their owning deterministic suites and optional manual fixtures.
 
+### Collection views
+
+`yarn test:collection:views` exercises the collection picker, scoped gallery,
+trait bid review, rebuild controls and token detail at 1920 × 1080, 1267 × 712
+and the Pixel 7 viewport. The Plane of Existence fixture uses the 111K mapper.
+Screenshots are written to `tmp/collection-views-playwright/`. To review local
+artwork, set `ARTGOD_E2E_PLANE_MEDIA_DIR` to a directory containing `585.webp`
+and `1880.webp`. The suite includes offline media for ordinary runs. To exercise
+the compiled Userland frontend, run `yarn build:userland` followed by
+`ARTGOD_E2E_BUILT_USERLAND=1 yarn test:collection:views`. Its screenshots go
+to `tmp/collection-views-userland-playwright/`.
+
 ### Preview Traits
 
 `yarn test:preview:traits` reuses the collection harness at desktop and narrow
