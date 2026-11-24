@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { useCollectionView } from '$lib/collection-view-context';
-	import CollectionViewNavigation from '$lib/components/CollectionViewNavigation.svelte';
 	import {detailTraitTree} from '$lib/trait-tree';
 	import TraitTree from '$lib/components/TraitTree.svelte';
 	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
@@ -102,7 +101,6 @@
 	import type { TokenDetailExtensionSectionHrefs } from '$lib/token-detail-extension-sections/types';
 
 	const collectionViewPage = useCollectionView();
-	const viewContext = $derived(collectionViewPage());
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -774,11 +772,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={(event) => { if (!viewContext) onWindowKeydown(event); }} />
-
-{#if viewContext}
-	<CollectionViewNavigation tokenId={displayedToken?.tokenId ?? null} onPageKeydown={onWindowKeydown} />
-{/if}
+<svelte:window onkeydown={onWindowKeydown} />
 
 <section class="panel token-detail-panel" bind:this={tokenBiddingContentElement}>
 	{#if displayedToken}

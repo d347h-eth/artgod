@@ -52,6 +52,8 @@ identifies the catalog used by continuations and frontend navigation.
 
 Token kinds use the collection's secondary tabs. Artworks adds a block picker
 in the same toolbar. The selected controls show the browsing scope once.
+Opening an NFT resolves its view from its token ID. Token detail opens with
+the artwork and uses that view for traits and links back to the collection.
 Filterable traits come first in the sidebar. Token-only field names are grouped
 under **Token detail fields**, and individual values are available on the NFT.
 

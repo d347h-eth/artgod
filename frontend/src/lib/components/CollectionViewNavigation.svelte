@@ -23,13 +23,6 @@
 	import { createKeyboardShortcutsHelpController } from './keyboard-shortcuts-help-controller';
 	import { getTokenPreviewController } from './token-preview-controller';
 
-	let {
-		tokenId = null,
-		onPageKeydown
-	}: {
-		tokenId?: string | null;
-		onPageKeydown?: (event: KeyboardEvent) => void;
-	} = $props();
 	const collectionView = useCollectionView();
 	const context = $derived(collectionView());
 	const basePath = $derived(context?.basePath ?? '/');
@@ -63,7 +56,7 @@
 		if ($helpState.open) return;
 		tokenPreview.onWindowKeydown(event);
 		if ($previewState.open) return;
-		if (!handleCollectionSectionShortcut(event, navigation)) onPageKeydown?.(event);
+		handleCollectionSectionShortcut(event, navigation);
 	}
 </script>
 
@@ -73,7 +66,6 @@
 	<CollectionPageLayout
 		{navigation}
 		{...section}
-		activeSection={tokenId ? null : section.activeSection}
 		showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 	>
 		{#snippet breadcrumbs()}
@@ -81,14 +73,14 @@
 				<a href={'/' + encodeURIComponent(context.chainRef)}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
 			{/if}
-			{#if tokenId || section.label}
+			{#if section.label}
 				<a href={navigation.hrefs.asks}>{context.discovery.collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				{#if section.owner}
 					<a href={navigation.hrefs.holders}>holders</a>
 					<span class="breadcrumbs-separator">/</span>
 				{/if}
-				<span class="breadcrumbs-current">{tokenId ? '#' + tokenId : section.label}</span>
+				<span class="breadcrumbs-current">{section.label}</span>
 			{:else}
 				<span class="breadcrumbs-current">{context.discovery.collection.slug}</span>
 			{/if}
