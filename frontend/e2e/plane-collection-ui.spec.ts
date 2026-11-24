@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type Page } from 'playwright/test';
+import { expect, test, type Locator, type Page } from 'playwright/test';
 import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_MODE_OPTIONS } from '@artgod/shared/extensions';
 import {
 	NFT111K_EXTENSION_KEY,
@@ -575,6 +575,45 @@ test('separates the collection scope from Offers and Asks controls', async ({ pa
 	expect(controlGap).toBeLessThan(sectionGap / 2);
 	await actions.screenshot({ path: info.outputPath('driluhh-offers-toolbar.png') });
 	await page.screenshot({ path: info.outputPath('driluhh-offers.png') });
+
+	function restingBorder(field: Locator) {
+		return field.evaluate((element) => {
+			const css = getComputedStyle(element);
+			return { color: css.borderColor, width: css.borderWidth };
+		});
+	}
+	async function expectSingleBorder(field: Locator, width: string) {
+		await expect(field).toHaveCSS('border-width', width);
+		await expect(field).toHaveCSS('outline-style', 'none');
+		await expect(field).toHaveCSS('box-shadow', 'none');
+	}
+	const restingBlock = await restingBorder(block);
+	const restingMaker = await restingBorder(maker);
+	await kind.getByRole('link').last().focus();
+	await page.keyboard.press('Tab');
+	await expect(block).toBeFocused();
+	await expectSingleBorder(block, restingBlock.width);
+	await expect(block).not.toHaveCSS('border-color', restingBlock.color);
+	await actions.screenshot({ path: info.outputPath('driluhh-block-focused.png') });
+	await page.keyboard.press('Tab');
+	await expect(maker).toBeFocused();
+	await page.keyboard.type('maker.eth');
+	await expect(maker).toHaveValue('maker.eth');
+	await expectSingleBorder(maker, restingMaker.width);
+	await actions.screenshot({ path: info.outputPath('driluhh-maker-focused.png') });
+	await maker.fill('invalid maker');
+	await maker.press('Enter');
+	await expect(maker).toHaveAttribute('aria-invalid', 'true');
+	await maker.focus();
+	const invalidTextColor = await maker.evaluate((element) => getComputedStyle(element).color);
+	await expect(maker).toHaveCSS('border-color', invalidTextColor);
+	await expect(maker).not.toHaveCSS('border-color', restingMaker.color);
+	await expectSingleBorder(maker, restingMaker.width);
+	await page.keyboard.press('Shift+Tab');
+	await expect(block).toBeFocused();
+	await page.keyboard.press('f');
+	await expect(block).toHaveValue(film.id);
+	await expect(block).toBeFocused();
 });
 
 test('jumps across blocks and restores a bookmarked token in its current block', async ({
