@@ -4,7 +4,7 @@ import type { TraitFilter } from '@artgod/shared/types/browse';
 export type TraitLeaf = Extract<TraitNode, { kind: typeof TRAIT_NODE_KIND.Leaf }>;
 
 // A structured node is filterable only if its field and value appear in the flat catalog.
-export function indexFlatTraits(traits: readonly TraitFilter[]) {
+function indexFlatTraits(traits: readonly TraitFilter[]) {
 	const fields = new Map(traits.map((trait) => [JSON.stringify([trait.key, trait.value]), trait]));
 	return (leaf: TraitLeaf) => fields.get(JSON.stringify([leaf.fieldId, leaf.value]));
 }

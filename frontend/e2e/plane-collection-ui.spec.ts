@@ -20,7 +20,7 @@ import {
 } from '@artgod/shared/types';
 import { biddingTraitScopeMatchesFilters } from '@artgod/shared/trading/offer-trait-criteria';
 import { parseEther } from 'viem';
-import type { ApiBiddingMarketBidBookRow } from '../src/lib/api-types';
+import type { ApiBiddingMarketBidBookRow, TokenPreviewApiResponse } from '../src/lib/api-types';
 import {
 	BID_SCOPE_QUERY_PARAM,
 	parseCollectionBiddingTraitFilterJoinMode
@@ -1037,6 +1037,83 @@ test('jumps across blocks and restores a bookmarked token in its current block',
 	);
 	await back.click();
 	await expect(block).toHaveValue(film.id);
+});
+
+test('keeps structured traits on token details and shows muted flat traits in fullscreen', async ({
+	page
+}, info) => {
+	const { path } = await installPlaneFixture(page);
+	const [first, second] = tokens;
+	for (const token of [first, second]) {
+		await page.route(
+			(url) => url.pathname === '/api' + path + '/' + token.id + '/preview',
+			(route) => {
+				const preview: TokenPreviewApiResponse = {
+					media: { ...media, selectedVariant: null, defaultVariant: null, availableVariants: [] },
+					token: {
+						tokenId: token.id,
+						image: token.image,
+						animationUrl: null,
+						catalogScope: { id: plane.id, generation: plane.generation },
+						attributes: token.projected.values.map(({ fieldId, value }) => ({
+							key: fieldId,
+							value
+						})),
+						traitSummary: null
+					}
+				};
+				// An older backend may still include the detail-only tree in a preview response.
+				if (token === first) {
+					return route.fulfill({
+						json: { ...preview, token: { ...preview.token, traitTree: token.projected.tree } }
+					});
+				}
+				return route.fulfill({ json: preview });
+			}
+		);
+	}
+	await enter(page, selectCollectionViewHref(path, new URLSearchParams(), plane));
+	await page.getByRole('button', { name: 'preview token ' + first.id, exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Token Preview' });
+	const cycle = dialog.getByRole('button', { name: 'traits', exact: true });
+	await expect(cycle).toBeEnabled();
+	await expect(dialog.getByRole('link', { name: 'customize', exact: true })).toBeVisible();
+	const box = dialog.locator('.token-preview-box');
+	const initialBox = await box.boundingBox();
+	await cycle.click();
+	const traits = dialog.getByLabel('Token traits', { exact: true });
+	const value = traits.getByRole('link', { name: CHAOS + ': Calm', exact: true });
+	await expect(value).toBeVisible();
+	await expect(traits.locator('dt')).toHaveCount(first.projected.values.length);
+	await expect(dialog.locator('details')).toHaveCount(0);
+	await expect(dialog.getByRole('button', { name: 'Expand all' })).toHaveCount(0);
+	await page.mouse.move(0, 0);
+	const mutedColor = await traits.evaluate((node) => getComputedStyle(node).color);
+	await expect(value).toHaveCSS('color', mutedColor);
+	await expect(traits).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+	await expect(cycle).toHaveCSS('color', mutedColor);
+	expect(await box.boundingBox()).toEqual(initialBox);
+	const image = dialog.frameLocator('iframe').getByRole('img');
+	await expect
+		.poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth))
+		.toBeGreaterThan(1);
+	await page.screenshot({ path: info.outputPath('plane-fullscreen-flat-traits.png') });
+	await page.keyboard.press('ArrowRight');
+	await expect(dialog.getByTitle('token ' + second.id, { exact: true })).toBeVisible();
+	await expect(traits.getByRole('link', { name: CHAOS + ': Airy', exact: true })).toBeVisible();
+	await expect(traits.locator('dt')).toHaveCount(second.projected.values.length);
+	await expect(dialog.locator('details')).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
+	await page
+		.getByTestId(TEST_IDS.TokenCard)
+		.getByRole('link', { name: second.id, exact: true })
+		.click();
+	const detail = page.locator('.token-detail-traits-wrap');
+	await expect(detail.getByRole('button', { name: 'Expand all' })).toBeVisible();
+	await detail.getByText('Regular Constant fella', { exact: true }).click();
+	await expect(detail.getByText('die dritte generation', { exact: true })).toBeVisible();
+	await page.screenshot({ path: info.outputPath('plane-token-detail-projection.png') });
 });
 
 test('reads long Plane trait names and filenames together on token 34273', async ({

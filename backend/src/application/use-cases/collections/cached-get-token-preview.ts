@@ -263,6 +263,7 @@ export function isTokenPreviewDefaultCacheEligible(
     output: GetTokenPreviewOutput,
 ): boolean {
     return (
+        output.token.catalogScope === undefined &&
         output.media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot &&
         output.media.selectedMode === output.media.defaultMode &&
         output.media.selectedVariant === output.media.defaultVariant
@@ -273,10 +274,7 @@ function isTokenPreviewDefaultCacheEntryEligible(
     input: GetTokenPreviewInput,
     output: GetTokenPreviewOutput,
 ): boolean {
-    if (
-        output.token.traitTree !== undefined ||
-        !isTokenPreviewDefaultCacheEligible(output)
-    ) {
+    if (!isTokenPreviewDefaultCacheEligible(output)) {
         return false;
     }
     const requestedMode = normalizeMediaModeCacheKey(input.mediaMode);

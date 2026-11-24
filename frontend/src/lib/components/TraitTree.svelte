@@ -1,18 +1,9 @@
 <script lang="ts">
 	import { TRAIT_NODE_KIND, type TraitNode } from '@artgod/shared/types/trait-catalog';
-	import type { Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { TraitLeaf } from '$lib/trait-tree';
 
-	let {
-		nodes,
-		leafValue,
-		initiallyExpanded = false
-	}: {
-		nodes: TraitNode[];
-		leafValue?: Snippet<[TraitLeaf]>;
-		initiallyExpanded?: boolean;
-	} = $props();
+	let { nodes }: { nodes: TraitNode[] } = $props();
 
 	let allOpenByDefault = $state(false);
 	// IDs are local to their branch. Keep a manual toggle scoped to its full path.
@@ -21,7 +12,7 @@
 	function isExpanded(path: string[]): boolean {
 		return (
 			manualExpansion.get(JSON.stringify(path)) ??
-			(allOpenByDefault || (initiallyExpanded && path.length === 1))
+			(allOpenByDefault || path.length === 1)
 		);
 	}
 
@@ -59,13 +50,7 @@
 				{#if node.kind === TRAIT_NODE_KIND.Leaf}
 					<dl class="trait-tree-field">
 						<dt>{node.label}</dt>
-						<dd>
-							{#if leafValue}
-								{@render leafValue(node)}
-							{:else}
-								{node.value}
-							{/if}
-						</dd>
+						<dd>{node.value}</dd>
 					</dl>
 				{:else}
 					{@const children = visibleChildren(node)}

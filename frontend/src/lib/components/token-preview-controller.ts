@@ -1,4 +1,3 @@
-import { TRAIT_NODE_KIND } from '@artgod/shared/types/trait-catalog';
 import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { browser } from '$app/env';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
@@ -105,7 +104,6 @@ export type TokenPreviewState = {
 	requestedMediaVariant: string | null;
 	previewContext: TokenPreviewContext | null;
 	scalePercent: number;
-	traitTree?: import('@artgod/shared/types/trait-catalog').TraitNode[] | null;
 	attributes: ApiTokenAttribute[];
 	traitSummary: string | null;
 	traitDisplay: TokenPreviewTraitDisplay;
@@ -161,7 +159,6 @@ export function createTokenPreviewController(
 		requestedMediaVariant: null,
 		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
-		traitTree: null,
 		attributes: [],
 		traitSummary: null,
 		traitDisplay: readTokenPreviewTraitDisplay(),
@@ -230,7 +227,6 @@ export function createTokenPreviewController(
 				traitDisplay: current.open
 					? current.traitDisplay
 					: readTokenPreviewTraitDisplay(current.traitDisplay),
-				traitTree: keepDisplayedMedia ? current.traitTree : null,
 				attributes: keepDisplayedMedia ? current.attributes : [],
 				traitSummary: keepDisplayedMedia ? current.traitSummary : null,
 				tokenId: keepDisplayedMedia ? current.tokenId : tokenId,
@@ -268,15 +264,11 @@ export function createTokenPreviewController(
 
 			const token = preview.response.token;
 			const attributes = 'attributes' in token ? token.attributes : [];
-			const traitTree =
-				'traitTree' in token && token.traitTree?.some((n) => n.kind !== TRAIT_NODE_KIND.Leaf)
-					? token.traitTree
-					: null;
 			const traitSummary = 'traitSummary' in token ? token.traitSummary : null;
 			state.update((current) => {
 				const traitDisplay = previewContext
 					? current.traitDisplay
-					: clampTokenPreviewTraitDisplay(current.traitDisplay, traitTree ? 1 : attributes.length);
+					: clampTokenPreviewTraitDisplay(current.traitDisplay, attributes.length);
 				if (traitDisplay !== current.traitDisplay) persistTokenPreviewTraitDisplay(traitDisplay);
 				return {
 					...current,
@@ -293,7 +285,6 @@ export function createTokenPreviewController(
 					requestedMediaVariant: mediaVariant,
 					previewContext,
 					catalogScope: 'catalogScope' in token ? token.catalogScope : request.catalogScope,
-					traitTree,
 					attributes,
 					traitSummary,
 					traitDisplay,
@@ -435,7 +426,6 @@ export function createTokenPreviewController(
 			availableMediaVariants: [],
 			requestedMediaVariant: null,
 			previewContext: null,
-			traitTree: null,
 			attributes: [],
 			traitSummary: null,
 			aspectRatio: null,
@@ -503,7 +493,6 @@ export function createTokenPreviewController(
 			open: true,
 			status: TOKEN_PREVIEW_STATUS.Error,
 			iframeSource: null,
-			traitTree: null,
 			attributes: [],
 			traitSummary: null,
 			errorMessage: message
@@ -554,7 +543,7 @@ export function createTokenPreviewController(
 			return;
 		const traitDisplay = nextTokenPreviewTraitDisplay(
 			current.traitDisplay,
-			current.traitTree ? 1 : current.attributes.length
+			current.attributes.length
 		);
 		persistTokenPreviewTraitDisplay(traitDisplay);
 		state.update((value) => ({ ...value, traitDisplay }));

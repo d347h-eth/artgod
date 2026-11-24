@@ -143,7 +143,6 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 image: presentedToken.image,
                 animationUrl: presentedToken.animationUrl,
                 ...(view && { catalogScope: { id: view.id, generation: view.generation } }),
-                ...(token.traitTree !== undefined && { traitTree: token.traitTree }),
                 attributes: token.attributes,
                 traitSummary: renderTraitSummaryTemplate(
                     template,

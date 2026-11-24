@@ -1571,9 +1571,9 @@ describe("backend api routes", () => {
             const preview = await resolve("GET", base + "/1/preview");
             expect(preview.payload.token).toMatchObject({
                 traitSummary: "Card quiet",
-                traitTree: [],
                 catalogScope: { id: view.id, generation },
             });
+            expect(preview.payload.token).not.toHaveProperty("traitTree");
             expect(
                 (
                     await resolve(

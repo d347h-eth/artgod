@@ -1,6 +1,4 @@
 <script lang="ts">
-	import TraitTree from './TraitTree.svelte';
-	import { indexFlatTraits, type TraitLeaf } from '$lib/trait-tree';
 	import type { ApiTokenAttribute } from '$lib/api-types';
 	import {
 		TOKEN_PREVIEW_STATUS,
@@ -23,10 +21,7 @@
 		onpointerenter,
 		onpointerleave
 	}: {
-		state: Pick<
-			TokenPreviewState,
-			'attributes' | 'traitTree' | 'traitSummary' | 'traitDisplay' | 'status'
-		>;
+		state: Pick<TokenPreviewState, 'attributes' | 'traitSummary' | 'traitDisplay' | 'status'>;
 		traitHref: (trait: ApiTokenAttribute) => string | null;
 		customizationHref: string | null;
 		onCycle: () => void;
@@ -37,7 +32,6 @@
 	} = $props();
 
 	const rows = $derived(tokenPreviewTraitPage(state.attributes, state.traitDisplay));
-	const flatTrait = $derived(indexFlatTraits(state.attributes));
 
 	function onLinkClick(event: MouseEvent): void {
 		if (
@@ -61,22 +55,6 @@
 				{:else if customizationHref}
 					<a href={customizationHref} onclick={onLinkClick}>customize</a>
 				{/if}
-			</div>
-		{:else if state.traitDisplay.mode === TOKEN_PREVIEW_TRAITS_MODE.Page && state.traitTree}
-			<div class="token-preview-traits-output token-preview-trait-tree mono" role="region" aria-label="Token traits">
-				{#key state.traitTree}
-					<TraitTree nodes={state.traitTree}>
-						{#snippet leafValue(leaf: TraitLeaf)}
-							{@const trait = flatTrait(leaf)}
-							{@const href = trait && traitHref(trait)}
-							{#if href}
-								<a {href} aria-label={`${leaf.label}: ${leaf.value}`} onclick={onLinkClick}>{leaf.value}</a>
-							{:else}
-								{leaf.value}
-							{/if}
-						{/snippet}
-					</TraitTree>
-				{/key}
 			</div>
 		{:else if state.traitDisplay.mode === TOKEN_PREVIEW_TRAITS_MODE.Page && rows.length > 0}
 			<dl class="token-preview-traits-output mono" aria-label="Token traits">

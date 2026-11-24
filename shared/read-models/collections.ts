@@ -2014,7 +2014,6 @@ export class SqliteCollectionsReadModel {
                     collectionId: params.collectionId,
                     tokenIds: [tokenId],
                 }).get(tokenId) ?? [],
-            ...(scope ? { traitTree: readTraitTree(scope, tokenId) } : {}),
             traitSummary: null,
         };
     }

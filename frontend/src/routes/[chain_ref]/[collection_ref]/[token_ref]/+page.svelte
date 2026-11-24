@@ -926,7 +926,7 @@
 			{/if}
 			{#if structuredTraits.length}
 				{#key displayedToken.tokenId}
-					<TraitTree nodes={structuredTraits} initiallyExpanded />
+					<TraitTree nodes={structuredTraits} />
 				{/key}
 			{/if}
 		</div>
