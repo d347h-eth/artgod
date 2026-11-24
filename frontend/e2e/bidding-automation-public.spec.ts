@@ -172,7 +172,7 @@ async function openHarnessPage(page: Page, path: string): Promise<void> {
 
 test('public collection entry waits for a view and exposes read-only browsing', async ({
 	page
-}) => {
+}, info) => {
 	const path = '/api/ethereum/e2e-bidding';
 	const { buildBiddingE2eCollectionDetailData } =
 		await import('../src/lib/e2e/bidding-automation-fixtures');
@@ -189,6 +189,8 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 		classified: 0
 	};
 	const reads: string[] = [];
+	const identity = buildBiddingE2eCollectionDetailData(new URLSearchParams()).collection;
+	const collection = { ...identity, extensions: [], activityEventFeeds: [] };
 	await page.route('**/api/**', (route) =>
 		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
 	);
@@ -197,6 +199,7 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 			json: {
 				required: true,
 				selectedViewId: new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View),
+				collection,
 				views: [view]
 			}
 		})
@@ -211,7 +214,17 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 			return route.fulfill({
 				json: {
 					...fixture,
-					collection: { ...fixture.collection, extensions: [], activityEventFeeds: [] },
+					collection,
+					tokens: {
+						...fixture.tokens,
+						items: [],
+						totalItems: 0,
+						totalPages: 0,
+						rangeStart: 0,
+						rangeEnd: 0,
+						prevCursor: null,
+						nextCursor: null
+					},
 					traits: { facets: [], selected: [], selectedRanges: [] }
 				}
 			});
@@ -228,8 +241,16 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 	});
 	await expect(page.getByLabel('Token kind')).toBeVisible();
 	expect(reads).toEqual([]);
-	await page.getByLabel('Token kind').selectOption({ label: 'Eggs' });
-	await expect(page.getByText('type = egg', { exact: true })).toBeVisible();
+	const kinds = page.getByRole('group', { name: 'Token kind' });
+	await expect(page.getByRole('link', { name: 'offers', exact: true })).toBeVisible();
+	await page.screenshot({ path: info.outputPath('public-choose.png') });
+	await kinds.getByRole('link', { name: 'Eggs' }).click();
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
+	await expect(page).toHaveURL(
+		(url) => url.pathname === '/' && url.searchParams.get(TRAIT_CATALOG_QUERY.View) === view.id
+	);
+	await expect(page.getByText('type = egg', { exact: true })).toHaveCount(0);
+	await page.screenshot({ path: info.outputPath('public-eggs.png') });
 	expect(new URL(page.url()).pathname).toBe('/');
 	expect(reads).toEqual(['egg']);
 	await expect(page.getByRole('link', { name: 'customization', exact: true })).toHaveCount(0);

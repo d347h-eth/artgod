@@ -1,4 +1,5 @@
 import type { Page, Request } from 'playwright/test';
+import { buildCollectionViewsPath } from '@artgod/shared/http/collection-routes';
 import type { ApiBiddingJob } from '../../src/lib/api-types';
 import {
 	buildCompetitionPresetsPath,
@@ -111,6 +112,20 @@ export async function installBiddingAutomationApiMock(
 			activeScenario = scenario;
 		}
 	});
+
+	const viewsPath = buildCollectionViewsPath(BIDDING_E2E_CHAIN.slug, BIDDING_E2E_COLLECTION.slug);
+	await page.route(
+		(url) => url.pathname === viewsPath,
+		(route) =>
+			route.fulfill({
+				json: {
+					collection: BIDDING_E2E_COLLECTION,
+					required: false,
+					selectedViewId: null,
+					views: []
+				}
+			})
+	);
 
 	await page.route('**/api/security/csrf', async (route) => {
 		await route.fulfill({

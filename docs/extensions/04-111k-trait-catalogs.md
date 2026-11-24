@@ -50,6 +50,11 @@ chart and facet reads use current membership. Facet counts measure distinct
 NFTs. Historical events use the token's current view. The published generation
 identifies the catalog used by continuations and frontend navigation.
 
+Token kinds use the collection's secondary tabs. Artworks adds a block picker
+in the same toolbar. The selected controls show the browsing scope once.
+Filterable traits come first in the sidebar. Token-only field names are grouped
+under **Token detail fields**, and individual values are available on the NFT.
+
 The block or type selector pins its exact canonical criterion. For example,
 selecting DriMi and a blue background targets both `collection block = DriMi`
 and `01 Background = blue`. Clearing ordinary filters preserves the pin.
