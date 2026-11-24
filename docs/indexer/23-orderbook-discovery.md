@@ -133,6 +133,18 @@ differences between the two saved responses. Orders could have come and gone
 between them. Presence, availability and the reason an order left the book are
 distinct facts.
 
+Of the 4,563 missing listings, **283 still had time left** on their signatures
+when the later book was read. An expiry timer would leave those listings in the
+projection after VVV had dropped them. The other 4,280 listings and all 47
+missing WETH offers were outside their signed windows by then. All 4,610
+disappearances still change the recorded source membership.
+
+I also joined the target NFT of each of the 122 later cash offers to the owner
+in that same response. The reported counterparty matched the owner on 92 offers
+and differed on 30. Six of the 20 marked fillable had a different counterparty.
+This is why the adapter keeps that venue field separate from the signed token
+target and from ArtGod’s ownership checks.
+
 ## Ordering and the last visible price
 
 - On `main`, an OpenSea run can finish while normalized orders are still in
@@ -143,7 +155,7 @@ distinct facts.
   empty response is enough to exercise this case.
   [Orderbook sync](../../indexer/src/application/offchain/opensea-orderbook-sync.ts)
   · [Dispatch](../../indexer/src/application/offchain/dispatch.ts)
-- `SqliteOrderSourceState` uses `NOT EXISTS` on seen IDs and rechecks
+- `SqliteOrderSourceStateStore` uses `NOT EXISTS` on seen IDs and rechecks
   eligibility at each write. A time allowance protects newer or coalesced
   observations from the OpenSea stream. VVV’s two ordered reads of the public
   book have no competing stream. They can show an order’s arrival and removal
@@ -159,6 +171,13 @@ distinct facts.
   [Indexed bid-book read](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
   ·
   [Cached collection detail](../../backend/src/application/use-cases/collections/cached-get-collection-detail.ts)
+
+The existing reconciliation call applies removals before returning. The design
+keeps that property even if JetStream is backed up. Only work such as admitting
+new signed terms needs a queued hand-off. A durable source revision lets the
+domain worker recognize late work. A market-wide read and each local collection
+binding have independent revisions so purging one local scope cannot discard
+another collection’s book.
 
 ## Checks completed on 25 November
 
@@ -178,8 +197,22 @@ distinct facts.
   200 on 16 and 24 November. On 16 November, ordinary HTTP clients received
   HTTP 429. The captures exercise the read. Repeated refreshes by a packaged
   ArtGod worker and current onchain fillability still need runtime tests.
+- Replayed the saved IDs through **the same SQLite source-state store OpenSea
+  calls** on a disposable migrated database. Seeded the 5,047 earlier cash
+  orders as source members with observation times outside the OpenSea stream
+  guard, then supplied all 3,075 IDs from the later book. The store marked
+  exactly the expected 4,610 IDs inactive. An identical second read removed
+  zero. An independent source’s control order stayed active. This exercise
+  tested the missing-ID comparison. It did not ingest new VVV orders.
+- In a separate price fixture, two sources listed the same token for 0.8 and 1
+  ETH. Withdrawing the cheaper source moved the existing current-ask selector
+  and the seller’s daily row from 0.8 to 1 ETH. Withdrawing the last source
+  returned no current ask. The historical daily row retained its last price of 1
+  ETH. [Current asks](../../shared/database/current-asks.ts) ·
+  [Daily seller prices](../../indexer/src/infra/storage/sqlite-daily-listing-prices.ts)
 - Ran the current indexer reconciliation, retention, dispatch, daily listing and
   collection-scope tests against disposable local databases. All 66 tests
-  passed. Ran the backend bid-book and cached collection-detail suites. All 56
-  tests passed. These exercise the existing OpenSea and local read paths. The
-  multi-venue scenarios in the design are acceptance cases for implementation.
+  passed. All 56 backend bid-book and cached collection-detail tests passed, as
+  did all 49 shared collection-read and OpenSea bid-price tests. These exercise
+  the existing OpenSea and local read paths. The multi-venue scenarios in the
+  design are acceptance cases for implementation.
