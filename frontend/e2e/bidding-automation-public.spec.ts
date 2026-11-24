@@ -5,6 +5,7 @@ import {
 	buildBiddingE2eTokenDetailData
 } from '../src/lib/e2e/bidding-automation-fixtures';
 import { expect, test, type Page } from 'playwright/test';
+import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
@@ -195,16 +196,21 @@ test('public collection entry waits for a view and exposes read-only browsing', 
 	await page.route('**/api/**', (route) =>
 		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
 	);
-	await page.route('**/collection-views*', (route) =>
-		route.fulfill({
+	await page.route('**/collection-views*', (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		const requestedToken = query.get(PRICE_HISTORY_QUERY.TokenId);
+		const requestedView = query.get(TRAIT_CATALOG_QUERY.View);
+		if (requestedToken && requestedToken !== tokenId) return route.fulfill({ status: 404 });
+		if (requestedView && requestedView !== view.id) return route.fulfill({ status: 400 });
+		return route.fulfill({
 			json: {
 				required: true,
-				selectedViewId: new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View),
+				selectedViewId: requestedToken ? view.id : requestedView,
 				collection,
 				views: [view]
 			}
-		})
-	);
+		});
+	});
 	await page.route('**/api/runtime/config', (route) => route.fulfill({ json: {} }));
 	await page.route(
 		(url) => url.pathname === path,
