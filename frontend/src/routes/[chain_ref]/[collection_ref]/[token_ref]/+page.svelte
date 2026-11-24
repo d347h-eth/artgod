@@ -883,9 +883,6 @@
 		{/if}
 
 		<div class="token-detail-traits-wrap">
-			{#if structuredTraits.length}
-				{#key displayedToken.tokenId}<TraitTree nodes={structuredTraits} />{/key}
-			{/if}
 			{#if sortedTraits().length === 0}
 				{#if collectionViewPage() && displayedToken.traitTree == null}<p class="muted">Traits pending</p>{:else if !displayedToken.traitTree?.length}<p class="muted">no traits available</p>{/if}
 			{:else}
@@ -929,6 +926,11 @@
 							{/each}
 					</tbody>
 				</table>
+			{/if}
+			{#if structuredTraits.length}
+				{#key displayedToken.tokenId}
+					<TraitTree nodes={structuredTraits} initiallyExpanded />
+				{/key}
 			{/if}
 		</div>
 

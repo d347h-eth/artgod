@@ -6,7 +6,11 @@
 
 	const PAGE_SIZE = 24;
 
-	let { nodes, leafValue }: { nodes: TraitNode[]; leafValue?: Snippet<[TraitLeaf]> } = $props();
+	let {
+		nodes,
+		leafValue,
+		initiallyExpanded = false
+	}: { nodes: TraitNode[]; leafValue?: Snippet<[TraitLeaf]>; initiallyExpanded?: boolean } = $props();
 	let offset = $state(0);
 	let search = $state('');
 	let open = $state<Record<string, boolean>>({});
@@ -71,8 +75,9 @@
 					</dl>
 				{:else}
 					{@const children = visibleChildren(node)}
+					{@const expanded = open[node.id] ?? initiallyExpanded}
 					<details
-						open={open[node.id] === true}
+						open={expanded}
 						ontoggle={(event) => (open[node.id] = event.currentTarget.open)}
 					>
 						<summary>
@@ -81,7 +86,7 @@
 								<span class="trait-tree-count">{children.length}</span>
 							{/if}
 						</summary>
-						{#if open[node.id]}
+						{#if expanded}
 							<TraitTree nodes={children} {leafValue} />
 						{/if}
 					</details>
@@ -117,7 +122,6 @@
 
 <style>
 	.trait-tree {
-		container-type: inline-size;
 		min-width: 0;
 		font-size: 0.78rem;
 		line-height: 1.5;
@@ -148,11 +152,16 @@
 		grid-template-columns: subgrid;
 	}
 
-	/* Keep each name with its value. A long list can use two pairs across
-	   when the tree itself is wide enough, including inside nested groups. */
-	@container (min-width: 68rem) {
+	/* Cap label tracks against the available section, including when the tree centers at its intrinsic width. */
+	@container token-detail-traits (min-width: 0px) {
+		ul {
+			grid-template-columns: fit-content(44cqi) minmax(0, 1fr);
+		}
+	}
+
+	@container token-detail-traits (min-width: 68rem) {
 		.field-list:has(> :nth-child(8)) {
-			grid-template-columns: repeat(2, fit-content(21%) minmax(0, 1fr));
+			grid-template-columns: repeat(2, fit-content(23cqi) minmax(0, 1fr));
 			column-gap: 1.25rem;
 		}
 
