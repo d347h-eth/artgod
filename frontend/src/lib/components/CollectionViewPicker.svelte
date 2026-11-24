@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { compareTraitLabels } from '$lib/trait-facet-sorting';
 	import {
 		collectionViewPickerHref,
 		selectedCollectionView,
@@ -36,7 +37,9 @@
 	]);
 	let kind = $derived(active?.parent?.id ?? active?.id ?? initialGroup);
 	let leaves = $derived(
-		context.discovery.views.filter((view) => view.parent && view.parent.id === kind)
+		context.discovery.views
+			.filter((view) => view.parent && view.parent.id === kind)
+			.sort((left, right) => compareTraitLabels(left.label, right.label))
 	);
 
 	// A scope change remounts the results. Return keyboard focus to the
@@ -97,6 +100,7 @@
 <style>
 	.collection-view-picker {
 		font-size: 0.72rem;
+		gap: 0.65rem 1.5rem;
 	}
 
 	label {

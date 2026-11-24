@@ -1,5 +1,8 @@
 import { expect, it, vi } from 'vitest';
+import { render } from 'svelte/server';
 import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
+import CollectionViewPicker from './components/CollectionViewPicker.svelte';
+import { BIDDING_E2E_COLLECTION } from './e2e/bidding-automation-fixtures';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE as Target,
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE as State,
@@ -35,6 +38,42 @@ const view = {
 	activeMapperVersion: 'test',
 	availableMapperVersion: 'test'
 };
+
+it('orders sibling blocks by label while preserving case variants and their distinct option values', () => {
+	const parent = { id: 'artworks', label: 'Artworks' };
+	const views = ['Zebra', 'apple', 'Apple', 'BRAVO', 'apricot'].map((label, index) => ({
+		...view,
+		id: `block-${index}`,
+		label,
+		parent
+	}));
+	const { body } = render(CollectionViewPicker, {
+		props: {
+			context: {
+				chainRef: 'chain',
+				collectionRef: 'collection',
+				basePath: '/chain/collection',
+				discovery: {
+					collection: BIDDING_E2E_COLLECTION,
+					required: true,
+					selectedViewId: views[2].id,
+					views
+				}
+			},
+			path: '/chain/collection',
+			query: new URLSearchParams()
+		}
+	});
+	const options = [...body.matchAll(/<option value="(block-\d+)"[^>]*>([^<]+)<\/option>/g)];
+	expect(body).toMatch(/<option value="block-2" selected[^>]*>Apple<\/option>/);
+	expect(options.map(([, id, label]) => [id, label])).toEqual([
+		['block-1', 'apple'],
+		['block-2', 'Apple'],
+		['block-4', 'apricot'],
+		['block-3', 'BRAVO'],
+		['block-0', 'Zebra']
+	]);
+});
 
 it('retains the complete token selection and blocks a native draft with an unbound field', () => {
 	const selected = { key: 'Decoration', value: 'blue' };

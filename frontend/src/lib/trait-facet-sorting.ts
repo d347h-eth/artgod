@@ -5,10 +5,10 @@ export type TraitFacetValue = {
 
 export type TraitFacetValueSortMode = 'rarity' | 'alpha';
 
-const TRAIT_VALUE_COLLATOR = new Intl.Collator(undefined, {
+export const compareTraitLabels = new Intl.Collator(undefined, {
 	numeric: true,
 	sensitivity: 'base'
-});
+}).compare;
 
 export function sortTraitFacetValues(
 	values: TraitFacetValue[],
@@ -16,7 +16,7 @@ export function sortTraitFacetValues(
 ): TraitFacetValue[] {
 	const items = [...values];
 	if (mode === 'alpha') {
-		items.sort((left, right) => TRAIT_VALUE_COLLATOR.compare(left.value, right.value));
+		items.sort((left, right) => compareTraitLabels(left.value, right.value));
 		return items;
 	}
 
@@ -24,7 +24,7 @@ export function sortTraitFacetValues(
 		if (left.tokenCount !== right.tokenCount) {
 			return left.tokenCount - right.tokenCount;
 		}
-		return TRAIT_VALUE_COLLATOR.compare(left.value, right.value);
+		return compareTraitLabels(left.value, right.value);
 	});
 	return items;
 }
