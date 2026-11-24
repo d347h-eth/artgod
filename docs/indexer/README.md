@@ -32,10 +32,12 @@ and [operator procedure](18-order-queue-recovery.md).
 
 - [Storage and schema](05-storage-and-schema.md)
 - [Orders and token sets](07-domain-orders.md)
-- [Multiple orderbooks](21-multiple-orderbooks.md) — proposed venue resolution,
-  publication lifecycle and passive market reads.
-- [VVV orderbook adapter](22-vvv-orderbook-adapter.md) — captured terms,
-  transport evidence and proposed mapping into the passive book.
+- [Multiple orderbooks](21-multiple-orderbooks.md) — proposed design for keeping
+  one local book of listings and offers in sync across marketplaces.
+- [VVV orderbook adapter](22-vvv-orderbook-adapter.md) — how to find a market,
+  read its public book and compare its prices with OpenSea.
+- [Orderbook discovery notes](23-orderbook-discovery.md) — user requirements,
+  current OpenSea behavior and differences measured in saved VVV books.
 - [Metadata and traits](08-domain-metadata.md)
 - [Permanent pending metadata](20-metadata-pending-backlog.md)
 - [Activities](09-domain-activities.md)
