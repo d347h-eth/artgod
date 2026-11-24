@@ -65,7 +65,11 @@ const BIDDING_E2E_API_PATH_SUFFIX = {
 // Captures bidding write calls while returning deterministic API responses to the real UI.
 export async function installBiddingAutomationApiMock(
 	page: Page,
-	options: { competitionReapply?: boolean; bidBookCollection?: ApiCollection } = {}
+	options: {
+		competitionReapply?: boolean;
+		bidBookCollection?: ApiCollection;
+		collectionBidBookFixture?: typeof buildBiddingE2eCollectionBiddingData;
+	} = {}
 ): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
 	const reapplyFixture = options.competitionReapply
@@ -238,7 +242,14 @@ export async function installBiddingAutomationApiMock(
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify(bidBookResponse(url, searchParams, options.bidBookCollection))
+				body: JSON.stringify(
+					bidBookResponse(
+						url,
+						searchParams,
+						options.bidBookCollection,
+						options.collectionBidBookFixture
+					)
+				)
 			});
 			return;
 		}
@@ -607,7 +618,8 @@ function jobResponse(input: {
 function bidBookResponse(
 	url: URL,
 	searchParams: URLSearchParams,
-	collection?: ApiCollection
+	collection?: ApiCollection,
+	collectionFixture = buildBiddingE2eCollectionBiddingData
 ): unknown {
 	const tokenId = tokenIdFromTokenScopedBiddingPath(url.pathname);
 	if (tokenId) {
@@ -620,7 +632,7 @@ function bidBookResponse(
 		};
 	}
 
-	const data = buildBiddingE2eCollectionBiddingData(searchParams);
+	const data = collectionFixture(searchParams);
 	return {
 		chain: data.chain,
 		collection: collection ?? data.collection,

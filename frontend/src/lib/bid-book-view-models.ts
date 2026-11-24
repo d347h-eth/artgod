@@ -1,5 +1,5 @@
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
-import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
+import type { BidBookBrowseCriterion, BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 
 // Names scope-cell presentation variants for the regular bid-book table.
 export const BID_BOOK_ROWS_TABLE_SCOPE_KIND = {
@@ -42,6 +42,7 @@ export type BidBookRowsTableScope =
 	| {
 			kind: typeof BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits;
 			traits: ApiBiddingBidBookRow['scope']['traits'];
+			browseCriterion: BidBookBrowseCriterion;
 			traitValueHref: BidBookTraitValueHref | null;
 			showFilterAction: boolean;
 			filterLabel: string;
@@ -77,6 +78,7 @@ export type BidBookDemandTableGroup = {
 	muted: boolean;
 	startsNewGroup: boolean;
 	traits: ApiBiddingBidBookRow['scope']['traits'];
+	browseCriterion: BidBookBrowseCriterion;
 	traitValueHref: BidBookTraitValueHref | null;
 	showFilterAction: boolean;
 	filterLabel: string;

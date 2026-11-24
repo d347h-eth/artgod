@@ -135,6 +135,7 @@
 										<span class="bid-book-demand-group-title">
 											<BidBookTraitList
 												traits={row.scope.traits}
+												browseCriterion={row.scope.browseCriterion}
 												traitValueHref={row.scope.traitValueHref}
 											/>
 										</span>

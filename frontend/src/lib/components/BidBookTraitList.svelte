@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type {
+		BidBookBrowseCriterion,
 		BidBookScopeTraits,
 		BidBookTraitValueHref
 	} from '$lib/bidding-bid-book-display';
@@ -13,15 +14,27 @@
 
 	let {
 		traits,
+		browseCriterion = (native) => native,
 		traitValueHref = null
 	}: {
 		traits: BidBookScopeTraits;
+		browseCriterion?: BidBookBrowseCriterion;
 		traitValueHref?: BidBookTraitValueHref | null;
 	} = $props();
+
+	function browseValueHref(criterion: BidBookScopeTraits[number] | null): string | null {
+		if (!traitValueHref || !criterion || isTradingNumericTraitRange(criterion)) return null;
+		const filter = { key: criterion.type, value: criterion.value };
+		return canRepresentTraitFilters([filter], []) ? traitValueHref(filter) : null;
+	}
 </script>
 
 <span class="bid-book-demand-trait-list">
-	{#each traits as trait, traitIndex (biddingTraitCriteriaKey([trait]))}
+	{#each traits as native, traitIndex (biddingTraitCriteriaKey([native]))}
+		{@const filter = browseCriterion(native)}
+		{@const trait = filter ?? native}
+		{@const href = browseValueHref(filter)}
+		{@const value = trimBidBookTraitText(formatTradingTraitCriterionValue(trait))}
 		<span class="bid-book-demand-trait-entry">
 			{#if traitIndex > 0}
 				<span class="bid-book-demand-trait-separator">+</span>
@@ -29,20 +42,10 @@
 			<span class="bid-book-demand-trait">
 				<span class="bid-book-demand-trait-key">{trimBidBookTraitText(trait.type)}</span>
 				<span class="bid-book-demand-trait-equals">=</span>
-				{#if traitValueHref && !isTradingNumericTraitRange(trait) && canRepresentTraitFilters([{ key: trait.type, value: trait.value }], [])}
-					<a
-						class="bid-book-demand-trait-value-link"
-						href={traitValueHref({
-							key: trait.type,
-							value: trait.value
-						})}
-					>
-						{trimBidBookTraitText(trait.value)}
-					</a>
+				{#if href}
+					<a class="bid-book-demand-trait-value-link" {href}>{value}</a>
 				{:else}
-					<span class="bid-book-demand-trait-value">
-						{trimBidBookTraitText(formatTradingTraitCriterionValue(trait))}
-					</span>
+					<span class="bid-book-demand-trait-value">{value}</span>
 				{/if}
 			</span>
 		</span>

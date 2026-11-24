@@ -578,7 +578,7 @@ Bidding-specific trait behavior:
 - `AND` join means each selected `key=value` must be present in the trait bucket
 - when filters are active, do not silently cycle the join mode unless the user explicitly clicks the join-mode control
 - `bid_scope=collection` does not render the trait facet panel because collection-wide bids are not trait-filtered
-- selecting a trait bucket for bidding should also apply its traits to the visible trait filters so the panel, bid controls, and URL stay coherent
+- the bucket’s bid action opens a draft for its complete marketplace target. The filter action applies its criteria to the visible trait filters and URL
 
 ### Collection Query-Control Preferences and Shortcuts
 
@@ -715,7 +715,8 @@ Scope rules:
 - token detail bid books should keep the scope column because the token can receive collection, trait, token, and token-set offers
 - trait scope views group individual bids under canonical trait-combination buckets; do not replace the individual bid list with aggregate-only rows
 - trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
-- clickable trait values in bucket titles should apply the same trait filter controls as the facet panel
+- show every criterion in a trait bucket title or token-detail offer scope, including traits absent from the sidebar
+- All and parent group views filter by marketplace traits directly. In a derived view, link an exact value through its matching catalog filter. Show the original marketplace criterion as plain text when no unambiguous mapping exists
 
 Own-state filters:
 

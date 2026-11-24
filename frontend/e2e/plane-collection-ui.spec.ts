@@ -8,7 +8,25 @@ import {
 	NFT111K_STRUCTURED_BLOCK,
 	nft111kTraitCatalog as mapper
 } from '@artgod/shared/extensions/111k';
-import { TRAIT_FILTER_DISPLAY_KIND, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
+import {
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	COLLECTION_BIDDING_BID_SCOPE_FILTER,
+	TRAIT_FILTER_DISPLAY_KIND,
+	TRAIT_FILTER_QUERY_PARAMS,
+	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	formatTradingBiddingBidScopeLabel
+} from '@artgod/shared/types';
+import { biddingTraitScopeMatchesFilters } from '@artgod/shared/trading/offer-trait-criteria';
+import { parseEther } from 'viem';
+import type { ApiBiddingMarketBidBookRow } from '../src/lib/api-types';
+import {
+	BID_SCOPE_QUERY_PARAM,
+	parseCollectionBiddingTraitFilterJoinMode
+} from '../src/lib/bidding-query';
+import { parseSelectedTraits } from '../src/lib/trait-filters';
+import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
 import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
 import { TRAIT_CATALOG_QUERY, type CollectionViewStatus } from '@artgod/shared/types/trait-catalog';
 import { buildTokenDetailHref } from '../src/lib/token-browser-query';
@@ -16,6 +34,7 @@ import { MEDIA_MODE_QUERY_PARAM } from '../src/lib/media-mode';
 import { selectCollectionViewHref } from '../src/lib/collection-view';
 import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '../src/lib/components/collection-page-layout-dom';
 import {
+	buildBiddingE2eCollectionBiddingData,
 	buildBiddingE2eCollectionDetailData,
 	buildBiddingE2eTokenDetailData
 } from '../src/lib/e2e/bidding-automation-fixtures';
@@ -194,7 +213,10 @@ const facetsByView = new Map([
 	]
 ]);
 
-async function installPlaneFixture(page: Page) {
+async function installPlaneFixture(
+	page: Page,
+	collectionBidBookFixture?: typeof buildBiddingE2eCollectionBiddingData
+) {
 	const detailTokens = [...tokens, detailToken()];
 	const sample = buildBiddingE2eCollectionDetailData(new URLSearchParams());
 	const collection = {
@@ -209,7 +231,10 @@ async function installPlaneFixture(page: Page) {
 	await page.route('**/api/**', (route) =>
 		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
 	);
-	await installBiddingAutomationApiMock(page, { bidBookCollection: collection });
+	await installBiddingAutomationApiMock(page, {
+		bidBookCollection: collection,
+		collectionBidBookFixture
+	});
 	await page.route('**/api/runtime/config', (route) =>
 		route.fulfill({ json: { bidding: { trustOpenSeaSignedZoneTraitOffers: true } } })
 	);
@@ -754,6 +779,127 @@ test('keeps collection navigation and artwork filters usable through block, kind
 		await waitForGallery();
 		await shots('collection-all-1172');
 	}
+});
+
+test('shows native trait offer targets in All when the catalog has no matching filter', async ({
+	page
+}, info) => {
+	const subBlock = { type: 'sub block', value: 'cruciswag' };
+	const pose = { type: 'Pose', value: 'Curled sleeping' };
+	const type = { type: META.Type, value: 'painting' };
+	const sample = buildBiddingE2eCollectionBiddingData(
+		new URLSearchParams({ [BID_SCOPE_QUERY_PARAM]: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits })
+	).bidBook.bids.find(
+		(bid): bid is ApiBiddingMarketBidBookRow =>
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid
+	)!;
+	const marketOffer = (
+		index: number,
+		maker: number,
+		quantity: number,
+		eth: string,
+		traits: (typeof subBlock)[]
+	) => {
+		const scope = { ...sample.scope, encodedTokenIds: FILM_TOKEN + ',' + DETAIL_TOKEN, traits };
+		const address = '0x' + String(maker).repeat(40);
+		return {
+			...sample,
+			orderId: 'trait-offer-' + index,
+			maker: { ...sample.maker, address, label: address },
+			quantity: String(quantity),
+			price: {
+				kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+				wei: parseEther(eth).toString(),
+				eth
+			},
+			scope: { ...scope, label: formatTradingBiddingBidScopeLabel(scope) }
+		};
+	};
+	const offers = [
+		marketOffer(1, 1, 2, '0.033', [subBlock]),
+		marketOffer(2, 2, 1, '0.03', [subBlock]),
+		marketOffer(3, 2, 2, '0.03', [subBlock]),
+		marketOffer(4, 3, 5, '0.02', [subBlock]),
+		marketOffer(5, 4, 3, '0.0069', [subBlock]),
+		// Match the lower collection median so the fifth sub-block offer is visible.
+		marketOffer(6, 4, 1, '0.013', [type, pose]),
+		marketOffer(7, 3, 1, '0.012', [type, pose]),
+		marketOffer(8, 2, 1, '0.011', [type, pose]),
+		marketOffer(9, 1, 1, '0.010', [type, pose])
+	];
+	const { path } = await installPlaneFixture(page, (params) => {
+		const data = buildBiddingE2eCollectionBiddingData(params);
+		if (data.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits) return data;
+		const bids =
+			data.ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+				? []
+				: offers.filter((bid) =>
+						biddingTraitScopeMatchesFilters(
+							bid.scope.traits,
+							data.selectedTraits,
+							data.selectedTraitRanges,
+							data.traitJoinMode
+						)
+					);
+		return {
+			...data,
+			facets: aggregateFacets(tokens),
+			bidBook: {
+				...data.bidBook,
+				bids,
+				state: { ...data.bidBook.state, rowCount: bids.length }
+			}
+		};
+	});
+	await enter(page, path);
+	await expect(
+		page.getByRole('group', { name: 'Token kind' }).locator('[aria-current]')
+	).toHaveText('All');
+	await page.getByRole('link', { name: 'offers', exact: true }).click();
+	await page.getByLabel('Own bid filter').getByRole('link', { name: 'all bids' }).click();
+	await page
+		.getByLabel('Bid scope filter')
+		.getByRole('link', { name: 'traits', exact: true })
+		.click();
+
+	const headings = page.locator('.bid-book-demand-group-row');
+	const unmapped = headings.filter({ hasText: /sub block\s*=\s*cruciswag/ });
+	const mixed = headings.filter({ hasText: /Pose\s*=\s*Curled sleeping/ });
+	await expect(unmapped).toBeVisible();
+	const summary = page.locator('.bid-book-demand-group-meta-row').filter({ hasText: '0.2767' });
+	await expect(summary.locator('.runtime-v')).toHaveText(['0.2767', '5', '4']);
+	await expect(mixed.getByRole('link', { name: type.value })).toBeVisible();
+	await expect(mixed.getByRole('link', { name: pose.value })).toBeVisible();
+	await expect(mixed.getByTestId(TEST_IDS.BidBookTraitBucketFilter)).toBeVisible();
+	const buckets = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.Traits });
+	await page.screenshot({ path: info.outputPath('all-trait-offers.png'), fullPage: true });
+	await buckets.getByRole('button', { name: /sub block/i }).click();
+	await expect(unmapped).toBeVisible();
+	await expect(mixed).toHaveCount(0);
+	await buckets.getByRole('button', { name: /All/i }).click();
+	await unmapped.getByRole('link', { name: subBlock.value }).click();
+	await expect
+		.poll(() => parseSelectedTraits(new URL(page.url()).searchParams))
+		.toEqual([{ key: subBlock.type, value: subBlock.value }]);
+	await expect(unmapped).toBeVisible();
+	await expect(mixed).toHaveCount(0);
+	await page.getByRole('button', { name: 'remove sub block=cruciswag' }).click();
+	await expect(mixed).toBeVisible();
+	await mixed.getByTestId(TEST_IDS.BidBookTraitBucketFilter).click();
+	await expect
+		.poll(() => parseSelectedTraits(new URL(page.url()).searchParams))
+		.toEqual([
+			{ key: pose.type, value: pose.value },
+			{ key: type.type, value: type.value }
+		]);
+	expect(parseCollectionBiddingTraitFilterJoinMode(new URL(page.url()).searchParams)).toBe(
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+	);
+	await expect(mixed).toBeVisible();
+	await expect(unmapped).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'remove Pose=Curled sleeping' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'remove type=painting' })).toBeVisible();
+	await page.screenshot({ path: info.outputPath('all-trait-offers-filtered.png'), fullPage: true });
 });
 
 test('separates the collection scope from Offers and Asks controls', async ({ page }, info) => {
