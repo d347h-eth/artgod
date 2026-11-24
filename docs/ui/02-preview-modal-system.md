@@ -220,6 +220,8 @@ centered media controls. Activity-event previews retain their media-only control
 The initial output uses the effective token-card trait summary template, including
 its line breaks. When that summary has no text, local deployments show a muted
 `customize` link to the token-card template section of collection customization.
+The link opens the template that supplied the preview summary, including the
+token’s block template when browsing the whole collection or a parent group.
 That editor provides compact examples of the supported template syntax. Public
 deployments omit the link because they do not expose the editor. Clicking `traits`
 cycles through pages of at most 20 flat key/value pairs,

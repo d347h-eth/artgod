@@ -32,6 +32,7 @@ import { TRAIT_CATALOG_QUERY, type CollectionViewStatus } from '@artgod/shared/t
 import { buildTokenDetailHref } from '../src/lib/token-browser-query';
 import { MEDIA_MODE_QUERY_PARAM } from '../src/lib/media-mode';
 import { selectCollectionViewHref } from '../src/lib/collection-view';
+import { COLLECTION_CUSTOMIZATION_SECTION } from '../src/lib/customization-query';
 import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '../src/lib/components/collection-page-layout-dom';
 import {
 	buildBiddingE2eCollectionBiddingData,
@@ -392,7 +393,7 @@ async function installPlaneFixture(
 			}
 		);
 	}
-	return { path, requests };
+	return { path, requests, chain: sample.chain, collection };
 }
 
 // Enter through the hydrated client so all API traffic uses the isolated browser fixture.
@@ -1269,3 +1270,44 @@ test('reads long Plane trait names and filenames together on token 34273', async
 	await expect(tree.locator('details:not([open])')).toHaveCount(0);
 	await expect(characterFields.first()).toBeVisible();
 });
+
+for (const entry of ['All', 'Artworks'] as const) {
+	test(`opens the token’s block summary editor from the ${entry} gallery`, async ({
+		page
+	}, info) => {
+		const { path, chain, collection } = await installPlaneFixture(page);
+		const settingsPath = '/api' + path + '/customization';
+		await page.route(
+			(url) => url.pathname === settingsPath,
+			(route) => route.fulfill({ json: { chain, collection, customization: null } })
+		);
+		await enter(page, path);
+		if (entry === 'Artworks') {
+			await page
+				.getByRole('group', { name: 'Token kind' })
+				.getByRole('link', { name: entry })
+				.click();
+		}
+		await page.getByRole('button', { name: 'preview token ' + tokens[0].id, exact: true }).click();
+		const dialog = page.getByRole('dialog', { name: 'Token Preview' });
+		const settingsRequest = page.waitForRequest(
+			(request) => new URL(request.url()).pathname === settingsPath
+		);
+		await dialog.getByRole('link', { name: 'customize', exact: true }).click();
+		const query = new URL((await settingsRequest).url()).searchParams;
+		expect(query.get(TRAIT_CATALOG_QUERY.View)).toBe(plane.id);
+		expect(query.get(TRAIT_CATALOG_QUERY.Generation)).toBe(String(plane.generation));
+		const section = COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate;
+		await expect(page).toHaveURL(
+			(url) => url.pathname === path + '/customization' && url.hash === '#' + section
+		);
+		await expect(page.getByRole('combobox', { name: 'Collection block' })).toHaveValue(plane.id);
+		await expect(
+			page
+				.locator('#' + section)
+				.getByRole('heading', { name: 'token card trait summary template' })
+		).toBeInViewport();
+		await expect(dialog).toHaveCount(0);
+		await page.screenshot({ path: info.outputPath('preview-block-summary-editor.png') });
+	});
+}
