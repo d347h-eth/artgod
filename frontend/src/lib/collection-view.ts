@@ -6,6 +6,7 @@ import {
 } from '@artgod/shared/types/trait-catalog';
 import { TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import type { ApiCollection } from '$lib/api-types';
 import { joinPath, withQuery } from '$lib/route-paths';
 
 const PICKER_ROUTE = 'views';
@@ -23,7 +24,7 @@ export type CollectionViewPage = {
 	chainRef: string;
 	collectionRef: string;
 	basePath: string;
-	discovery: CollectionViewsResponse;
+	discovery: CollectionViewsResponse & { collection: ApiCollection };
 	pickerDestination?: { path: string; query: string };
 };
 export type CatalogScope = Pick<CollectionViewStatus, 'id' | 'generation'>;

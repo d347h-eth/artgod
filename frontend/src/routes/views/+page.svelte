@@ -1,5 +1,5 @@
 <script lang="ts">
-	import CollectionViewEntry from '$lib/components/CollectionViewEntry.svelte';
+	import CollectionViewNavigation from '$lib/components/CollectionViewNavigation.svelte';
 </script>
 
-<CollectionViewEntry />
+<CollectionViewNavigation />

@@ -9,7 +9,7 @@
 		type CollectionExtensionNavigationPageTarget,
 		type CollectionExtensionNavigationTab
 	} from '$lib/collection-extension-navigation';
-	import type { CollectionNavigation } from '$lib/collection-navigation';
+	import type { CollectionNavigation, CollectionSectionSelection } from '$lib/collection-navigation';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
 	let {
@@ -22,16 +22,7 @@
 		showCustomization = true
 	}: {
 		navigation: CollectionNavigation;
-		active:
-			| 'tokens'
-			| 'chart'
-			| 'activities'
-			| 'holders'
-			| 'customization'
-			| 'bidding'
-			| 'blockspace'
-			| 'extension-page'
-			| null;
+		active: CollectionSectionSelection['activeSection'];
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
