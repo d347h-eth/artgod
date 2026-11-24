@@ -10,7 +10,7 @@ import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
 import { buildBiddingE2eTokenDetailData } from '../src/lib/e2e/bidding-automation-fixtures';
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 
-test('resolves a direct Backrooms token and searches paired artworks with bounded rendering', async ({
+test('opens every Backrooms painting and mounts its fields on expansion', async ({
 	page
 }, info) => {
 	const tokenId = '42';
@@ -106,18 +106,30 @@ test('resolves a direct Backrooms token and searches paired artworks with bounde
 		link.remove();
 	}, path);
 	const heading = page.getByText('Paintings', { exact: true });
+	const paintings = page.getByText(/^Painting [0-9]+$/);
+	const lastPainting = page.getByText('Painting 1447', { exact: true });
+	const lastArtist = page.getByText('Artist number 1447', { exact: true });
 	await expect(heading).toBeVisible();
 	expect(dataReads).toBeGreaterThan(0);
-	await expect(page.getByText('1–24 of 1447')).toBeVisible();
+	await expect(paintings).toHaveCount(1447);
+	await expect(lastArtist).toHaveCount(0);
+	await lastPainting.click();
+	await lastArtist.scrollIntoViewIfNeeded();
+	await expect(lastArtist).toBeInViewport();
+	await page.screenshot({ path: info.outputPath('backrooms-paintings-unpaged.png') });
 	await heading.click();
-	await expect(page.getByText('1–24 of 1447')).toBeHidden();
+	await expect(paintings).toHaveCount(0);
+	await expect(lastArtist).toHaveCount(0);
+	await page.screenshot({ path: info.outputPath('backrooms-paintings-collapsed.png') });
 	await heading.click();
-	await expect(page.getByText(/^Painting [0-9]+$/)).toHaveCount(24);
+	await expect(paintings).toHaveCount(1447);
 	const search = page.getByRole('textbox', { name: 'Search traits', exact: true });
 	await search.fill('artist number 1447');
-	await page.getByText('Painting 1447', { exact: true }).click();
-	await expect(page.getByText('Artist number 1447', { exact: true })).toBeVisible();
+	await expect(paintings).toHaveCount(1);
+	await lastPainting.click();
+	await expect(lastArtist).toBeVisible();
 	await expect(page.getByText('Untitled', { exact: true })).toBeVisible();
-	await expect(page.getByText(/^Painting [0-9]+$/)).toHaveCount(1);
 	await page.screenshot({ path: info.outputPath('backrooms-painting.png') });
+	await search.fill('');
+	await expect(paintings).toHaveCount(1447);
 });

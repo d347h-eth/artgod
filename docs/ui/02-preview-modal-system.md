@@ -216,9 +216,9 @@ The initial output uses the effective token-card trait summary template, includi
 its line breaks. When that summary has no text, local deployments show a muted
 `customize` link to the token-card template section of collection customization.
 That editor provides compact examples of the supported template syntax. Public
-deployments omit the link because they do not expose the editor. Clicking `traits` cycles
-through the normalized traits in pages of at most 20 key/value pairs, then no
-output, then the summary again. Tokens without traits skip the key/value pages.
+deployments omit the link because they do not expose the editor. For flat
+traits, clicking `traits` cycles through pages of at most 20 key/value pairs,
+then no output, then the summary again. Tokens without traits skip the key/value pages.
 
 The key/value text is one compact column. Keys are cut to 10 Unicode code points
 and values to 15, without ellipses or masks; whitespace within a key or value
@@ -227,10 +227,12 @@ using the complete key/value and current media selection. Values that cannot
 round-trip through the existing trait-filter query grammar remain plain text.
 The template summary has no filter links.
 
-In a structured collection view, the traits page opens a collapsible tree.
+For tokens with a structured tree, the traits control opens the tree with its
+groups collapsed. Expanding a group shows all its entries. Large groups support
+search.
 Values with a matching flat catalog field link to filtered tokens in the same
 view and generation. Instance properties such as a painting's artist remain
-readable within their group. Large groups support search and paging.
+readable within their group.
 
 The intentional hidden mode stays completely empty. Saving customization clears
 the frontend preview cache, including pending prefetches, so the next preview
