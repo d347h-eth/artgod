@@ -3515,7 +3515,7 @@ a.bid-book-own-status:focus-visible {
 
 .token-detail-traits-wrap {
 	display: grid;
-	grid-template-columns: minmax(0, 820px);
+	grid-template-columns: minmax(0, 96rem);
 	justify-content: center;
 	gap: 0.8rem;
 	padding: 0 0.75rem;
@@ -3764,6 +3764,7 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-detail-traits {
+	justify-self: center;
 	width: min(820px, 100%);
 	border-collapse: separate;
 	border-spacing: 0;
