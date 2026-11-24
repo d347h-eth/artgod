@@ -1613,6 +1613,12 @@ th {
 	color: color-mix(in srgb, var(--c-sand) 82%, transparent);
 }
 
+.bid-book-maker-filter-input:focus,
+.collection-view-picker select:focus {
+	outline: none;
+	box-shadow: none;
+}
+
 .bid-book-maker-filter-input[aria-invalid='true'] {
 	border-color: var(--c-pink);
 	color: var(--c-pink);
