@@ -117,8 +117,8 @@ See the [HTTP contract](../backend/openapi.yaml).
 
 The static Userland build and fixture-backed desktop and mobile browser checks
 passed. The [preview journey](../../frontend/e2e/preview-traits.spec.ts)
-also checks the room-property filter link and opens a painting to read its
-title and artist.
+covers the muted summary and flat trait pages. The projection tree is available
+on token detail.
 Packaged desktop and user-run mainnet bootstrap qualification remain open.
 Further per-block mappings and predicates spanning multiple properties of one
 entity instance are deferred.

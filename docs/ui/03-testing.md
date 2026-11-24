@@ -86,11 +86,11 @@ after reload, clamping across tokens, empty traits/templates, filtering with
 unabridged values, muted link focus/hover, loading/retry, resize and preview scale.
 It also follows an empty summary's `customize` link to the template editor anchor,
 checks the example reference, and saves a template before reopening the preview.
-The structured preview fixture checks a room property's filter link and
-opens a painting to read its artist on desktop and touch layouts.
 It preserves screenshots and diagnostics for every run under
 `tmp/preview-traits-playwright/`. Media and control geometry are checked across
 the complete trait cycle; rendered screenshots still require visual review.
+The 111K collection-view journey checks that structured tokens use the flat
+preview controls and expose their projection tree on the detail page.
 
 ### Runtime Recovery
 

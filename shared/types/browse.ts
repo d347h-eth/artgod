@@ -259,7 +259,6 @@ export type TokenMediaPreview = {
 export type TokenPreview = TokenMediaPreview & {
     // Trait links from a multi-view gallery use the catalog that supplied this token's fields.
     catalogScope?: Pick<CollectionViewStatus, "id" | "generation">;
-    traitTree?: TraitNode[] | null;
     attributes: TokenAttribute[];
     traitSummary: string | null;
 };

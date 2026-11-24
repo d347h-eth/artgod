@@ -329,6 +329,12 @@ describe("token preview default query cache helpers", () => {
         );
     });
 
+    it("keeps token-specific catalog generations out of the default preview cache", () => {
+        const output = createPreviewOutput();
+        output.token.catalogScope = { id: "fixture-view", generation: 2 };
+        expect(isTokenPreviewDefaultCacheEligible(output)).toBe(false);
+    });
+
     it("treats only default media responses as cacheable", () => {
         expect(isTokenPreviewDefaultCacheEligible(createPreviewOutput())).toBe(
             true,
