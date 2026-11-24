@@ -58,8 +58,9 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 			}
 		});
 	});
-	await page.route('**/customization?*', (route) =>
-		route.fulfill({ json: { chain: fixture.chain, collection, customization: null } })
+	await page.route(
+		(url) => url.pathname === '/api' + path + '/customization',
+		(route) => route.fulfill({ json: { chain: fixture.chain, collection, customization: null } })
 	);
 	await page.route('**/trait-catalog/rebuilds?*', (route) => {
 		expect(new URL(route.request().url()).searchParams.get(TRAIT_CATALOG_QUERY.View)).toBe(
@@ -140,11 +141,16 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 		link.click();
 		link.remove();
 	}, `${path}?limit=2&media_mode=snapshot&traits=stale:value&cursor=old`);
-	await expect(page.getByLabel('Token kind')).toBeVisible();
+	const kinds = page.getByRole('group', { name: 'Token kind' });
+	const blocks = page.getByRole('combobox', { name: 'Collection block' });
+	await expect(kinds).toBeVisible();
 	expect(dataReads).toEqual([]);
-	await page.getByLabel('Token kind').selectOption({ label: 'Artworks' });
-	await page.getByLabel('Collection block').selectOption({ label: 'DriMi' });
-	await expect(page.getByText('collection block = DriMi', { exact: true })).toBeVisible();
+	await kinds.getByRole('link', { name: 'Artworks', exact: true }).click();
+	await blocks.selectOption({ label: 'DriMi' });
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === block.id
+	);
+	await expect(blocks).toHaveValue(block.id);
 	const firstSelection = new URL(page.url());
 	expect(firstSelection.searchParams.get('media_mode')).toBe('snapshot');
 	expect(firstSelection.searchParams.get('limit')).toBe('2');
@@ -180,19 +186,31 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 			{ type: background.key, value: background.value }
 		])
 	);
+	await page
+		.getByRole('dialog', { name: 'bidding automation' })
+		.getByRole('button', { name: 'hide' })
+		.click();
 
-	await page.getByLabel('Token kind').selectOption({ label: 'Eggs' });
-	await expect(page.getByText('type = egg', { exact: true })).toBeVisible();
+	await kinds.getByRole('link', { name: 'Eggs', exact: true }).click();
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
+	await expect(page).toHaveURL((url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === egg.id);
 	expect(new URL(page.url()).searchParams.has('traits')).toBe(false);
 	await page.goBack();
-	await expect(page.getByText('collection block = DriMi', { exact: true })).toBeVisible();
-	await page.getByLabel('Token kind').selectOption({ label: 'Eggs' });
-	await expect(page.getByText('type = egg', { exact: true })).toBeVisible();
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === block.id
+	);
+	await expect(blocks).toHaveValue(block.id);
+	await kinds.getByRole('link', { name: 'Eggs', exact: true }).click();
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
+	await expect(page).toHaveURL((url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === egg.id);
 	const eggQuery = new URL(page.url()).searchParams;
-	await page.getByLabel('Token kind').selectOption({ label: 'Artworks' });
+	await kinds.getByRole('link', { name: 'Artworks', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'bid on traits', exact: true })).toHaveCount(0);
-	await page.getByLabel('Collection block').selectOption({ label: 'DriMi' });
-	await expect(page.getByText('collection block = DriMi', { exact: true })).toBeVisible();
+	await blocks.selectOption({ label: 'DriMi' });
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.View) === block.id
+	);
+	await expect(blocks).toHaveValue(block.id);
 	const artworkQuery = new URL(page.url()).searchParams;
 	expect(artworkQuery.get('media_mode')).toBe(eggQuery.get('media_mode'));
 	expect(artworkQuery.get('limit')).toBe(eggQuery.get('limit'));
@@ -200,12 +218,20 @@ test('requires a leaf and preserves its native predicate when drafting an artwor
 	await page.getByRole('link', { name: 'customization', exact: true }).click();
 	await page.getByRole('button', { name: 'Rebuild traits' }).click();
 	await expect(page.getByRole('status').filter({ hasText: 'running' })).toBeVisible();
-	await page.getByRole('button', { name: 'Retry rebuild' }).click();
+	const retry = page.getByRole('button', { name: 'Retry rebuild' });
+	await expect(retry).toBeEnabled();
+	await page.screenshot({ path: testInfo.outputPath('failed-rebuild.png') });
+	await retry.click();
 	await expect(page.getByRole('status').filter({ hasText: 'completed' })).toBeVisible();
-	expect(new URL(page.url()).searchParams.get(TRAIT_CATALOG_QUERY.Generation)).toBe('2');
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get(TRAIT_CATALOG_QUERY.Generation) === '2'
+	);
 	expect(rebuildRequests).toEqual([
 		{ mapperVersion: block.availableMapperVersion },
 		{ mapperVersion: block.availableMapperVersion, retryRunId: 9 }
 	]);
 	await page.screenshot({ path: testInfo.outputPath('published-catalog.png') });
+	await kinds.getByRole('link', { name: 'Eggs', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Derived traits', exact: true })).toBeVisible();
+	await expect(page.getByRole('status').filter({ hasText: 'completed' })).toHaveCount(0);
 });

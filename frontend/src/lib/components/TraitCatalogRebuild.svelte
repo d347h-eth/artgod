@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+	import { appendCatalogScope } from '$lib/collection-view';
 	import {
 		TRAIT_CATALOG_REBUILD_STATUS as Status,
 		type CollectionViewStatus
@@ -59,9 +62,19 @@
 		try {
 			const result = await getTraitCatalogRebuild(fetch, chainRef, collectionRef, run.runId);
 			if (!active) return;
-			run = result.rebuild;
-			if (run.status === Status.Completed) await invalidateAll();
-			error = '';
+			if (result.rebuild.status === Status.Completed) {
+				const destination = new URL(page.url.href);
+				destination.searchParams.delete(PAGINATION_QUERY_PARAMS.Cursor);
+				appendCatalogScope(destination.searchParams, {
+					id: view.id,
+					generation: result.rebuild.generation
+				});
+				await goto(destination, { replace: true, reset: false, refreshAll: true });
+			}
+			if (active) {
+				run = result.rebuild;
+				error = '';
+			}
 		} catch {
 			if (active) error = 'Could not load rebuild progress. Retry.';
 		}
@@ -76,29 +89,33 @@
 
 <section class="customization-feature-panel">
 	<header class="panel-header">
-		<h2 class="customization-title">Derived traits · {view.label}</h2>
+		<h2 class="customization-title">Derived traits</h2>
 	</header>
 	<div class="customization-section">
-		<div>Active mapping <span class="mono">{view.activeMapperVersion}</span></div>
-		<div>Available mapping <span class="mono">{view.availableMapperVersion}</span></div>
+		<span class="muted">Active mapping <span class="mono">{view.activeMapperVersion}</span></span>
+		{#if view.availableMapperVersion !== view.activeMapperVersion}
+			<span class="muted">Available mapping <span class="mono">{view.availableMapperVersion}</span></span>
+		{/if}
+	</div>
+	<footer class="panel-footer customization-footer">
 		<button
 			type="button"
-			class="bootstrap-control"
+			class="button-link"
 			disabled={submitting || run?.status === Status.Running}
 			onclick={start}
 		>
 			{retryRunId ? 'Retry rebuild' : 'Rebuild traits'}
 		</button>
 		{#if run}
-			<span role="status">{run.status} · {run.processed} of {run.total} NFTs</span>
+			<span class="muted" role="status">{run.status} · {run.processed} of {run.total} NFTs</span>
 		{/if}
 		{#if error}
-			<p role="alert">
+			<p class="muted" role="alert">
 				{error}
 				{#if run?.status === Status.Running}
-					<button type="button" class="bootstrap-control" onclick={refresh}>Retry</button>
+					<button type="button" class="button-link" onclick={refresh}>Retry</button>
 				{/if}
 			</p>
 		{/if}
-	</div>
+	</footer>
 </section>
