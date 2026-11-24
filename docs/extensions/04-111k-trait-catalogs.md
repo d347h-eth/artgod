@@ -35,7 +35,7 @@ Content readiness and network retries follow the
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | DriMi, other blocks and type views | Each source key and value retains its own identity.                                                                                                                                                                                             | All normalized source pairs.                                                                                                            |
 | Plane of Existence                 | Character slots group under their character name. A repeated name gets a local suffix. Known property labels preserve meaning such as left and right wield. Legacy artwork references, unknown fields and conflicting names remain inspectable. | Collection attribution and recognized flat scene properties. Numbered scene families and character properties are readable in the tree. |
-| Backrooms 2                        | Painting title and artist share the source slot. Partial pairs show the missing half. The tree separates room properties from a searchable painting list that preserves repeated titles.                                                        | Collection attribution and unnumbered room properties.                                                                                  |
+| Backrooms 2                        | Painting title and artist share the source slot. Partial pairs show the missing half. The tree separates room properties from a painting list that preserves repeated titles.                                                                   | Collection attribution and unnumbered room properties.                                                                                  |
 
 Field IDs, labels, provenance and exact marketplace bindings have separate roles
 in the [shared contract](../../shared/types/trait-catalog.ts). The extension
@@ -62,7 +62,7 @@ which the reader opened the NFT.
 The sidebar lists only traits that can filter the current view. Open an NFT
 to inspect its character, artwork and scene details. The token page shows the
 standard trait table first. Below it, the centered projection tree opens its
-first level and lets the reader expand individual entries.
+first level. Open an individual entry or choose **Expand all** to see every level.
 
 A specific block or token type pins its exact canonical criterion when all
 members share one. For example,
@@ -117,7 +117,8 @@ See the [HTTP contract](../backend/openapi.yaml).
 
 The static Userland build and fixture-backed desktop and mobile browser checks
 passed. The [preview journey](../../frontend/e2e/preview-traits.spec.ts)
-also checks the filtered room-property link and artist search inside the overlay.
+also checks the room-property filter link and opens a painting to read its
+title and artist.
 Packaged desktop and user-run mainnet bootstrap qualification remain open.
 Further per-block mappings and predicates spanning multiple properties of one
 entity instance are deferred.

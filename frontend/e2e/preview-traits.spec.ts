@@ -76,7 +76,7 @@ test.beforeEach(async ({ page }, info) => {
 
 test.afterEach(async ({}, info) => attachDiagnosticsForTestFailure(diagnosticsByTest, info));
 
-test('links flat room properties and keeps painting instances searchable inside the preview', async ({
+test('links flat room properties and expands painting instances inside the preview', async ({
 	page
 }, info) => {
 	const facts = [
@@ -106,26 +106,24 @@ test('links flat room properties and keeps painting instances searchable inside 
 	await expect(paintingLabels).toHaveCount(0);
 	await paintings.click();
 	await expect(paintingLabels).toHaveCount(40);
+	await expect(output(page).getByRole('textbox')).toHaveCount(0);
 	await expect(lastArtist).toHaveCount(0);
 	await lastPainting.click();
 	await lastArtist.scrollIntoViewIfNeeded();
 	await expect(lastArtist).toBeInViewport();
+	await expect(output(page).getByRole('link', { name: /Artist 40/ })).toHaveCount(0);
 	await assertBounded(page);
 	await surface(page, info, 'structured-preview-last-painting');
 	await paintings.click();
 	await expect(paintingLabels).toHaveCount(0);
 	await expect(lastArtist).toHaveCount(0);
 	await surface(page, info, 'structured-preview-collapsed');
-	await paintings.click();
-	const search = output(page).getByRole('textbox', { name: 'Search traits' });
-	await search.pressSequentially('Artist 40');
-	await expect(search).toHaveValue('Artist 40');
-	await expect(paintingLabels).toHaveCount(1);
-	await lastPainting.click();
-	await expect(lastArtist).toBeVisible();
-	await expect(output(page).getByRole('link', { name: /Artist 40/ })).toHaveCount(0);
+	const expandAll = output(page).getByRole('button', { name: 'Expand all', exact: true });
+	await expandAll.click();
+	await expect(output(page).getByText('Artist', { exact: true })).toHaveCount(40);
+	await expect(expandAll).toBeDisabled();
 	await assertBounded(page);
-	await surface(page, info, 'structured-preview');
+	await surface(page, info, 'structured-preview-expanded');
 });
 
 test('cycles summary, three bounded pages, empty and summary without moving media', async ({

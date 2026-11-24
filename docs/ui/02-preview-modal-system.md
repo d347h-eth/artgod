@@ -228,8 +228,8 @@ round-trip through the existing trait-filter query grammar remain plain text.
 The template summary has no filter links.
 
 For tokens with a structured tree, the traits control opens the tree with its
-groups collapsed. Expanding a group shows all its entries. Large groups support
-search.
+groups collapsed. Open a group to inspect its entries, or choose **Expand all**
+to open every level.
 Values with a matching flat catalog field link to filtered tokens in the same
 view and generation. Instance properties such as a painting's artist remain
 readable within their group.
