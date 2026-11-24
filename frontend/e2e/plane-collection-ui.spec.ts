@@ -1311,23 +1311,46 @@ test('reads long Plane trait names and filenames together on token 34273', async
 
 	const characterRoot = roots.filter({ has: page.getByText('Characters', { exact: true }) });
 	const characters = characterRoot.locator(':scope > summary');
+	const collapseAll = traits.getByRole('button', { name: 'Collapse all', exact: true });
 	await characters.click();
 	await expandAll.focus();
 	await expandAll.press('Enter');
 	await expect(tree.locator('details:not([open])')).toHaveCount(0);
-	await expect(expandAll).toBeDisabled();
+	await expect(collapseAll).toBeFocused();
 	const characterFields = characterRoot.locator('dd');
 	await expect(characterFields.first()).toBeVisible();
-	await expect(expandAll).toHaveCount(1);
+	await expect(expandAll).toHaveCount(0);
 	await expect(tree.getByRole('textbox')).toHaveCount(0);
-	await expandAll.evaluate((button) => button.scrollIntoView({ block: 'start' }));
+	await collapseAll.evaluate((button) => button.scrollIntoView({ block: 'start' }));
 	await page.screenshot({ path: info.outputPath('34273-all-traits-expanded.png') });
 	await characters.click();
 	await expect(characterFields).toHaveCount(0);
 	await expect(expandAll).toBeEnabled();
+	await characters.click();
+	await expect(collapseAll).toBeEnabled();
+	const expandedButtonBox = (await collapseAll.boundingBox())!;
+	await collapseAll.press('Space');
+	await expect(expandAll).toBeFocused();
+	await expect(tree.locator('details[open]')).toHaveCount(0);
+	await expect(roots.locator('details')).toHaveCount(0);
+	await expect(tree.locator('dd')).toHaveCount(0);
+	const collapsedButtonBox = (await expandAll.boundingBox())!;
+	expect(
+		Math.abs(
+			expandedButtonBox.x +
+				expandedButtonBox.width / 2 -
+				(collapsedButtonBox.x + collapsedButtonBox.width / 2)
+		)
+	).toBeLessThanOrEqual(1);
+	await expandAll.evaluate((button) => button.scrollIntoView({ block: 'center' }));
+	await page.screenshot({ path: info.outputPath('34273-all-traits-collapsed.png') });
+	await characters.click();
+	await expect(characterRoot.locator('details').first()).toBeVisible();
+	await expect(characterRoot.locator('details[open]')).toHaveCount(0);
 	await expandAll.click();
 	await expect(tree.locator('details:not([open])')).toHaveCount(0);
 	await expect(characterFields.first()).toBeVisible();
+	await expect(collapseAll).toBeEnabled();
 });
 
 for (const entry of ['All', 'Artworks'] as const) {

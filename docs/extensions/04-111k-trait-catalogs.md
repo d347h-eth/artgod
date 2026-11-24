@@ -63,6 +63,7 @@ The sidebar lists only traits that can filter the current view. Open an NFT
 to inspect its character, artwork and scene details. The token page shows the
 standard trait table first. Below it, the centered projection tree opens its
 first level. Open an individual entry or choose **Expand all** to see every level.
+Choose **Collapse all** to return to the top-level headings.
 
 A specific block or token type pins its exact canonical criterion when all
 members share one. For example,
