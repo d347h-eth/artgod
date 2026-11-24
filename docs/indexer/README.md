@@ -34,6 +34,8 @@ and [operator procedure](18-order-queue-recovery.md).
 - [Orders and token sets](07-domain-orders.md)
 - [Multiple orderbooks](21-multiple-orderbooks.md) — proposed venue resolution,
   publication lifecycle and passive market reads.
+- [VVV orderbook adapter](22-vvv-orderbook-adapter.md) — captured terms,
+  transport evidence and proposed mapping into the passive book.
 - [Metadata and traits](08-domain-metadata.md)
 - [Permanent pending metadata](20-metadata-pending-backlog.md)
 - [Activities](09-domain-activities.md)

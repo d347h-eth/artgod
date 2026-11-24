@@ -7,6 +7,9 @@ and VVV are independent orderbooks. An ArtGod collection determines which
 assets the user is browsing. Several venues can cover those assets, and a venue
 can cover any number of collections.
 
+The first adapter assessment covers fees, swaps, partial coverage and link
+targets in saved venue data. [VVV orderbook adapter](22-vvv-orderbook-adapter.md)
+
 ## Decision
 
 Give the indexer a registry of venue adapters. Each adapter resolves the
@@ -107,8 +110,9 @@ measured SQLite queries.
 
 Merge two publications when their protocol identities and terms agree. Equal
 prices, maker addresses, token IDs or bare hashes cannot establish equality.
-Two independently signed orders from the same seller remain two inspectable
-orders. One verified order uses one validation demand across all its venues.
+Two orders with different salts remain separately inspectable. Different valid
+signatures over the same order can establish the same identity. One verified
+order uses one validation demand across all its venues.
 Use the protocol hash on chain-facing calls and links, and the internal key for
 SQL references, cursors and UI row identity.
 
@@ -117,9 +121,10 @@ withdraws the OpenSea publication. A VVV availability flag applies to VVV. For
 a current quote, require a publication eligible under its venue, audience and
 freshness rules, a valid time window and the applicable local protocol checks.
 Keep reported availability, unverified protocol state and a local validation
-result distinguishable. A negative protocol result suppresses the current
-quote across venues. A verified full fill or onchain cancellation closes it
-globally. A partial fill requires remaining-quantity evidence before quoting
+result distinguishable. A bad signature supplied by one venue cannot poison a
+verified copy from another. A negative chain result for the common order
+suppresses the current quote across venues. A verified full fill or onchain
+cancellation closes it globally. A partial fill requires remaining-quantity evidence before quoting
 the remainder. On reorg, invalidate chain-derived proof, revalidate against
 the canonical chain and reapply each publication's own visibility.
 
@@ -139,7 +144,9 @@ the canonical chain and reapply each publication's own visibility.
   revision. Replay is idempotent. A repeated event or late page cannot
   resurrect a withdrawn publication. Allocate a monotonically increasing run
   generation and use a per-partition lease/fence. A stream update newer than
-  the crawl boundary wins even if its queue delivery is delayed.
+  the crawl boundary wins even if its queue delivery is delayed. Use a provider
+  sequence when available. Preserve a publication when event ordering is too
+  uncertain to justify withdrawal.
 - Admit positive observations in bounded batches. For a complete snapshot,
   record the exact covered partition, visited pages/cursors, seen IDs and a
   terminal receipt. Fence the missing-ID sweep until admitted rows have a
@@ -255,7 +262,7 @@ OpenSea order/publication. A VVV-only row confers no trading capability.
    jobs, own-order overlays, counts, best asks, expiry and pagination. Derive
    legacy OpenSea status/API fields from the OpenSea binding at cutover. Keep
    OpenSea-specific bidding inputs explicit. Wire typed config, supervisor
-   and hosted workers so each venue can be enabled independently; use a
+   and hosted workers so each venue can be enabled independently. Use a
    shared polling scheduler with independent rate budgets and backoff.
 4. **Enable the second venue.** Qualify resolution, acquisition, terms,
    completeness and freshness independently for each market. A third test
