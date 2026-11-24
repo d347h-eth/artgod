@@ -73,6 +73,7 @@ const tokens = [
 		facts: [
 			...artwork(PLANE),
 			{ key: CHAOS, value: 'Calm' },
+			{ key: MARK_CHAOS, value: 'airy' },
 			{
 				key: 'Character 1 - Little Swag World',
 				value: 'cloth poncho batch 50 - 05 / 14 - Cloth Variant'
@@ -158,7 +159,10 @@ const facetsByView = new Map([
 				['Calm', 1],
 				['Airy', 1]
 			]),
-			setFacet(MARK_CHAOS, [['Airy', 1]]),
+			setFacet(MARK_CHAOS, [
+				['Airy', 1],
+				['airy', 1]
+			]),
 			setFacet(MARK_COUNT, [['7', 1]]),
 			setFacet(META.CollectionBlock, [[PLANE, 2]]),
 			setFacet(META.Type, [['painting', 2]])
@@ -337,6 +341,63 @@ async function enter(page: Page, path: string) {
 		link.remove();
 	}, path);
 }
+
+async function openPlaneTraits(page: Page) {
+	const { path } = await installPlaneFixture(page);
+	await enter(page, selectCollectionViewHref(path, new URLSearchParams(), plane));
+	await page.getByRole('button', { name: 'expand traits panel' }).click();
+	return page
+		.getByRole('complementary')
+		.filter({ has: page.getByRole('heading', { name: 'traits' }) });
+}
+
+test('trait sidebar selects the exact value from its label, checkbox and keyboard', async ({
+	page
+}, info) => {
+	const sidebar = await openPlaneTraits(page);
+	const bucket = sidebar
+		.locator('details')
+		.filter({ has: page.locator('summary').getByText(MARK_CHAOS, { exact: true }) });
+	await bucket.locator('summary').click();
+	const lower = bucket.getByRole('checkbox', { name: /^airy\s+1$/ });
+	const upper = bucket.getByRole('checkbox', { name: /^Airy\s+1$/ });
+	const cards = page.getByTestId(TEST_IDS.TokenCard);
+
+	async function expectSelection(value: string, token: string) {
+		await expect
+			.poll(() => new URL(page.url()).searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits))
+			.toEqual([MARK_CHAOS + ':' + value]);
+		await expect(cards).toHaveCount(1);
+		await expect(cards.getByRole('link', { name: token, exact: true })).toBeVisible();
+	}
+
+	await bucket.getByText('airy', { exact: true }).click();
+	await expect(lower).toBeChecked();
+	await expect(upper).not.toBeChecked();
+	await expectSelection('airy', '585');
+	await bucket.getByText('Airy', { exact: true }).click({ modifiers: ['Control'] });
+	await expectSelection('Airy', '1880');
+	await expect(upper).toBeChecked();
+	await expect(lower).not.toBeChecked();
+	await page.screenshot({ path: info.outputPath('trait-label-selected.png'), scale: 'css' });
+
+	await upper.press('Space');
+	await expect(upper).not.toBeChecked();
+	await expect(cards).toHaveCount(2);
+	await lower.click();
+	await expectSelection('airy', '585');
+	await upper.click({ modifiers: ['Control'] });
+	await expectSelection('Airy', '1880');
+	await expect(upper).toBeChecked();
+	await upper.click({ modifiers: ['Control'] });
+	await expect(upper).toBeChecked();
+	await lower.click({ modifiers: ['Control'] });
+	await expectSelection('airy', '585');
+	await expect(lower).toBeChecked();
+	await bucket.getByText('airy', { exact: true }).click();
+	await expect(lower).not.toBeChecked();
+	await expect(cards).toHaveCount(2);
+});
 
 test('keeps collection navigation and artwork filters usable through block, kind and token changes', async ({
 	page,

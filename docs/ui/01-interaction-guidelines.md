@@ -548,7 +548,7 @@ The split of responsibilities is:
 - `TraitFacetPanel.svelte`
     - presentational sidebar
     - local trait-value search
-    - checkbox UI for discrete traits
+    - checkbox and label activation for the exact discrete trait value, including its capitalization
     - inclusive `from` / `to` range UI for scalar traits
 - `TraitFacetPanelControls.svelte`
     - route-agnostic top-action controls

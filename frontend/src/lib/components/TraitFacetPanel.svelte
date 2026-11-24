@@ -99,10 +99,6 @@
 		traitRangeDrafts = nextDrafts;
 	});
 
-	function traitId(key: string, value: string): string {
-		return `${key}-${value}`.replace(/\s+/g, '-').toLowerCase();
-	}
-
 	function traitChecked(key: string, value: string): boolean {
 		return activeTraitSet.has(JSON.stringify([key, value]));
 	}
@@ -221,10 +217,16 @@
 		);
 	}
 
-	function onTraitCheckboxClick(key: string, value: string, event: MouseEvent): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-		void onToggleTrait(key, value, target.checked, event.ctrlKey);
+	function onTraitValueClick(key: string, value: string, event: MouseEvent): void {
+		if (event.button !== 0) return;
+		const checkbox = (event.currentTarget as HTMLLabelElement).control;
+		if (!(checkbox instanceof HTMLInputElement)) return;
+
+		// Checkbox activation (including Space) already flipped checked. A label click has not.
+		const clickedCheckbox = event.target === checkbox;
+		if (!clickedCheckbox) event.preventDefault();
+		checkbox.checked = event.ctrlKey || (clickedCheckbox ? checkbox.checked : !checkbox.checked);
+		void onToggleTrait(key, value, checkbox.checked, event.ctrlKey);
 	}
 
 	function rangeDraft(key: string): TraitRangeDraft {
@@ -460,14 +462,13 @@
 									{#if visibleFacetValues(facet).length === 0}
 										<p class="muted">no matches</p>
 									{:else}
-										{#each visibleFacetValues(facet) as value}
-											<label for={traitId(facet.key, value.value)}>
+										{#each visibleFacetValues(facet) as value (value.value)}
+											<label
+												onclickcapture={(event) => onTraitValueClick(facet.key, value.value, event)}
+											>
 												<input
-													id={traitId(facet.key, value.value)}
 													type="checkbox"
 													checked={traitChecked(facet.key, value.value)}
-													onclick={(event) =>
-														onTraitCheckboxClick(facet.key, value.value, event)}
 												/>
 												<span class="trait-value-text">{value.value}</span>
 												<span class="trait-value-count mono">{value.tokenCount}</span>
