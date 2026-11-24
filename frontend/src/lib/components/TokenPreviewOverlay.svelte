@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { useCollectionView } from '$lib/collection-view-context';
-	import { selectedCollectionScope } from '$lib/collection-view';
 	import { browser } from '$app/env';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
@@ -14,9 +12,6 @@
 		TOKEN_PREVIEW_STATUS,
 		tokenPreviewStyle
 	} from '$lib/components/token-preview-controller';
-
-	const collectionViewPage = useCollectionView();
-	const viewContext = $derived(collectionViewPage());
 
 	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
@@ -57,7 +52,7 @@
 	function customizationHref(): string | null {
 		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
 		return buildTokenPreviewCustomizationHref({
-			catalogScope: selectedCollectionScope(collectionViewPage()),
+			catalogScope: $tokenPreviewState.catalogScope,
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			mediaMode: $tokenPreviewState.selectedMediaMode,
