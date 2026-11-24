@@ -86,6 +86,7 @@ const backrooms = viewFor(artwork(NFT111K_STRUCTURED_BLOCK.Backrooms), 1);
 const typedViews = ['crate', META.Egg, 'relic', 'warehouse'].map((value) =>
 	viewFor([{ key: META.Type, value }], 1)
 );
+const publishedViews = [plane, drimi, film, backrooms, driluhh, ...typedViews];
 const tokens = [
 	{
 		id: '585',
@@ -127,6 +128,21 @@ function projectToken({ id, facts }: { id: string; facts: { key: string; value: 
 		view,
 		image: '/e2e-artwork/' + id,
 		projected: mapper.project(view, mapper.availableVersion(view), facts)
+	};
+}
+
+function previewResponse(token: (typeof tokens)[number]): TokenPreviewApiResponse {
+	const view = publishedViews.find((view) => view.id === token.view.id)!;
+	return {
+		media: { ...media, selectedVariant: null, defaultVariant: null, availableVariants: [] },
+		token: {
+			tokenId: token.id,
+			image: token.image,
+			animationUrl: null,
+			catalogScope: { id: view.id, generation: view.generation },
+			attributes: token.projected.values.map(({ fieldId: key, value }) => ({ key, value })),
+			traitSummary: null
+		}
 	};
 }
 
@@ -278,7 +294,7 @@ async function installPlaneFixture(
 				required: true,
 				selectedViewId: token?.view.id ?? viewId,
 				...(!token && groupId && { selectedGroupId: groupId }),
-				views: [plane, drimi, film, backrooms, driluhh, ...typedViews]
+				views: publishedViews
 			}
 		});
 	});
@@ -335,6 +351,10 @@ async function installPlaneFixture(
 		}
 	);
 	for (const token of detailTokens) {
+		await page.route(
+			(url) => url.pathname === apiPath + '/' + token.id + '/preview',
+			(route) => route.fulfill({ json: previewResponse(token) })
+		);
 		await page.route(
 			(url) => url.pathname === apiPath + '/' + token.id,
 			(route) => {
@@ -1039,39 +1059,76 @@ test('jumps across blocks and restores a bookmarked token in its current block',
 	await expect(block).toHaveValue(film.id);
 });
 
+test('fits adjacent landscape and portrait images in fullscreen', async ({ page }, info) => {
+	const { path } = await installPlaneFixture(page);
+	await enter(page, path);
+	const trigger = page.getByRole('button', { name: 'preview token ' + FILM_TOKEN, exact: true });
+	await trigger.scrollIntoViewIfNeeded();
+	await trigger.locator('img').evaluate((image: HTMLImageElement) => image.decode());
+	await trigger.click();
+	const dialog = page.getByRole('dialog', { name: 'Token Preview' });
+	const portraitId = tokens[1].id;
+
+	async function checkImage(tokenId: string, orientation: 'landscape' | 'portrait') {
+		const frame = dialog.getByTitle('token ' + tokenId, { exact: true });
+		const image = frame.contentFrame().getByRole('img', { name: 'token ' + tokenId, exact: true });
+		const ratio = await image.evaluate(async (node: HTMLImageElement) => {
+			await node.decode();
+			return node.naturalWidth / node.naturalHeight;
+		});
+		expect(ratio > 1).toBe(orientation === 'landscape');
+		await expect
+			.poll(async () => {
+				const bounds = await frame.boundingBox();
+				return bounds && bounds.width / bounds.height;
+			})
+			.toBeCloseTo(ratio, 2);
+
+		const viewport = (await dialog.boundingBox())!;
+		const frameBox = (await frame.boundingBox())!;
+		const pixels = (await image.boundingBox())!;
+		expect(
+			Math.abs(frameBox.x + frameBox.width / 2 - (viewport.x + viewport.width / 2))
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(frameBox.y + frameBox.height / 2 - (viewport.y + viewport.height / 2))
+		).toBeLessThanOrEqual(1);
+		expect(frameBox.width).toBeLessThanOrEqual(viewport.width + 1);
+		expect(frameBox.height).toBeLessThanOrEqual(viewport.height + 1);
+		expect(pixels.width / pixels.height).toBeCloseTo(ratio, 2);
+		expect(pixels.x).toBeGreaterThanOrEqual(frameBox.x - 1);
+		expect(pixels.y).toBeGreaterThanOrEqual(frameBox.y - 1);
+		expect(pixels.x + pixels.width).toBeLessThanOrEqual(frameBox.x + frameBox.width + 1);
+		expect(pixels.y + pixels.height).toBeLessThanOrEqual(frameBox.y + frameBox.height + 1);
+	}
+
+	await checkImage(FILM_TOKEN, 'landscape');
+	await page.mouse.move(0, 0);
+	await page.screenshot({ path: info.outputPath('fullscreen-landscape.png') });
+	await page.keyboard.press('ArrowLeft');
+	await checkImage(portraitId, 'portrait');
+	await page.screenshot({ path: info.outputPath('fullscreen-portrait.png') });
+	await page.keyboard.press('ArrowRight');
+	await checkImage(FILM_TOKEN, 'landscape');
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
+	await expect(trigger).toBeVisible();
+});
+
 test('keeps structured traits on token details and shows muted flat traits in fullscreen', async ({
 	page
 }, info) => {
 	const { path } = await installPlaneFixture(page);
 	const [first, second] = tokens;
-	for (const token of [first, second]) {
-		await page.route(
-			(url) => url.pathname === '/api' + path + '/' + token.id + '/preview',
-			(route) => {
-				const preview: TokenPreviewApiResponse = {
-					media: { ...media, selectedVariant: null, defaultVariant: null, availableVariants: [] },
-					token: {
-						tokenId: token.id,
-						image: token.image,
-						animationUrl: null,
-						catalogScope: { id: plane.id, generation: plane.generation },
-						attributes: token.projected.values.map(({ fieldId, value }) => ({
-							key: fieldId,
-							value
-						})),
-						traitSummary: null
-					}
-				};
-				// An older backend may still include the detail-only tree in a preview response.
-				if (token === first) {
-					return route.fulfill({
-						json: { ...preview, token: { ...preview.token, traitTree: token.projected.tree } }
-					});
-				}
-				return route.fulfill({ json: preview });
-			}
-		);
-	}
+	// Even an older backend's detail-only tree must stay out of fullscreen.
+	const preview = previewResponse(first);
+	await page.route(
+		(url) => url.pathname === '/api' + path + '/' + first.id + '/preview',
+		(route) =>
+			route.fulfill({
+				json: { ...preview, token: { ...preview.token, traitTree: first.projected.tree } }
+			})
+	);
 	await enter(page, selectCollectionViewHref(path, new URLSearchParams(), plane));
 	await page.getByRole('button', { name: 'preview token ' + first.id, exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Token Preview' });

@@ -47,6 +47,27 @@ export function resolveTokenMediaAspectRatio(
 	return null;
 }
 
+// Measure the token image outside the opaque media iframe. Callers keep their
+// existing fallback when an image is absent or cannot be decoded.
+export function observeTokenImageAspectRatio(
+	imageUrl: string | null | undefined,
+	onRatio: (ratio: number) => void
+): (() => void) | undefined {
+	const url = imageUrl?.trim();
+	if (!url || typeof Image === 'undefined') return;
+	const probe = new Image();
+	probe.referrerPolicy = 'no-referrer';
+	probe.onload = () => {
+		if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
+			onRatio(probe.naturalWidth / probe.naturalHeight);
+		}
+	};
+	probe.src = url;
+	return () => {
+		probe.onload = null;
+	};
+}
+
 function buildImagePreviewDocument(imageUrl: string, title: string): string {
 	const escapedUrl = escapeHtml(imageUrl);
 	const escapedTitle = escapeHtml(title);
@@ -65,6 +86,7 @@ function buildImagePreviewDocument(imageUrl: string, title: string): string {
 	}
 	body {
 		display: grid;
+		grid-template: minmax(0, 1fr) / minmax(0, 1fr);
 		place-items: center;
 		overflow: hidden;
 	}

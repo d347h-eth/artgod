@@ -8,6 +8,7 @@ import {
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
 import { get } from 'svelte/store';
+import * as tokenMedia from '$lib/token-media';
 import type {
 	ApiCollectionMediaPreference,
 	ApiTokenMediaState,
@@ -614,6 +615,46 @@ describe('token-preview-controller', () => {
 		);
 		expect(get(controller.state).availableMediaVariants).toEqual([]);
 		expect(getTokenPreviewMock).not.toHaveBeenCalled();
+	});
+
+	it('fits adjacent images independently and ignores late measurements after navigation or close', async () => {
+		const next = createDeferred<TokenPreviewApiResponse>();
+		getTokenPreviewMock
+			.mockResolvedValueOnce(tokenResponse({ media: snapshotMedia(), image: 'wide.png' }))
+			.mockReturnValueOnce(next.promise);
+		const measurement = vi
+			.spyOn(tokenMedia, 'observeTokenImageAspectRatio')
+			.mockReturnValue(undefined);
+		try {
+			const controller = createTokenPreviewController();
+			await controller.openTokenPreview({
+				chainRef: 'ethereum',
+				collectionRef: 'terraforms',
+				tokenId: '1',
+				selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableMediaModes: SOURCE_OPTIONS,
+				previewAspectRatio: 2,
+				adjacentTokenResolver: adjacentPair
+			});
+			const [firstUrl, measureFirst] = measurement.mock.calls[0];
+			expect(firstUrl).toBe('wide.png');
+			const opening = controller.navigateNextTokenPreview();
+			expect(get(controller.state)).toMatchObject({ tokenId: '1', aspectRatio: 2 });
+
+			next.resolve(tokenResponse({ tokenId: '2', media: snapshotMedia(), image: 'tall.png' }));
+			await opening;
+			expect(get(controller.state)).toMatchObject({ tokenId: '2', aspectRatio: null });
+			const [nextUrl, measureNext] = measurement.mock.calls[1];
+			expect(nextUrl).toBe('tall.png');
+			measureNext(0.5);
+			measureFirst(2);
+			expect(get(controller.state).aspectRatio).toBe(0.5);
+			controller.closeTokenPreview();
+			measureNext(0.5);
+			expect(get(controller.state).aspectRatio).toBeNull();
+		} finally {
+			measurement.mockRestore();
+		}
 	});
 
 	it('uses the trigger image aspect ratio in the preview style contract', async () => {

@@ -81,6 +81,7 @@
 	} from '$lib/runtime/public-deployment';
 	import { resolveTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 	import {
+		observeTokenImageAspectRatio,
 		resolveTokenMediaAspectRatio,
 		resolveTokenMediaIframeSource,
 		tokenMediaTitle,
@@ -429,30 +430,10 @@
 	}
 
 	$effect(() => {
-		const imageUrl = displayedToken?.image?.trim() ?? '';
 		displayedMediaAspectRatio = null;
-		if (!browser || !imageUrl) return;
-
-		let cancelled = false;
-		const probe = new Image();
-		probe.referrerPolicy = 'no-referrer';
-		probe.onload = () => {
-			if (cancelled) return;
-			if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
-				displayedMediaAspectRatio = probe.naturalWidth / probe.naturalHeight;
-			}
-		};
-		probe.onerror = () => {
-			if (cancelled) return;
-			displayedMediaAspectRatio = null;
-		};
-		probe.src = imageUrl;
-
-		return () => {
-			cancelled = true;
-			probe.onload = null;
-			probe.onerror = null;
-		};
+		return observeTokenImageAspectRatio(displayedToken?.image, (ratio) => {
+			displayedMediaAspectRatio = ratio;
+		});
 	});
 
 	function tokenMediaSource(token: ApiTokenDetail): TokenMediaIframeSource | null {
