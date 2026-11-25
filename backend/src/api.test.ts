@@ -1381,6 +1381,64 @@ afterAll(async () => {
 });
 
 describe("backend api routes", () => {
+    it("loads one card for a one-token page in a 17,001-token aggregate offer book", async () => {
+        const { ExtensionAwareCollectionDetailRead } =
+            await import("./infra/collections/extension-aware-collection-detail-read.js");
+        const hydrate = vi.spyOn(
+            ExtensionAwareCollectionDetailRead.prototype,
+            "listCollectionTokenCardsByIds",
+        );
+        const collectionId =
+            getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+        db.exec("SAVEPOINT aggregate_token_offers");
+        try {
+            clearTradingJobFixtures();
+            db.prepare(
+                "UPDATE orders SET source_status='inactive' WHERE collection_id=? AND side='buy'",
+            ).run(collectionId);
+            db.prepare(
+                "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,?,'{}')",
+            ).run(collectionId, NFT111K_EXTENSION_KEY);
+            db.prepare(
+                `
+                WITH RECURSIVE ids(id) AS (VALUES(110001) UNION ALL SELECT id+1 FROM ids WHERE id < 127001)
+                INSERT INTO tokens(chain_id,collection_id,contract_address,token_id)
+                SELECT 1,?,?,CAST(id AS TEXT) FROM ids
+            `,
+            ).run(collectionId, MILADY_ADDRESS);
+            db.prepare(
+                `
+                INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,
+                    quantity,price,currency,valid_from,valid_until,fillability_status,source_status,created_at,updated_at)
+                SELECT 'page-offer-' || token_id,chain_id,collection_id,'seaport','buy','opensea',?,contract_address,token_id,'token',
+                    '1','500000000000000000',?,1,4000000000,'fillable','active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+                FROM tokens WHERE chain_id=1 AND collection_id=? AND length(token_id)=6 AND token_id BETWEEN '110001' AND '127001'
+            `,
+            ).run(
+                "0x9999999999999999999999999999999999999999",
+                WETH_ADDRESS.toLowerCase(),
+                collectionId,
+            );
+            const response = await resolve(
+                "GET",
+                "/api/ethereum/milady/bidding/bids?limit=1",
+            );
+            expect(response.statusCode).toBe(200);
+            expect(response.payload.tokenOfferCards).toMatchObject({
+                totalItems: 17_001,
+                totalOffers: 17_001,
+                marketplaceBiddingSupportedTotalItems: 17_001,
+                items: [{ tokenId: "110001" }],
+            });
+            expect(
+                hydrate.mock.calls.map(([params]) => params.tokenIds),
+            ).toEqual([["110001"]]);
+        } finally {
+            hydrate.mockRestore();
+            db.exec("ROLLBACK TO aggregate_token_offers");
+            db.exec("RELEASE aggregate_token_offers");
+        }
+    });
     it("scopes collection reads, continuations and local rebuilds to the selected published view", async () => {
         const collectionId =
             getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
@@ -1539,6 +1597,64 @@ describe("backend api routes", () => {
                     ],
                 },
             ]);
+            // A higher offer on another token must not consume a slot or enter the total.
+            const maker = "0x2424242424242424242424242424242424242424";
+            for (const [tokenId, price] of [
+                ["10", "3000000000000000000"],
+                ["2", "2000000000000000000"],
+                ["1", "1000000000000000000"],
+            ]) {
+                insertOrderFixture({
+                    id: "scoped-card-" + tokenId,
+                    side: "buy",
+                    contract: MILADY_ADDRESS,
+                    tokenId,
+                    maker,
+                    sourceScopeKind: "token",
+                    price,
+                    currency: WETH_ADDRESS,
+                    sourceStatus: "active",
+                    fillabilityStatus: "fillable",
+                    validFrom: 1,
+                    validUntil: 4_000_000_000,
+                });
+            }
+            const offers =
+                base +
+                "/bidding/bids?" +
+                query +
+                "&maker=" +
+                maker +
+                "&limit=1";
+            const first = await resolve("GET", offers);
+            expect(first.statusCode).toBe(200);
+            expect(first.payload.tokenOfferCards).toMatchObject({
+                totalItems: 2,
+                totalOffers: 2,
+                items: [{ tokenId: "2" }],
+            });
+            const next = await resolve(
+                "GET",
+                offers +
+                    "&cursor=" +
+                    encodeURIComponent(
+                        first.payload.tokenOfferCards.nextCursor,
+                    ),
+            );
+            expect(next.payload.tokenOfferCards).toMatchObject({
+                totalItems: 2,
+                items: [{ tokenId: "1" }],
+                nextCursor: null,
+            });
+            const filteredOffers = await resolve(
+                "GET",
+                offers + "&traits=Colour:quiet",
+            );
+            expect(filteredOffers.payload.tokenOfferCards).toMatchObject({
+                totalItems: 1,
+                totalOffers: 1,
+                items: [{ tokenId: "1" }],
+            });
             const customization = base + "/customization?" + query;
             const csrf = await issueAdminCsrf();
             const settings = {

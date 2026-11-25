@@ -3,7 +3,10 @@ import {
     withTraitReadSnapshot,
     catalogViewIds,
 } from "@artgod/shared/read-models/trait-catalog";
-import { scopeBidsToCollectionView } from "./sqlite-view-bid-applicability.js";
+import {
+    filterCatalogTokenBids,
+    scopeBidsToCollectionView,
+} from "./sqlite-view-bid-applicability.js";
 import {
     biddingTraitsMatchToken,
     biddingTraitCriteriaKey,
@@ -719,6 +722,18 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                             bid.scopeKind ===
                                 TRADING_BIDDING_BID_SCOPE_KIND.TokenSet),
                 );
+                if (
+                    params.traitContext &&
+                    params.scopeFilter ===
+                        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                ) {
+                    return sortBidsDesc(
+                        filterCatalogTokenBids(
+                            { ...params, traitContext: params.traitContext },
+                            rows,
+                        ),
+                    );
+                }
                 return sortBidsDesc(
                     views
                         ? scopeBidsToCollectionView(
