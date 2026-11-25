@@ -146,7 +146,7 @@
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
+	import { listingHref as buildListingHref } from '$lib/marketplace-links';
 	import {
 		runTraitFacetPanelControlAction,
 		type TraitFacetFilterModeOption
@@ -816,7 +816,8 @@
 		const ask = buildAskMarketPrice({
 			rawPrice: card.listingPrice,
 			currencyAddress: card.listingCurrency,
-			href: openseaItemHref(card),
+			lastSeenMs: card.listingLastSeenMs,
+			href: tokenListingHref(card),
 			title: 'ask'
 		});
 		if (ask) {
@@ -836,8 +837,10 @@
 		return prices;
 	}
 
-	function openseaItemHref(token: ApiBiddingTokenOfferCard): string | null {
-		return buildOpenseaItemHref({
+	function tokenListingHref(token: ApiBiddingTokenOfferCard): string | null {
+		return buildListingHref({
+			venue: token.listingVenue,
+			tokenHref: tokenOfferCardHref(token.tokenId),
 			chainSlug: chain?.slug ?? null,
 			collectionAddress: collection?.address ?? null,
 			tokenId: token.tokenId

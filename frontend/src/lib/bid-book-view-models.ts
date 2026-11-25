@@ -106,3 +106,8 @@ export type BidBookDemandTableBidRow = {
 	hidden: boolean;
 	startsNewBucket: boolean;
 };
+
+// Order hashes are scoped to their Seaport deployment on the active chain.
+export function bidBookRowKey(bid: { orderId: string; protocolAddress: string | null }): string {
+	return JSON.stringify([bid.protocolAddress?.toLowerCase(), bid.orderId]);
+}

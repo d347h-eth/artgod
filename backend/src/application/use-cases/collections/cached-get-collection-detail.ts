@@ -30,6 +30,7 @@ type PublicCollectionDefaultMediaModePort = {
 type CollectionDetailCacheEntry = {
     output: GetCollectionDetailOutput;
     storedAt: number;
+    marketVersion: string;
 };
 
 export class PublicCollectionDetailCache implements GetCollectionDetailPort {
@@ -39,6 +40,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     private cachedEntry: CollectionDetailCacheEntry | null = null;
     private refreshTimer: ReturnType<typeof setInterval> | null = null;
     private refreshInFlight: Promise<GetCollectionDetailOutput> | null = null;
+    private inFlightVersion: string | null = null;
     private lastPreviewWarmupAt: number | null = null;
     private defaultMediaMode: CollectionMediaState["defaultMode"] | null = null;
 
@@ -47,6 +49,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         private readonly defaultMediaModePort: PublicCollectionDefaultMediaModePort,
         private readonly tokenPreviewWarmupPort: TokenPreviewWarmupPort | null,
         options: PublicCollectionDetailCacheOptions,
+        private readonly marketVersion: () => string = () => "",
     ) {
         this.defaultInput = options.defaultInput;
         this.refreshMs = Math.max(1, options.refreshMs);
@@ -105,7 +108,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         }
 
         const cachedEntry = this.cachedEntry;
-        if (cachedEntry) {
+        if (cachedEntry && cachedEntry.marketVersion === this.marketVersion()) {
             markCurrentQueryCacheHit({
                 storedAt: cachedEntry.storedAt,
                 ttlMs: this.refreshMs,
@@ -133,26 +136,36 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
 
     private refreshDefaultCollectionDetail(): Promise<GetCollectionDetailOutput> {
         const inFlight = this.refreshInFlight;
-        if (inFlight) {
+        const version = this.marketVersion();
+        if (inFlight && version === this.inFlightVersion) {
             return inFlight;
         }
 
         const refresh = Promise.resolve()
             .then(() => this.inner.getCollectionDetail(this.defaultInput))
             .then((output) => {
+                const currentVersion = this.marketVersion();
+                if (version !== currentVersion) {
+                    if (this.cachedEntry?.marketVersion === currentVersion)
+                        return this.cachedEntry.output;
+                    return this.refreshDefaultCollectionDetail();
+                }
                 const storedAt = Date.now();
                 this.cachedEntry = {
                     output,
                     storedAt,
+                    marketVersion: version,
                 };
                 this.defaultMediaMode = output.media.defaultMode;
                 this.maybeWarmTokenPreviews(output, storedAt);
                 return output;
             })
             .finally(() => {
-                this.refreshInFlight = null;
+                if (this.refreshInFlight === refresh)
+                    this.refreshInFlight = null;
             });
 
+        this.inFlightVersion = version;
         this.refreshInFlight = refresh;
         return refresh;
     }

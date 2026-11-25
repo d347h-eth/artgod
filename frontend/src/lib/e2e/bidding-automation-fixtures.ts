@@ -1,3 +1,4 @@
+import { ORDERBOOK_VENUE } from '@artgod/shared/market-data/orders';
 import {
 	biddingTraitsMatchToken,
 	biddingTraitScopeMatchesFilters
@@ -119,6 +120,8 @@ export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 
 // Test-owned scenarios that keep the default harness fixture stable.
 export const BIDDING_E2E_SCENARIO = {
+	LastSeenVvv: 'last-seen-vvv',
+	VvvWithdrawn: 'vvv-withdrawn',
 	IncompatibleTierDelta: 'incompatible_tier_delta',
 	NumericTraitRanges: 'numeric_trait_ranges',
 	NumericOnlyTraitRanges: 'numeric_only_trait_ranges',
@@ -864,6 +867,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 	const displayMode = parseDisplayMode(searchParams.get('mode'));
 	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const tokens = buildTokensPage({
+		scenario: parseBiddingE2eScenario(searchParams),
 		selectedTraits,
 		selectedTraitRanges,
 		tokenStatus,
@@ -1518,22 +1522,25 @@ function ownStateBidRows(updated: boolean): ApiBiddingBidBookRow[] {
 }
 
 function buildTokensPage(params: {
+	scenario: BiddingE2eScenario | null;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 	sold: boolean;
 	cursor: string | null;
 }): ApiTokensPage {
-	const filtered = TOKEN_CARDS.map((token) =>
-		params.sold && token.tokenId === LISTING_HISTORY_HARNESS.soldTokenId
-			? { ...token, listingPrice: null, listingCurrency: null }
-			: token
-	).filter((token) => {
-		if (params.tokenStatus === 'listed' && !token.listingPrice) {
-			return false;
-		}
-		return tokenMatchesAllTraits(token.attributes, params.selectedTraits);
-	});
+	const filtered = TOKEN_CARDS.map((t) => tokenCardById(t.tokenId, params.scenario))
+		.map((token) =>
+			params.sold && token.tokenId === LISTING_HISTORY_HARNESS.soldTokenId
+				? { ...token, listingPrice: null, listingCurrency: null }
+				: token
+		)
+		.filter((token) => {
+			if (params.tokenStatus === 'listed' && !token.listingPrice) {
+				return false;
+			}
+			return tokenMatchesAllTraits(token.attributes, params.selectedTraits);
+		});
 	const page = paginate(filtered, params.cursor, 2);
 	return {
 		items: page.items,
@@ -1791,6 +1798,21 @@ function tokenCard(
 
 function tokenCardById(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenCard {
 	const token = TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+	if (token.tokenId === '101' && scenario === BIDDING_E2E_SCENARIO.LastSeenVvv)
+		return {
+			...token,
+			listingPrice: ethToWei('0.130585'),
+			listingVenue: ORDERBOOK_VENUE.Vvv,
+			listingLastSeenMs: Date.UTC(2026, 10, 24, 12)
+		};
+	if (token.tokenId === '101' && scenario === BIDDING_E2E_SCENARIO.VvvWithdrawn)
+		return {
+			...token,
+			listingPrice: ethToWei('0.95'),
+			listingVenue: ORDERBOOK_VENUE.OpenSea,
+			listingCurrency: WETH_ADDRESS,
+			listingLastSeenMs: null
+		};
 	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
 	if (traitTextScope) {
 		return {
@@ -1833,6 +1855,8 @@ function tokenDetail(tokenId: string, scenario: BiddingE2eScenario | null = null
 		animationUrl: null,
 		listingPrice: token.listingPrice,
 		listingCurrency: token.listingCurrency,
+		listingVenue: token.listingVenue,
+		listingLastSeenMs: token.listingLastSeenMs,
 		currentHolder: MARKET_ADDRESS_A,
 		attributes: token.attributes.map((attribute) => ({
 			key: attribute.key,

@@ -175,6 +175,15 @@ export class ListCollectionBiddingBidBookUseCase {
     listCollectionBiddingBidBook(
         input: ListCollectionBiddingBidBookInput,
     ): ListCollectionBiddingBidBookOutput {
+        const read = () => this.readBidBook(input);
+        return this.bidBookRepositoryPort.withReadSnapshot
+            ? this.bidBookRepositoryPort.withReadSnapshot(read)
+            : read();
+    }
+
+    private readBidBook(
+        input: ListCollectionBiddingBidBookInput,
+    ): ListCollectionBiddingBidBookOutput {
         assertBiddingBidBookFiltersAllowed(input);
 
         // Resolve the requested chain before reading collection-scoped bid data.
@@ -295,22 +304,36 @@ export class ListCollectionBiddingBidBookUseCase {
                     traitContext,
                     selectedTraits: nativeSelection.traits,
                     selectedTraitRanges: nativeSelection.traitRanges,
+                    ...(input.scopeFilter ===
+                        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token &&
+                    !traitContext &&
+                    !input.ownStateFilter &&
+                    !input.priceTierFilter
+                        ? {
+                              tokenPage: {
+                                  ...decodeTokenOfferCursor(
+                                      input.cursor ?? null,
+                                  ),
+                                  limit: input.limit,
+                              },
+                          }
+                        : {}),
                     makerAddress: input.makerAddress ?? null,
                     ownershipFilter: input.ownershipFilter ?? null,
                 }),
         );
-        const collectionFloorBidBook = scopeUsesCollectionBidFloor(
-            input.scopeFilter,
-        )
-            ? this.listCollectionFloorBidBook({
-                  traitContext,
-                  chainId: chain.publicChainId,
-                  collectionId: collection.collectionId,
-                  includeOwnJobContext: input.includeOwnJobContext,
-                  traitFilterJoinMode: input.traitFilterJoinMode,
-                  attributes,
-              })
-            : null;
+        const collectionFloorBidBook =
+            !persistedBidBook.tokenGroups &&
+            scopeUsesCollectionBidFloor(input.scopeFilter)
+                ? this.listCollectionFloorBidBook({
+                      traitContext,
+                      chainId: chain.publicChainId,
+                      collectionId: collection.collectionId,
+                      includeOwnJobContext: input.includeOwnJobContext,
+                      traitFilterJoinMode: input.traitFilterJoinMode,
+                      attributes,
+                  })
+                : null;
         const scopedRows =
             collectionFloorBidBook &&
             input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
@@ -561,6 +584,48 @@ export class ListCollectionBiddingBidBookUseCase {
                     collectionBids: params.collectionBidBook.bids,
                 }),
         );
+        const groups = params.tokenBidBook.tokenGroups;
+        if (groups) {
+            const { offset, version, totalItems, totalOffers, tokenIds } =
+                groups;
+            return {
+                ...countBiddingBidBookOwnFilters([], params, params.priceTiers),
+                page: {
+                    items: this.hydrateTokenOfferCards({
+                        ...params,
+                        attributes,
+                        tokenIds,
+                        offersByTokenId,
+                        tokenOfferGroupsCount: tokenIds.length,
+                    }),
+                    prevCursor:
+                        offset > 0
+                            ? encodeTokenOfferCursor(
+                                  Math.max(0, offset - params.limit),
+                                  version,
+                              )
+                            : null,
+                    nextCursor:
+                        offset + params.limit < totalItems
+                            ? encodeTokenOfferCursor(
+                                  offset + params.limit,
+                                  version,
+                              )
+                            : null,
+                    limit: params.limit,
+                    totalItems,
+                    totalOffers,
+                    marketplaceBiddingSupportedTotalItems:
+                        groups.supportedItems,
+                    rangeStart: tokenIds.length ? offset + 1 : 0,
+                    rangeEnd: offset + tokenIds.length,
+                    currentPage: totalItems
+                        ? Math.floor(offset / params.limit) + 1
+                        : 0,
+                    totalPages: Math.ceil(totalItems / params.limit),
+                },
+            };
+        }
         const tokenIds = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_sort",
             {
@@ -797,6 +862,7 @@ const TOKEN_OFFER_CURSOR_KIND = "bidding_token_offers";
 
 type TokenOfferCursor = {
     kind: typeof TOKEN_OFFER_CURSOR_KIND;
+    version?: string;
     offset: number;
 };
 
@@ -821,7 +887,7 @@ function paginateTokenOfferCards(params: {
     limit: number;
     cursor: string | null;
 }): PersistedTokenOfferCardsPage {
-    const offset = decodeTokenOfferCursorOffset(params.cursor);
+    const offset = decodeTokenOfferCursor(params.cursor).offset;
     const totalItems = params.cards.length;
     const totalOffers = params.cards.reduce(
         (sum, card) => sum + card.persistedOffers.length,
@@ -866,7 +932,7 @@ function paginateTokenOfferTokenIds(params: {
     limit: number;
     cursor: string | null;
 }): TokenOfferTokenIdPage {
-    const offset = decodeTokenOfferCursorOffset(params.cursor);
+    const offset = decodeTokenOfferCursor(params.cursor).offset;
     const totalItems = params.tokenIds.length;
     const pageItems = params.tokenIds.slice(offset, offset + params.limit);
     const rangeStart = pageItems.length === 0 ? 0 : offset + 1;
@@ -954,29 +1020,34 @@ function mapTokenOfferCardsPageToPersistedCards(
     return page.items;
 }
 
-function decodeTokenOfferCursorOffset(cursor: string | null): number {
+function decodeTokenOfferCursor(
+    cursor: string | null,
+): Pick<TokenOfferCursor, "offset" | "version"> {
     if (!cursor) {
-        return 0;
+        return { offset: 0 };
     }
 
     try {
         const decoded = decodeOpaqueCursor<TokenOfferCursor>(cursor);
         if (
             decoded.kind !== TOKEN_OFFER_CURSOR_KIND ||
-            !Number.isInteger(decoded.offset) ||
+            (decoded.version !== undefined &&
+                typeof decoded.version !== "string") ||
+            !Number.isSafeInteger(decoded.offset) ||
             decoded.offset < 0
         ) {
             throw new Error("invalid token offer cursor");
         }
-        return decoded.offset;
+        return { offset: decoded.offset, version: decoded.version };
     } catch {
         throw new ReadModelBadRequestError("Invalid cursor");
     }
 }
 
-function encodeTokenOfferCursor(offset: number): string {
+function encodeTokenOfferCursor(offset: number, version?: string): string {
     return encodeOpaqueCursor({
         kind: TOKEN_OFFER_CURSOR_KIND,
+        version,
         offset,
     } satisfies TokenOfferCursor);
 }

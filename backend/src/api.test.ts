@@ -1,6 +1,7 @@
 import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
 import { SqliteNativeTokenRead } from "./infra/trading/sqlite-native-token-read.js";
 import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from "@artgod/shared/types";
+import { ORDERBOOK_VENUE } from "@artgod/shared/market-data/orders";
 import {
     buildCollectionViewsPath,
     buildTraitCatalogRebuildsPath,
@@ -2403,6 +2404,176 @@ describe("backend api routes", () => {
         expect(tokenJob.payload.collection.slug).toBe("milady");
         expect(tokenJob.payload.tokenId).toBe("1");
         expect(tokenJob.payload.job).toBeNull();
+    });
+
+    it("serves net offers and the full price, currency and venue of the surviving listing on both routes", async () => {
+        const collectionId =
+            getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+        const tokenId = "9081";
+        const observed = 1_790_000_000_000;
+        const feedIds: number[] = [];
+        const base = "/api/ethereum/milady";
+        const created: string[] = [];
+        try {
+            db.prepare(
+                "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
+            ).run(collectionId, MILADY_ADDRESS, tokenId);
+            for (const venue of [
+                ORDERBOOK_VENUE.OpenSea,
+                ORDERBOOK_VENUE.Vvv,
+            ]) {
+                const id = Number(
+                    db
+                        .prepare(
+                            "INSERT INTO orderbook_feeds(chain_id,venue,market,contract,view,last_success_ms) VALUES(1,?,'route-fixture',?,'public',?)",
+                        )
+                        .run(venue, MILADY_ADDRESS, observed).lastInsertRowid,
+                );
+                db.prepare("INSERT INTO orderbook_bindings VALUES(?,?)").run(
+                    id,
+                    collectionId,
+                );
+                feedIds.push(id);
+            }
+            const add = (
+                id: string,
+                side: "buy" | "sell",
+                venue: 0 | 1,
+                price: string,
+                currency: string,
+                net: string | null,
+            ) => {
+                const name = "route-fixture-" + id;
+                created.push(name);
+                insertOrderFixture({
+                    id: name,
+                    side,
+                    contract: MILADY_ADDRESS,
+                    tokenId,
+                    sourceScopeKind: "token",
+                    price,
+                    currency,
+                    sourceStatus: "active",
+                    fillabilityStatus: "fillable",
+                    validFrom: 1,
+                    validUntil: 4_000_000_000,
+                });
+                db.prepare(
+                    "UPDATE orders SET order_hash=?,source=?,winning_feed_id=?,seller_proceeds=? WHERE id=?",
+                ).run(
+                    name,
+                    venue ? ORDERBOOK_VENUE.Vvv : ORDERBOOK_VENUE.OpenSea,
+                    feedIds[venue],
+                    net,
+                    name,
+                );
+                db.prepare(
+                    "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,?,'[]',?,1,1,1,1,?,'fixture',?)",
+                ).run(feedIds[venue], name, name, observed, collectionId);
+            };
+            add(
+                "a",
+                "buy",
+                0,
+                "1000000000000000000",
+                WETH_ADDRESS,
+                "950000000000000000",
+            );
+            add(
+                "b",
+                "buy",
+                1,
+                "980000000000000000",
+                WETH_ADDRESS,
+                "980000000000000000",
+            );
+            add("os-ask", "sell", 0, "1000000000000000000", ZERO_ADDRESS, null);
+            add("vvv-ask", "sell", 1, "950000000000000000", WETH_ADDRESS, null);
+            const check = async (
+                buyer: string,
+                proceeds: string,
+                ask: string,
+                currency: string,
+                venue: string,
+                lastSeen: number | null,
+            ) => {
+                for (const route of [
+                    base + "/bidding/bids?bid_scope=token",
+                    base + "/" + tokenId + "/bidding/bids",
+                ]) {
+                    const response = await resolve("GET", route);
+                    expect(response.statusCode).toBe(200);
+                    const bids = response.payload.bidBook.bids.filter(
+                        (r: { scope: { tokenId: string } }) =>
+                            r.scope.tokenId === tokenId,
+                    );
+                    expect(bids[0]).toMatchObject({
+                        orderId: "route-fixture-" + buyer,
+                        price: { wei: proceeds },
+                    });
+                }
+                const detail = await resolve("GET", base + "/" + tokenId);
+                const cards = await resolve(
+                    "GET",
+                    base + "?token_status=listed&limit=100",
+                );
+                for (const token of [
+                    detail.payload.token,
+                    cards.payload.tokens.items.find(
+                        (r: { tokenId: string }) => r.tokenId === tokenId,
+                    ),
+                ])
+                    expect(token).toMatchObject({
+                        listingPrice: ask,
+                        listingCurrency: currency.toLowerCase(),
+                        listingVenue: venue,
+                        listingLastSeenMs: lastSeen,
+                    });
+            };
+            await check(
+                "b",
+                "980000000000000000",
+                "950000000000000000",
+                WETH_ADDRESS,
+                ORDERBOOK_VENUE.Vvv,
+                null,
+            );
+            db.prepare(
+                "UPDATE orderbook_feeds SET last_error='unavailable' WHERE feed_id=?",
+            ).run(feedIds[1]);
+            db.prepare(
+                "UPDATE orders SET price='800000000000000000' WHERE id='route-fixture-vvv-ask'",
+            ).run();
+            await check(
+                "b",
+                "980000000000000000",
+                "800000000000000000",
+                WETH_ADDRESS,
+                ORDERBOOK_VENUE.Vvv,
+                observed,
+            );
+            db.prepare(
+                "UPDATE orders SET source_status='inactive' WHERE winning_feed_id=?",
+            ).run(feedIds[1]);
+            await check(
+                "a",
+                "950000000000000000",
+                "1000000000000000000",
+                ZERO_ADDRESS,
+                ORDERBOOK_VENUE.OpenSea,
+                null,
+            );
+        } finally {
+            for (const id of created)
+                db.prepare("DELETE FROM orders WHERE id=?").run(id);
+            for (const id of feedIds)
+                db.prepare("DELETE FROM orderbook_feeds WHERE feed_id=?").run(
+                    id,
+                );
+            db.prepare(
+                "DELETE FROM tokens WHERE chain_id=1 AND collection_id=? AND token_id=?",
+            ).run(collectionId, tokenId);
+        }
     });
 
     it("reads bid book from indexed orders when a collection has no enabled bidding jobs", async () => {

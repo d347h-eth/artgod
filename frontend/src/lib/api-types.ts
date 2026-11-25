@@ -322,6 +322,8 @@ export type ApiTokenCard = {
 	traitSummary: string | null;
 	listingPrice: string | null;
 	listingCurrency: string | null;
+	listingVenue?: string | null;
+	listingLastSeenMs?: number | null;
 	attributes: ApiTokenAttribute[];
 	hasMetadata: boolean;
 	metadataUpdatedAt: string | null;
@@ -607,6 +609,7 @@ export type ApiBiddingBidBookOwnStatus = {
 };
 
 type ApiBiddingBidBookRowBase = {
+	venue?: import('@artgod/shared/market-data/orders').OrderbookVenue;
 	ownJob?: TradingBiddingBidBookOwnJob | null;
 	orderId: string;
 	source: ApiBiddingBidBookSource;

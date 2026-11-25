@@ -533,6 +533,21 @@ export function createBackendApp(
         getCollectionDetailUseCase,
         publicCollection,
         tokenPreview.warmup,
+        () => {
+            const scope = config.deployment.publicCollectionScope!;
+            const chain = chainsReadModel.resolveChainRef(
+                scope.chainRef,
+                config.defaultChainId,
+            );
+            const collection = collectionsReadModel.resolveCollectionRef(
+                chain.publicChainId,
+                scope.collectionRef,
+            );
+            return collectionsReadModel.collectionMarketVersion(
+                chain.publicChainId,
+                collection.collectionId,
+            );
+        },
     );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
         config.defaultChainId,
@@ -895,6 +910,7 @@ function maybeCreateCollectionDetailPort(
         requiresView(): boolean;
     },
     tokenPreviewWarmupPort: TokenPreviewWarmupPort | null,
+    marketVersion: () => string,
 ): {
     port: GetCollectionDetailPort;
     lifecycle: PublicCollectionDetailCache | null;
@@ -922,6 +938,7 @@ function maybeCreateCollectionDetailPort(
             previewWarmRefreshMs:
                 config.queryCache.publicCollection.previewWarmRefreshMs,
         },
+        marketVersion,
     );
 
     return {

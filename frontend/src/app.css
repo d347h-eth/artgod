@@ -3923,6 +3923,15 @@ a.bid-book-own-status:focus-visible {
 	white-space: nowrap;
 }
 
+.token-price-last-seen .token-price-link {
+	display: inline-block;
+	min-width: 13ch;
+	max-width: 19ch;
+	white-space: normal;
+	word-break: normal;
+	overflow-wrap: normal;
+}
+
 .holders-table-wrap,
 .holders-summary {
 	width: fit-content;

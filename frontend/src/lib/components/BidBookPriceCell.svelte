@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ORDERBOOK_VENUE } from '@artgod/shared/market-data/orders';
 	import type { ApiBiddingBidBookRow } from '$lib/api-types';
 	import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
 
@@ -21,7 +22,10 @@
 	const canShowAction = $derived(actionLabel !== null && onSelect !== null);
 
 	function hasOpenSeaOrderHash(): boolean {
-		return bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
+		return (
+			bid.venue !== ORDERBOOK_VENUE.Vvv &&
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid
+		);
 	}
 
 	function ownIntentJobId(): string | null {

@@ -9,6 +9,7 @@ import {
     withTraitReadSnapshot,
 } from "./trait-catalog.js";
 import {
+    collectionMarketVersion,
     currentAskIdSql,
     normalizedAskPriceSql,
 } from "../database/current-asks.js";
@@ -154,6 +155,8 @@ type TokenRow = {
     animation_url: string | null;
     listing_price: string | null;
     listing_currency: string | null;
+    listing_venue?: string | null;
+    listing_last_seen?: number | null;
     metadata_updated_at: string | null;
 };
 
@@ -173,6 +176,8 @@ type TokenDetailRow = {
     animation_url: string | null;
     listing_price: string | null;
     listing_currency: string | null;
+    listing_venue?: string | null;
+    listing_last_seen?: number | null;
     metadata_updated_at: string | null;
 };
 
@@ -192,6 +197,8 @@ type TokenListingRow = {
 };
 
 type TokenListingHydrationRow = {
+    venue: string | null;
+    last_seen: number | null;
     token_id: string;
     price: string | null;
     currency: string | null;
@@ -593,25 +600,62 @@ export class SqliteCollectionsReadModel {
         return mapCollectionRow(row);
     }
 
+    /** The page, counts and continuation belong to one SQLite read snapshot. */
     listCollectionTokens(params: ListCollectionTokensParams): TokenCursorPage {
-        const read = () => this.listCollectionTokensSnapshot(params);
+        const read = () => {
+            const now = Math.floor(Date.now() / 1000);
+            const version = this.collectionMarketVersion(
+                params.chainId,
+                params.collectionId,
+                now,
+            );
+            const previous = params.cursor
+                ? (decodeTokenCursor(params.cursor) as TokenCursor & {
+                      marketVersion?: string;
+                  })
+                : null;
+            const restart =
+                previous?.marketVersion !== undefined &&
+                previous.marketVersion !== version;
+            const page = this.readCollectionTokens(
+                restart ? { ...params, cursor: undefined } : params,
+                now,
+            );
+            const attachVersion = (cursor: string | null) =>
+                cursor
+                    ? encodeOpaqueCursor({
+                          ...decodeOpaqueCursor<object>(cursor),
+                          marketVersion: version,
+                      })
+                    : null;
+            return {
+                ...page,
+                prevCursor: attachVersion(page.prevCursor),
+                nextCursor: attachVersion(page.nextCursor),
+            };
+        };
         return params.traitContext
-            ? withTraitReadSnapshot(
-                  { ...params, traitContext: params.traitContext },
-                  read,
-              )
-            : read();
+            ? withTraitReadSnapshot({ ...params, traitContext: params.traitContext }, read)
+            : db.raw.transaction(read)();
     }
 
-    private listCollectionTokensSnapshot(
+    collectionMarketVersion(
+        chainId: number,
+        collectionId: number,
+        now = Math.floor(Date.now() / 1000),
+    ): string {
+        return collectionMarketVersion(db.raw, chainId, collectionId, now);
+    }
+
+    private readCollectionTokens(
         params: ListCollectionTokensParams,
+        nowSeconds: number,
     ): TokenCursorPage {
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined
                 ? decodeTokenCursor(params.cursor)
                 : null;
-        const nowSeconds = Math.floor(Date.now() / 1000);
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
         );
@@ -974,7 +1018,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, l.venue AS listing_venue, l.last_seen AS listing_last_seen, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -1213,7 +1257,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, l.venue AS listing_venue, l.last_seen AS listing_last_seen, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -1939,6 +1983,12 @@ export class SqliteCollectionsReadModel {
             animationUrl: this.resolveMediaPresentation(row.animation_url),
             listingPrice: row.listing_price ?? null,
             listingCurrency: row.listing_currency ?? null,
+            ...(row.listing_price != null
+                ? {
+                      listingVenue: row.listing_venue ?? null,
+                      listingLastSeenMs: row.listing_last_seen ?? null,
+                  }
+                : {}),
             currentHolder:
                 (
                     this.selectTokenCurrentHolderRow.get(
@@ -2036,7 +2086,7 @@ export class SqliteCollectionsReadModel {
 
         return db.raw
             .prepare(
-                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, l.venue AS listing_venue, l.last_seen AS listing_last_seen, m.updated_at AS metadata_updated_at ` +
                     "FROM tokens t " +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
@@ -2104,7 +2154,7 @@ export class SqliteCollectionsReadModel {
             .prepare(
                 `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, ` +
                     (includeListings
-                        ? "l.price AS listing_price, l.currency AS listing_currency, "
+                        ? "l.price AS listing_price, l.currency AS listing_currency, l.venue AS listing_venue, l.last_seen AS listing_last_seen, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
                     "m.updated_at AS metadata_updated_at " +
                     "FROM tokens t " +
@@ -2452,6 +2502,8 @@ function hydrateTokenRowsWithCheapestListings(params: {
             ...row,
             listing_price: listing.price,
             listing_currency: listing.currency,
+            listing_venue: listing.venue,
+            listing_last_seen: listing.last_seen,
         };
     });
 }
@@ -2693,6 +2745,7 @@ function decodeTokenCursor(cursor: string): TokenCursor {
             typeof decoded.tokenId === "string"
         ) {
             return {
+                ...decoded,
                 kind: "all",
                 tokenId: decoded.tokenId,
             };
@@ -3230,7 +3283,7 @@ function buildCheapestListingSql(
 ): string {
     const price = normalizedAskPriceSql("o");
     return (
-        "SELECT t.collection_id,t.token_id,o.price,o.currency," +
+        "SELECT t.collection_id,t.token_id,o.price,o.currency,o.source AS venue,CASE WHEN f.last_error IS NOT NULL THEN (SELECT m.observed_ms FROM orderbook_members m WHERE m.feed_id=f.feed_id AND m.settlement_id=o.id AND m.present=1 LIMIT 1) END AS last_seen," +
         `LENGTH(${price}) AS price_sort_length,${price} AS price_sort_value ` +
         "FROM (SELECT chain_id,collection_id,token_id FROM tokens WHERE chain_id=? AND collection_id=?) t " +
         "JOIN orders o ON o.id=(" +
@@ -3240,7 +3293,7 @@ function buildCheapestListingSql(
             token: "t.token_id",
             currencyCount: supportedCurrencyCount,
         }) +
-        ")" +
+        ") LEFT JOIN orderbook_feeds f ON f.feed_id=o.winning_feed_id" +
         (tokenIdCount
             ? ` WHERE t.token_id IN (${Array(tokenIdCount).fill("?").join(",")})`
             : "")
@@ -3352,6 +3405,12 @@ function mapTokenRow(
         traitSummary: null,
         listingPrice: row.listing_price ?? null,
         listingCurrency: row.listing_currency ?? null,
+        ...(row.listing_price != null
+            ? {
+                  listingVenue: row.listing_venue ?? null,
+                  listingLastSeenMs: row.listing_last_seen ?? null,
+              }
+            : {}),
         attributes: row.attributes,
         hasMetadata: row.metadata_updated_at !== null,
         metadataUpdatedAt: row.metadata_updated_at,

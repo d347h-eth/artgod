@@ -238,6 +238,8 @@ export type TokenCard = TokenPresentationSummary & {
     animationUrl: string | null;
     listingPrice: string | null;
     listingCurrency: string | null;
+    listingVenue?: string | null;
+    listingLastSeenMs?: number | null;
     attributes: TokenAttribute[];
 };
 
@@ -272,6 +274,8 @@ export type TokenDetail = TokenMarketplaceBiddingSupport & {
     animationUrl: string | null;
     listingPrice: string | null;
     listingCurrency: string | null;
+    listingVenue?: string | null;
+    listingLastSeenMs?: number | null;
     currentHolder: string | null;
     attributes: TokenDetailTrait[];
     hasMetadata: boolean;

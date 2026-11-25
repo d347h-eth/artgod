@@ -25,7 +25,7 @@
 	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { formatListingPrice } from '$lib/listing-price';
-	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
+	import { listingHref as buildListingHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import type {
 		TokenCardSelectionState,
@@ -247,11 +247,13 @@
 	}
 
 	function tokenListingLabel(token: ApiTokenCard): string | null {
-		return formatListingPrice(token.listingPrice, token.listingCurrency);
+		return formatListingPrice(token.listingPrice, token.listingCurrency, token.listingLastSeenMs);
 	}
 
-	function openseaItemHref(token: ApiTokenCard): string | null {
-		return buildOpenseaItemHref({
+	function tokenListingHref(token: ApiTokenCard): string | null {
+		return buildListingHref({
+			venue: token.listingVenue,
+			tokenHref: tokenDetailHref(token.tokenId),
 			chainSlug: chain?.slug ?? null,
 			collectionAddress: collection?.address ?? null,
 			tokenId: token.tokenId
@@ -262,7 +264,8 @@
 		const ask = buildAskMarketPrice({
 			rawPrice: token.listingPrice,
 			currencyAddress: token.listingCurrency,
-			href: openseaItemHref(token),
+			lastSeenMs: token.listingLastSeenMs,
+			href: tokenListingHref(token),
 			title: 'ask'
 		});
 		return ask ? [ask] : [];
@@ -678,13 +681,13 @@
 												emptyClass="token-thumb token-thumb-empty"
 											/>
 										</td>
-										<td class="mono token-price-cell">
+										<td class="mono token-price-cell" class:token-price-last-seen={token.listingLastSeenMs != null}>
 											{#if tokenListingLabel(token)}
-												{#if openseaItemHref(token)}
+												{#if tokenListingHref(token)}
 													<a
 														class="token-price-link"
-														href={openseaItemHref(token)}
-														target="_blank"
+														href={tokenListingHref(token)}
+														target={tokenListingHref(token)?.startsWith("https://") ? "_blank" : undefined}
 														rel="noreferrer noopener"
 													>
 														{tokenListingLabel(token)}

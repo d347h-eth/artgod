@@ -4,6 +4,7 @@
 	import {detailTraitTree} from '$lib/trait-tree';
 	import TraitTree from '$lib/components/TraitTree.svelte';
 	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
+	import { ORDERBOOK_VENUE } from '@artgod/shared/market-data/orders';
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { ApiTraitRangeFilter, ApiCollectionBiddingTraitFilterJoinMode } from '$lib/api-types';
 	import { browser } from '$app/env';
@@ -225,11 +226,19 @@
 	}
 
 	function tokenListingLabel(): string | null {
-		return formatListingPrice(displayedToken?.listingPrice ?? null, displayedToken?.listingCurrency ?? null);
+		return formatListingPrice(
+			displayedToken?.listingPrice ?? null,
+			displayedToken?.listingCurrency ?? null,
+			displayedToken?.listingLastSeenMs
+		);
 	}
 
 	function openseaLinkLabel(): string {
-		const listingLabel = tokenListingLabel();
+		const listingLabel =
+			displayedToken?.listingVenue === undefined ||
+			displayedToken.listingVenue === ORDERBOOK_VENUE.OpenSea
+				? tokenListingLabel()
+				: null;
 		return listingLabel ? `${listingLabel} [OS]` : '[OS]';
 	}
 
@@ -822,7 +831,10 @@
 		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data?.collection ?? null)}</h1>
 
 		<section class="panel-header token-detail-meta">
-			{#if openseaItemHref()}
+			{#if tokenListingLabel() && displayedToken.listingVenue!==undefined && displayedToken.listingVenue!==ORDERBOOK_VENUE.OpenSea}
+                <span class="mono token-detail-meta-value token-grid-price">{tokenListingLabel()}</span>
+            {/if}
+            {#if openseaItemHref()}
 				<div class="token-detail-meta-block token-grid-price">
 					<a
 						class="mono token-detail-meta-value token-price-link"

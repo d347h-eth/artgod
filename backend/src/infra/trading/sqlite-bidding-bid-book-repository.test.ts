@@ -135,6 +135,129 @@ describe("SqliteBiddingBidBookRepository", () => {
         vi.useRealTimers();
     });
 
+    it("pages deduplicated token groups in numeric tie order and restarts an outdated cursor", () => {
+        const count = 113;
+        const feed = db.prepare(
+            "INSERT INTO orderbook_feeds(chain_id,venue,market,contract,view) VALUES(1,'vvv','fixture',?,?)",
+        );
+        const feeds = ["public", "second", "third"].map((view) =>
+            Number(feed.run(COLLECTION_ADDRESS, view).lastInsertRowid),
+        );
+        for (const id of feeds)
+            db.prepare("INSERT INTO orderbook_bindings VALUES(?,?)").run(
+                id,
+                collectionId,
+            );
+        const token = db.prepare(
+            "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
+        );
+        const bid =
+            db.prepare(`INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id)
+            VALUES(?,1,?,'seaport','buy','vvv','maker',?,?,'token','active','fillable',?,?,?,?)`);
+        const member = db.prepare(
+            "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,?,'[]',?,1,1,1,1,1,'fixture',?)",
+        );
+        db.writeTransaction(() => {
+            for (let n = 0; n < count; n++) {
+                const id = String(n);
+                token.run(collectionId, COLLECTION_ADDRESS, id);
+                for (const amount of [
+                    "20000000000000000000000",
+                    "12000000000000000000000",
+                    "50",
+                ]) {
+                    const key = id + "-" + amount;
+                    bid.run(
+                        key,
+                        collectionId,
+                        COLLECTION_ADDRESS,
+                        id,
+                        amount,
+                        amount,
+                        key,
+                        feeds[0],
+                    );
+                    for (const feedId of feeds)
+                        member.run(feedId, key, key, collectionId);
+                }
+            }
+            db.prepare(
+                "INSERT INTO orders(id,chain_id,collection_id,kind,side,maker,contract_address,source_scope_kind,source_status,fillability_status,price) VALUES('floor',1,?,'seaport','buy','maker',?,'collection','active','fillable','1000')",
+            ).run(collectionId, COLLECTION_ADDRESS);
+        })();
+        const traitKey = db
+            .prepare(
+                "INSERT INTO attribute_keys(chain_id,collection_id,contract_address,key) VALUES(1,?,?,'size')",
+            )
+            .run(collectionId, COLLECTION_ADDRESS).lastInsertRowid;
+        const attribute = db
+            .prepare(
+                "INSERT INTO attributes(chain_id,collection_id,contract_address,attribute_key_id,value) VALUES(1,?,?,?,'0001234567890123456789012345')",
+            )
+            .run(collectionId, COLLECTION_ADDRESS, traitKey).lastInsertRowid;
+        db.prepare(
+            "INSERT INTO token_attributes(chain_id,collection_id,contract_address,token_id,attribute_id,source_kind,source_key) VALUES(1,?,?,'2',?,'metadata','canonical')",
+        ).run(collectionId, COLLECTION_ADDRESS, attribute);
+        const repo = new SqliteBiddingBidBookRepository();
+        const filtered = repo.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: false,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            selectedTraits: [
+                { key: "size", value: "0001234567890123456789012345" },
+            ],
+            selectedTraitRanges: [
+                {
+                    key: "size",
+                    fromValue: "1234567890123456789012344",
+                    toValue: "1234567890123456789012345",
+                },
+            ],
+            tokenPage: { offset: 0, limit: 17 },
+        });
+        assert.deepEqual(filtered.tokenGroups?.tokenIds, ["2"]);
+        assert.equal(filtered.tokenGroups.totalOffers, 2);
+        const page = (offset: number, version?: string) =>
+            repo.listCollectionBidBook({
+                chainId: 1,
+                collectionId,
+                includeOwnJobContext: false,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                traitFilterJoinMode:
+                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                selectedTraits: [],
+                selectedTraitRanges: [],
+                tokenPage: { offset, version, limit: 17 },
+            });
+        const ids: string[] = [];
+        let version: string | undefined;
+        for (let offset = 0; offset < count; offset += 17) {
+            const result = page(offset, version);
+            assert.ok(result.tokenGroups);
+            assert.equal(result.tokenGroups.totalItems, count);
+            assert.equal(result.tokenGroups.totalOffers, count * 2);
+            assert.equal(
+                result.bids.length,
+                result.tokenGroups.tokenIds.length * 2,
+            );
+            version = result.tokenGroups.version;
+            ids.push(...result.tokenGroups.tokenIds);
+        }
+        assert.deepEqual(
+            ids,
+            Array.from({ length: count }, (_, i) => String(i)),
+        );
+        db.prepare(
+            "UPDATE orders SET source_status='inactive' WHERE token_id='0'",
+        ).run();
+        const restarted = page(17, version).tokenGroups!;
+        assert.equal(restarted.offset, 0);
+        assert.equal(restarted.tokenIds[0], "1");
+        assert.equal(restarted.totalItems, count - 1);
+    });
+
     it("reads tier attribution for stopped-bot intent and preserves collection-wide ids under filters", () => {
         const jobs = new SqliteBiddingJobsRepository();
         const tierJob = jobs.upsertTokenJob({

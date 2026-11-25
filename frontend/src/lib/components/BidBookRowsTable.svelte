@@ -1,7 +1,11 @@
 <script lang="ts">
 	import BidBookViewMatch from '$lib/components/BidBookViewMatch.svelte';
 	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
-	import { BID_BOOK_ROWS_TABLE_SCOPE_KIND, type BidBookRowsTableRow } from '$lib/bid-book-view-models';
+	import {
+		bidBookRowKey,
+		BID_BOOK_ROWS_TABLE_SCOPE_KIND,
+		type BidBookRowsTableRow
+	} from '$lib/bid-book-view-models';
 	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
 	import BidBookPriceCell from '$lib/components/BidBookPriceCell.svelte';
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
@@ -102,7 +106,7 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each rows as row (row.bid.orderId)}
+				{#each rows as row (bidBookRowKey(row.bid))}
 					{#if row.startsNewBucket && !row.hidden}
 						<tr class="bid-book-bucket-spacer" aria-hidden="true">
 							<td colspan={columnCount}></td>

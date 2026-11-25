@@ -3,7 +3,7 @@
 	import TokenCardTile from './TokenCardTile.svelte';
 	import { getTokenPreviewController } from './token-preview-controller';
 	import { buildAskMarketPrice } from '$lib/market-price';
-	import { openseaItemHref } from '$lib/marketplace-links';
+	import { listingHref } from '$lib/marketplace-links';
 	import type { SaleMedia, SaleMediaLoader, SalePreviewTarget } from '$lib/price-chart/media';
 
 	let {
@@ -55,7 +55,15 @@
 			? buildAskMarketPrice({
 					rawPrice: token.listingPrice,
 					currencyAddress: token.listingCurrency,
-					href: openseaItemHref({
+					lastSeenMs: token.listingLastSeenMs,
+					href: listingHref({
+						venue: token.listingVenue,
+						tokenHref: buildTokenDetailHref({
+							basePath,
+							tokenId: token.tokenId,
+							mediaMode: media.selectedMode,
+							mediaPreference: media.preference
+						}),
 						chainSlug: chain.slug,
 						collectionAddress: collection.address,
 						tokenId: token.tokenId

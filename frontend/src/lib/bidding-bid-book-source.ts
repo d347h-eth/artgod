@@ -22,8 +22,8 @@ export function bidBookFeedLabel(source: ApiBiddingBidBook['state']['source']): 
 // Explains which market feed supplies the visible bid book.
 export function bidBookFeedTitle(source: ApiBiddingBidBook['state']['source']): string {
 	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
-		? "Bids are supplied by the bidding bot's current market feed."
-		: 'Bids are supplied by OpenSea orders indexed by ArtGod.';
+		? 'OpenSea offers ranked by the bidder’s full amount.'
+		: 'Indexed offers ranked by what the seller receives after required fees.';
 }
 
 // Resolves the best available source refresh timestamp for bid-book update signals.

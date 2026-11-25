@@ -1352,6 +1352,7 @@ function createSchema(): void {
             token_scope_kind TEXT NOT NULL DEFAULT 'contract_all_tokens',
             scope_start_token_id TEXT,
             scope_total_supply INTEGER,
+            market_revision INTEGER NOT NULL DEFAULT 0,
             deployment_block INTEGER,
             bootstrap_anchor_block INTEGER,
             opensea_slug TEXT,
@@ -1424,8 +1425,14 @@ function createSchema(): void {
             updated_at TEXT,
             PRIMARY KEY (chain_id, collection_id, token_id)
         );
+        CREATE TABLE orderbook_bindings (feed_id INTEGER, collection_id INTEGER);
+        CREATE TABLE orderbook_feeds (feed_id INTEGER PRIMARY KEY, last_error TEXT);
+        CREATE TABLE orderbook_members (feed_id INTEGER, settlement_id TEXT, present INTEGER, observed_ms INTEGER);
         CREATE TABLE orders (
             id TEXT PRIMARY KEY,
+            source TEXT,
+            order_hash TEXT,
+            winning_feed_id INTEGER,
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
             token_id TEXT,

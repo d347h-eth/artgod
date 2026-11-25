@@ -92,6 +92,42 @@ describe("PublicCollectionDetailCache", () => {
         expect(inner.getCollectionDetail).toHaveBeenCalledTimes(1);
     });
 
+    it("keeps a later market revision when the earlier request completes last", async () => {
+        let finish!: (output: GetCollectionDetailOutput) => void;
+        let revision = "first";
+        const old = createOutput(),
+            current = createOutput();
+        const inner = {
+            getCollectionDetail: vi
+                .fn()
+                .mockImplementationOnce(
+                    () =>
+                        new Promise<GetCollectionDetailOutput>((resolve) => {
+                            finish = resolve;
+                        }),
+                )
+                .mockReturnValue(current),
+        };
+        const cache = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+            () => revision,
+        );
+        const first = cache.getCollectionDetail(createInput());
+        await Promise.resolve();
+        revision = "second";
+        expect(await cache.getCollectionDetail(createInput())).toBe(current);
+        finish(old);
+        expect(await first).toBe(current);
+        expect(cache.getCollectionDetail(createInput())).toBe(current);
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(2);
+    });
     it("serves explicit default media mode requests from the same cached page", async () => {
         const output = createOutput();
         const inner = {

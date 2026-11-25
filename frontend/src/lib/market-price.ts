@@ -24,6 +24,7 @@ export function formatMarketPriceLabel(params: {
 
 // Builds the shared token-card ask-price presentation item.
 export function buildAskMarketPrice(params: {
+	lastSeenMs?: number | null;
 	rawPrice: string | null;
 	currencyAddress: string | null;
 	href?: string | null;
@@ -36,7 +37,7 @@ export function buildAskMarketPrice(params: {
 	if (!label) return null;
 	return {
 		kind: 'ask',
-		label,
+		label: withListingObservation(label, params.lastSeenMs),
 		href: params.href ?? null,
 		title: params.title ?? 'ask'
 	};
@@ -62,12 +63,18 @@ export function buildBidMarketPrice(params: {
 	};
 }
 
+export function withListingObservation(price: string, lastSeenMs?: number | null): string {
+	if (lastSeenMs == null) return price;
+	const date = new Date(lastSeenMs);
+	return price + ' · last seen ' + date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
 function formatWeiAmount(rawPrice: string | null): string | null {
 	if (!rawPrice || !/^\d+$/.test(rawPrice)) return null;
 	const value = BigInt(rawPrice);
 	const whole = value / WEI_BASE;
 	const fraction = value % WEI_BASE;
-	const fractionText = fraction.toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
+	const fractionText = fraction.toString().padStart(18, '0').replace(/0+$/, '');
 	return fractionText ? `${whole}.${fractionText}` : `${whole}`;
 }
 

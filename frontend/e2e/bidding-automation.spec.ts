@@ -91,6 +91,37 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation fixture harness', () => {
+	test('follows the winning listing through a venue outage and withdrawal', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		const scenario = BIDDING_E2E_SCENARIO_QUERY_PARAM + '=';
+		const outage = scenario + BIDDING_E2E_SCENARIO.LastSeenVvv;
+		const label = '0.130585 ETH · last seen 2026-11-24 12:00 UTC';
+		for (const mode of ['grid', 'table']) {
+			await openHarnessPage(page, COLLECTION_PATH + '?mode=' + mode + '&' + outage);
+			const link = page.getByRole('link', { name: label, exact: true });
+			await expect(link).toBeVisible();
+			await expect(link).toHaveAttribute('href', /collection\/101/);
+			await link.scrollIntoViewIfNeeded();
+			await page.screenshot({ path: testInfo.outputPath('last-seen-' + mode + '.png') });
+		}
+		await openHarnessPage(page, COLLECTION_PATH + '/101?' + outage);
+		const detail = page.getByText(label, { exact: true });
+		await expect(detail).toBeVisible();
+		await detail.scrollIntoViewIfNeeded();
+		await page.screenshot({ path: testInfo.outputPath('token-detail.png') });
+		await openHarnessPage(
+			page,
+			COLLECTION_PATH + '?' + scenario + BIDDING_E2E_SCENARIO.VvvWithdrawn
+		);
+		await expect(page.getByRole('link', { name: '0.95 WETH', exact: true })).toHaveAttribute(
+			'href',
+			/https:\/\/opensea\.io\/item\/.*\/101/
+		);
+		await page.screenshot({ path: testInfo.outputPath('surviving-ask.png') });
+	});
+
 	test('keeps long pricing tier names and their counts inside the filter row', async ({
 		page
 	}, testInfo) => {

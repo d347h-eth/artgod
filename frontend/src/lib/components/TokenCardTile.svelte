@@ -150,7 +150,7 @@
 								<a
 									class="token-price-link"
 									href={price.href}
-									target="_blank"
+									target={price.href.startsWith("https://") ? "_blank":undefined}
 									rel="noreferrer noopener"
 								>
 									{price.label}

@@ -46,6 +46,7 @@ export type {
 
 type PersistedBiddingBidBookRowBase = {
     viewApplicability?: ViewOfferApplicability;
+    venue?: import("@artgod/shared/market-data/orders").OrderbookVenue;
     orderId: string;
     source: TradingBiddingBidBookSource;
     scopeKind: TradingBiddingBidScopeKind;
@@ -155,7 +156,22 @@ export type BiddingBidBookOwnStatus = {
     } | null;
 };
 
+export type IndexedTokenPageRequest = {
+    offset: number;
+    version?: string;
+    limit: number;
+};
+export type IndexedTokenGroupPage = {
+    tokenIds: string[];
+    offset: number;
+    version: string;
+    totalItems: number;
+    totalOffers: number;
+    supportedItems: number;
+};
+
 export type PersistedBiddingBidBook = {
+    tokenGroups?: IndexedTokenGroupPage;
     // Collection-wide attribution keeps tier choices stable across the visible filters.
     attributedPriceTierIds?: string[];
     state: PersistedBiddingBidBookState;
@@ -166,11 +182,13 @@ export type PersistedBiddingBidBook = {
 };
 
 export interface BiddingBidBookRepositoryPort {
+    withReadSnapshot?<T>(read: () => T): T;
     listCollectionBidBook(params: {
         traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeOwnJobContext: boolean;
+        tokenPage?: IndexedTokenPageRequest;
         scopeFilter: CollectionBiddingBidScopeFilter;
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
@@ -189,6 +207,7 @@ export interface BiddingBidBookRepositoryPort {
 }
 
 type BiddingBidBookRowViewBase = {
+    venue?: import("@artgod/shared/market-data/orders").OrderbookVenue;
     orderId: string;
     source: TradingBiddingBidBookSource;
     scope: {
@@ -324,6 +343,7 @@ function mapPersistedBidRowToView(
 ): BiddingBidBookRowView {
     const row = {
         orderId: bid.orderId,
+        ...(bid.venue ? { venue: bid.venue } : {}),
         source: bid.source,
         scope: {
             ...(bid.viewApplicability

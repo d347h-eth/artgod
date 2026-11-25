@@ -1,3 +1,4 @@
+import { ORDERBOOK_VENUE } from '@artgod/shared/market-data/orders';
 import {
 	buildBlockExplorerAddressUrl,
 	buildBlockExplorerBlockUrl,
@@ -33,6 +34,15 @@ export function openseaItemHref(params: {
 		return null;
 	}
 	return `https://opensea.io/item/${params.chainSlug}/${params.collectionAddress}/${encodeURIComponent(params.tokenId)}`;
+}
+
+/** Browse an indexed listing at its identified venue, with local token detail as fallback. */
+export function listingHref(
+	params: Parameters<typeof openseaItemHref>[0] & { venue?: string | null; tokenHref: string }
+): string {
+	return params.venue === undefined || params.venue === ORDERBOOK_VENUE.OpenSea
+		? (openseaItemHref(params) ?? params.tokenHref)
+		: params.tokenHref;
 }
 
 export function openseaCollectionHref(slug: string | null): string | null {

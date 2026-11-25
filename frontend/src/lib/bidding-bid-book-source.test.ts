@@ -15,10 +15,10 @@ describe('bidding bid-book source metadata', () => {
 		expect(bidBookFeedLabel(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toBe('bidding bot');
 		expect(bidBookFeedLabel(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe('indexed orders');
 		expect(bidBookFeedTitle(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toContain(
-			"bidding bot's current market feed"
+			'bidder’s full amount'
 		);
 		expect(bidBookFeedTitle(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toContain(
-			'OpenSea orders indexed by ArtGod'
+			'seller receives after required fees'
 		);
 	});
 

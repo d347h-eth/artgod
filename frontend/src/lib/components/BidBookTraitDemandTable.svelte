@@ -2,7 +2,7 @@
 	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 	import type { Component, Snippet } from 'svelte';
 	import BidBookFilterTabs from '$lib/components/BidBookFilterTabs.svelte';
-	import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
+	import { bidBookRowKey, BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
 	import type { BidBookTraitDemandGroupPreviewProps } from '$lib/bid-book-trait-previews';
 	import type {
 		BidBookDemandTableGroup,
@@ -176,7 +176,7 @@
 							<td colspan={columnCount}></td>
 						</tr>
 					{/if}
-					{#each group.rows as row (row.bid.orderId)}
+					{#each group.rows as row (bidBookRowKey(row.bid))}
 						{#if row.startsNewBucket}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
 								<td colspan={columnCount}></td>
