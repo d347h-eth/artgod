@@ -3283,7 +3283,7 @@ function buildCheapestListingSql(
 ): string {
     const price = normalizedAskPriceSql("o");
     return (
-        "SELECT t.collection_id,t.token_id,o.price,o.currency,o.source AS venue,CASE WHEN f.last_error IS NOT NULL THEN (SELECT m.observed_ms FROM orderbook_members m WHERE m.feed_id=f.feed_id AND m.settlement_id=o.id AND m.present=1 LIMIT 1) END AS last_seen," +
+        "SELECT t.collection_id,t.token_id,o.price,o.currency,o.source AS venue,CASE WHEN f.last_error IS NOT NULL THEN (SELECT m.observed_ms FROM orderbook_members m WHERE m.feed_id=f.feed_id AND m.native_id=o.winning_native_id AND m.present=1 LIMIT 1) END AS last_seen," +
         `LENGTH(${price}) AS price_sort_length,${price} AS price_sort_value ` +
         "FROM (SELECT chain_id,collection_id,token_id FROM tokens WHERE chain_id=? AND collection_id=?) t " +
         "JOIN orders o ON o.id=(" +

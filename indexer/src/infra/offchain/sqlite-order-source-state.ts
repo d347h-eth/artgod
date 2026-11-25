@@ -74,6 +74,17 @@ export class SqliteOrderSourceStateStore {
     private readonly outbox = new SqliteQueueOutbox();
     private readonly projection: SqliteOrderProjection;
     private readonly history: SqliteDailyListingPrices;
+    private readonly previousMember;
+    private readonly previousPlacementOrder;
+    private readonly clearOfferScopes;
+    private readonly addOfferScope;
+    private readonly withdrawMember;
+    private readonly finishSeller;
+    private readonly markSeller;
+    private readonly winningRoute;
+    private readonly deactivateOrder;
+    private readonly localOfferScope;
+    private readonly publishWinner;
     constructor(
         private readonly weth: string,
         private readonly clock = Date.now,
@@ -95,6 +106,39 @@ export class SqliteOrderSourceStateStore {
         CREATE TEMP TABLE IF NOT EXISTS book_dirty(run TEXT,id TEXT,PRIMARY KEY(run,id)) WITHOUT ROWID;
         CREATE TEMP TABLE IF NOT EXISTS book_sellers(run TEXT,chain_id INTEGER,collection_id INTEGER,token_id TEXT,maker TEXT,
           PRIMARY KEY(run,chain_id,collection_id,token_id,maker)) WITHOUT ROWID;`);
+        this.previousMember = db.prepare(
+            "SELECT settlement_id,present,terms,observed_ms,json_extract(record_json,'$.sourceTime') AS source_ms FROM orderbook_members WHERE feed_id=? AND native_id=?",
+        );
+        this.previousPlacementOrder = db.prepare(
+            "SELECT settlement_id FROM orderbook_members WHERE placement=? AND settlement_id IS NOT NULL LIMIT 1",
+        );
+        this.clearOfferScopes = db.prepare(
+            "DELETE FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=?",
+        );
+        this.addOfferScope = db.prepare(
+            "INSERT INTO orderbook_offer_scopes(feed_id,native_id,collection_id,token_set_id,schema_hash) VALUES(?,?,?,?,?)",
+        );
+        this.withdrawMember = db.prepare(
+            "UPDATE orderbook_members SET present=0,eligible=0,withdrawn=authority*?,record_json=NULL,revision=?,observed_ms=? WHERE feed_id=? AND native_id=?",
+        );
+        this.finishSeller = db.prepare(
+            "DELETE FROM book_sellers WHERE run=? AND chain_id=? AND collection_id=? AND token_id=? AND maker=?",
+        );
+        this.markSeller = db.prepare(
+            "INSERT OR IGNORE INTO book_sellers SELECT ?,chain_id,collection_id,token_id,maker FROM orders WHERE id=? AND side=? AND token_id IS NOT NULL",
+        );
+        this.winningRoute = db.prepare(
+            "SELECT feed_id,native_id,collection_id,record_json,observed_ms FROM orderbook_eligible_routes WHERE settlement_id=? LIMIT 1",
+        );
+        this.deactivateOrder = db.prepare(
+            "UPDATE orders SET source_status=?,state_revision=state_revision+1 WHERE id=? AND source_status=?",
+        );
+        this.localOfferScope = db.prepare(
+            "SELECT token_set_id,schema_hash FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=? AND collection_id=?",
+        );
+        this.publishWinner = db.prepare(
+            "UPDATE orders SET order_hash=?,winning_feed_id=?,winning_native_id=?,required_fees=?,seller_proceeds=? WHERE id=?",
+        );
     }
 
     /** The caller supplies a verified venue reference and an existing local association. */
@@ -135,9 +179,20 @@ export class SqliteOrderSourceStateStore {
     due(venue: BookFeed["venue"], chainId: number, before: number) {
         return db
             .prepare(
-                "SELECT feed_id AS feedId,generation,binding_revision AS bindingRevision FROM orderbook_feeds f WHERE venue=? AND chain_id=? AND view=? AND (last_attempt_ms IS NULL OR last_attempt_ms<=?) AND EXISTS (SELECT 1 FROM orderbook_bindings WHERE feed_id=f.feed_id) ORDER BY feed_id",
+                `SELECT feed_id AS feedId,generation,binding_revision AS bindingRevision FROM orderbook_feeds f
+                 WHERE venue=? AND chain_id=? AND view=?
+                   AND (accepted_binding_revision IS NOT binding_revision OR last_success_ms IS NULL OR last_success_ms<=?)
+                   AND (last_attempt_ms IS NULL OR last_attempt_ms<=?)
+                   AND EXISTS (SELECT 1 FROM orderbook_bindings WHERE feed_id=f.feed_id)
+                 ORDER BY feed_id`,
             )
-            .all(venue, chainId, BOOK_VIEW.Public, before) as BoundMarketJob[];
+            .all(
+                venue,
+                chainId,
+                BOOK_VIEW.Public,
+                before,
+                before,
+            ) as BoundMarketJob[];
     }
     current(venue: BookFeed["venue"], chainId: number, job: BoundMarketJob) {
         return db
@@ -365,11 +420,10 @@ export class SqliteOrderSourceStateStore {
                             const record: BookObservation = JSON.parse(
                                 row.record_json,
                             );
-                            const old = db
-                                .prepare(
-                                    "SELECT settlement_id,present,terms,observed_ms,json_extract(record_json,'$.sourceTime') AS source_ms FROM orderbook_members WHERE feed_id=? AND native_id=?",
-                                )
-                                .get(id, row.native_id) as Member | undefined;
+                            const old = this.previousMember.get(
+                                id,
+                                row.native_id,
+                            ) as Member | undefined;
                             if (
                                 coverage.kind === "sighting" &&
                                 old &&
@@ -438,13 +492,9 @@ export class SqliteOrderSourceStateStore {
                                 record.placementOrderId ?? row.native_id,
                             ]);
                             if (!record.fillable && !row.settlement_id) {
-                                const related = db
-                                    .prepare(
-                                        "SELECT settlement_id FROM orderbook_members WHERE placement=? AND settlement_id IS NOT NULL LIMIT 1",
-                                    )
-                                    .get(placement) as
-                                    | { settlement_id: string }
-                                    | undefined;
+                                const related = this.previousPlacementOrder.get(
+                                    placement,
+                                ) as { settlement_id: string } | undefined;
                                 if (related)
                                     dirty.run(run, related.settlement_id);
                             }
@@ -484,13 +534,9 @@ export class SqliteOrderSourceStateStore {
                                 order?.sourceSchema ||
                                 (old && old.terms !== row.terms)
                             ) {
-                                db.prepare(
-                                    "DELETE FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=?",
-                                ).run(id, row.native_id);
+                                this.clearOfferScopes.run(id, row.native_id);
                                 for (const scope of offerScopes) {
-                                    db.prepare(
-                                        "INSERT INTO orderbook_offer_scopes(feed_id,native_id,collection_id,token_set_id,schema_hash) VALUES(?,?,?,?,?)",
-                                    ).run(
+                                    this.addOfferScope.run(
                                         id,
                                         row.native_id,
                                         scope.collectionId,
@@ -531,9 +577,7 @@ export class SqliteOrderSourceStateStore {
                             [id],
                             "native_id",
                             (row) => {
-                                db.prepare(
-                                    "UPDATE orderbook_members SET present=0,eligible=0,withdrawn=authority*?,record_json=NULL,revision=?,observed_ms=? WHERE feed_id=? AND native_id=?",
-                                ).run(
+                                this.withdrawMember.run(
                                     Number(coverage.kind !== "window"),
                                     generation,
                                     received,
@@ -621,9 +665,7 @@ export class SqliteOrderSourceStateStore {
             if (!batch.length) break;
             for (const seller of batch) {
                 this.history.refreshSeller(seller, now);
-                db.prepare(
-                    "DELETE FROM book_sellers WHERE run=? AND chain_id=? AND collection_id=? AND token_id=? AND maker=?",
-                ).run(
+                this.finishSeller.run(
                     run,
                     seller.chain_id,
                     seller.collection_id,
@@ -679,21 +721,11 @@ export class SqliteOrderSourceStateStore {
         feedId: number,
     ) {
         const seller = () =>
-            db
-                .prepare(
-                    "INSERT OR IGNORE INTO book_sellers SELECT ?,chain_id,collection_id,token_id,maker FROM orders WHERE id=? AND side=? AND token_id IS NOT NULL",
-                )
-                .run(run, settlement, ORDER_SIDE.Sell);
+            this.markSeller.run(run, settlement, ORDER_SIDE.Sell);
         seller();
-        const winner = db
-            .prepare(
-                "SELECT feed_id,native_id,collection_id,record_json,observed_ms FROM orderbook_eligible_routes WHERE settlement_id=? LIMIT 1",
-            )
-            .get(settlement) as Route | undefined;
+        const winner = this.winningRoute.get(settlement) as Route | undefined;
         if (!winner) {
-            db.prepare(
-                "UPDATE orders SET source_status=?,state_revision=state_revision+1 WHERE id=? AND source_status=?",
-            ).run(
+            this.deactivateOrder.run(
                 ORDER_SOURCE_STATUS.Inactive,
                 settlement,
                 ORDER_SOURCE_STATUS.Active,
@@ -711,17 +743,11 @@ export class SqliteOrderSourceStateStore {
             orderId: settlement,
         };
         const local = order.sourceSchema
-            ? (db
-                  .prepare(
-                      "SELECT token_set_id,schema_hash FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=? AND collection_id=?",
-                  )
-                  .get(
-                      winner.feed_id,
-                      winner.native_id,
-                      winner.collection_id,
-                  ) as
-                  | { token_set_id: string; schema_hash: string }
-                  | undefined)
+            ? (this.localOfferScope.get(
+                  winner.feed_id,
+                  winner.native_id,
+                  winner.collection_id,
+              ) as { token_set_id: string; schema_hash: string } | undefined)
             : undefined;
         const payload = makeOrderUpsert(
             this.tokenSets,
@@ -738,11 +764,10 @@ export class SqliteOrderSourceStateStore {
                 : undefined,
         );
         const result = this.projection.applyOrderUpsert(payload, false);
-        db.prepare(
-            "UPDATE orders SET order_hash=?,winning_feed_id=?,required_fees=?,seller_proceeds=? WHERE id=?",
-        ).run(
+        this.publishWinner.run(
             order.orderId,
             winner.feed_id,
+            winner.native_id,
             record.fees,
             record.proceeds,
             settlement,

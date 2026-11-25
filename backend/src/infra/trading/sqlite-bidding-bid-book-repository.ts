@@ -327,12 +327,12 @@ export type SqliteBiddingBidBookRepositoryConfig = {
 // aggregation and detail hydration on this predicate and evaluation time.
 const INDEXED_BID_FIELDS = `COALESCE(order_hash,orders.id) AS id, source AS venue, source_scope_kind,
     (SELECT m.observed_ms FROM orderbook_feeds f JOIN orderbook_members m USING(feed_id)
-     WHERE f.feed_id=orders.winning_feed_id AND f.last_error IS NOT NULL AND m.settlement_id=orders.id AND m.present=1 LIMIT 1) AS last_seen_ms,
+     WHERE f.feed_id=orders.winning_feed_id AND f.last_error IS NOT NULL AND m.native_id=orders.winning_native_id AND m.present=1 LIMIT 1) AS last_seen_ms,
     orders.token_id, source_encoded_token_ids, source_schema_json, maker,
     CASE WHEN order_hash IS NULL THEN price ELSE seller_proceeds END AS price,
     COALESCE(remaining_quantity,quantity) AS quantity, currency, valid_from, valid_until,
     seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at,
-    COALESCE(datetime((SELECT m.observed_ms / 1000 FROM orderbook_members m WHERE m.feed_id=orders.winning_feed_id AND m.settlement_id=orders.id AND m.present=1 LIMIT 1),'unixepoch'),
+    COALESCE(datetime((SELECT m.observed_ms / 1000 FROM orderbook_members m WHERE m.feed_id=orders.winning_feed_id AND m.native_id=orders.winning_native_id AND m.present=1 LIMIT 1),'unixepoch'),
         datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0),'unixepoch'),updated_at) AS updated_at`;
 const INDEXED_BID_STATUS = `side='buy' AND source_status='active' AND fillability_status='fillable' AND price IS NOT NULL AND price<>'' AND (valid_from IS NULL OR valid_from<=@nowSeconds) AND (valid_until IS NULL OR valid_until>@nowSeconds)`;
 function indexedBids(
@@ -340,7 +340,7 @@ function indexedBids(
 ): string {
     return `SELECT ${INDEXED_BID_FIELDS} FROM orders INDEXED BY ${index}
     WHERE chain_id=@chainId AND collection_id=@collectionId AND ${INDEXED_BID_STATUS}
-    AND ${hasCurrentOrderBindingSql("orders")} AND (order_hash IS NULL OR (seller_proceeds IS NOT NULL AND (source_scope_kind='token' OR (local_token_set_status='resolved' AND EXISTS (SELECT 1 FROM orderbook_offer_scopes s WHERE s.feed_id=winning_feed_id AND s.native_id=order_hash AND s.collection_id=orders.collection_id)))))`;
+    AND ${hasCurrentOrderBindingSql("orders")} AND (order_hash IS NULL OR (seller_proceeds IS NOT NULL AND (source_scope_kind='token' OR (local_token_set_status='resolved' AND EXISTS (SELECT 1 FROM orderbook_offer_scopes s WHERE s.feed_id=winning_feed_id AND s.native_id=orders.winning_native_id AND s.collection_id=orders.collection_id)))))`;
 }
 const INDEXED_BIDS = indexedBids("orders_book_bid_scopes");
 const INDEXED_MAKER_BIDS = indexedBids("orders_book_bid_maker");
@@ -349,7 +349,7 @@ const INDEXED_MAKER_BIDS = indexedBids("orders_book_bid_maker");
 // scan stays bounded by the ordinary collection/side/scope index.
 const SHARED_SCOPE_BIDS = `SELECT ${INDEXED_BID_FIELDS} FROM orderbook_offer_scopes scope
     JOIN orderbook_members member USING(feed_id,native_id)
-    JOIN orders ON orders.id=member.settlement_id AND orders.winning_feed_id=member.feed_id
+    JOIN orders ON orders.id=member.settlement_id AND orders.winning_feed_id=member.feed_id AND orders.winning_native_id=member.native_id
     WHERE scope.collection_id=@collectionId AND orders.collection_id<>@collectionId AND orders.chain_id=@chainId
     AND member.present=1 AND member.eligible=1 AND ${INDEXED_BID_STATUS} AND orders.seller_proceeds IS NOT NULL`;
 

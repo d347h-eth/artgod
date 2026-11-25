@@ -2459,8 +2459,9 @@ describe("backend api routes", () => {
                     validUntil: 4_000_000_000,
                 });
                 db.prepare(
-                    "UPDATE orders SET order_hash=?,source=?,winning_feed_id=?,seller_proceeds=? WHERE id=?",
+                    "UPDATE orders SET order_hash=?,winning_native_id=?,source=?,winning_feed_id=?,seller_proceeds=? WHERE id=?",
                 ).run(
+                    name,
                     name,
                     venue ? ORDERBOOK_VENUE.Vvv : ORDERBOOK_VENUE.OpenSea,
                     feedIds[venue],

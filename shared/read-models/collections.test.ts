@@ -1434,6 +1434,7 @@ function createSchema(): void {
             source TEXT,
             order_hash TEXT,
             winning_feed_id INTEGER,
+            winning_native_id TEXT,
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
             token_id TEXT,

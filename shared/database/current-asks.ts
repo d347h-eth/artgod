@@ -46,7 +46,7 @@ export function collectionMarketVersion(
     ) => `(SELECT MIN(boundary) FROM (
         SELECT MIN(${column}) AS boundary FROM orders WHERE chain_id=@chain AND collection_id=@collection AND ${column}>@now
         UNION ALL SELECT MIN(o.${column}) FROM orderbook_offer_scopes s JOIN orderbook_members m USING(feed_id,native_id)
-        JOIN orders o ON o.id=m.settlement_id AND o.winning_feed_id=m.feed_id
+        JOIN orders o ON o.id=m.settlement_id AND o.winning_feed_id=m.feed_id AND o.winning_native_id=m.native_id
         WHERE s.collection_id=@collection AND m.present=1 AND o.collection_id<>@collection AND o.${column}>@now))`;
     const row = conn
         .prepare(

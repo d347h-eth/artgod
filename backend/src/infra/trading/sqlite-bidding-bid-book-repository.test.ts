@@ -153,8 +153,8 @@ describe("SqliteBiddingBidBookRepository", () => {
             "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
         );
         const bid =
-            db.prepare(`INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id)
-            VALUES(?,1,?,'seaport','buy','vvv','maker',?,?,'token','active','fillable',?,?,?,?)`);
+            db.prepare(`INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id,winning_native_id)
+            VALUES(?,1,?,'seaport','buy','vvv','maker',?,?,'token','active','fillable',?,?,?,?,?)`);
         const member = db.prepare(
             "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,?,'[]',?,1,1,1,1,1,'fixture',?)",
         );
@@ -177,6 +177,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                         amount,
                         key,
                         feeds[0],
+                        key,
                     );
                     for (const feedId of feeds)
                         member.run(feedId, key, key, collectionId);
@@ -367,9 +368,12 @@ describe("SqliteBiddingBidBookRepository", () => {
                 feed,
                 id,
             );
-        db.prepare(
-            "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,'signed','[]','settled',1,1,1,1,1,'fixture',?)",
-        ).run(feed, collectionId);
+        // Two native listings of the same signed order can occur in one feed.
+        // Only the selected route's observation and local target apply.
+        for (const [nativeId, observed] of [["alternate", 1], ["winner", 20]] as const)
+            db.prepare(
+                "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,?,'[]','settled',1,1,1,1,?,'fixture',?)",
+            ).run(feed, nativeId, observed, collectionId);
         for (const [id, token] of [
             [collectionId, "1"],
             [second, "700"],
@@ -380,14 +384,16 @@ describe("SqliteBiddingBidBookRepository", () => {
             db.prepare(
                 "INSERT INTO token_sets_tokens(chain_id,collection_id,token_set_id,token_set_schema_hash,contract_address,token_id) VALUES(1,?,?,?,?,?)",
             ).run(id, token, token, COLLECTION_ADDRESS, token);
-            db.prepare(
-                "INSERT INTO orderbook_offer_scopes VALUES(?,'signed',?,?,?)",
-            ).run(feed, id, token, token);
+            for (const nativeId of ["alternate", "winner"])
+                db.prepare(
+                    "INSERT INTO orderbook_offer_scopes VALUES(?,?,?,?,?)",
+                ).run(feed, nativeId, id, token, token);
         }
         db.prepare(
-            `INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id,local_token_set_status,token_set_id,token_set_schema_hash)
-            VALUES('settled',1,?,'seaport','buy','opensea','maker',?,'collection','active','fillable','100','95','signed',?,'resolved','1','1')`,
+            `INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id,winning_native_id,local_token_set_status,token_set_id,token_set_schema_hash)
+            VALUES('settled',1,?,'seaport','buy','opensea','maker',?,'collection','active','fillable','100','95','signed',?,'winner','resolved','1','1')`,
         ).run(collectionId, COLLECTION_ADDRESS, feed);
+        db.prepare("UPDATE orderbook_feeds SET last_error='fixture outage' WHERE feed_id=?").run(feed);
         const repo = new SqliteBiddingBidBookRepository();
         const book = (id: number, tokenId: string) =>
             repo
@@ -398,15 +404,15 @@ describe("SqliteBiddingBidBookRepository", () => {
                     tokenTraits: [],
                     includeOwnJobContext: false,
                 })
-                .bids.map((row) => row.orderId);
-        assert.deepEqual(book(collectionId, "1"), ["signed"]);
-        assert.deepEqual(book(second, "700"), ["signed"]);
+                .bids.map((row) => [row.orderId, row.lastSeenMs]);
+        assert.deepEqual(book(collectionId, "1"), [["signed", 20]]);
+        assert.deepEqual(book(second, "700"), [["signed", 20]]);
         assert.deepEqual(book(second, "1"), []);
         new SqliteCollectionPurgeRepository().purgeCollectionData({
             chainId: 1,
             collectionId,
         });
-        assert.deepEqual(book(second, "700"), ["signed"]);
+        assert.deepEqual(book(second, "700"), [["signed", 20]]);
         assert.deepEqual(
             db
                 .prepare("SELECT collection_id FROM orders WHERE id='settled'")

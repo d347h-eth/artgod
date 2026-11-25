@@ -201,6 +201,15 @@ describe("publishing a scoped orderbook", () => {
             position: 4,
         });
         expect(best()).toBe("40");
+        // Replay the held position after its predecessor, then resume from
+        // an authoritative baseline when the missing events are unavailable.
+        publish(seq, [ask(vvv, "event", "30")], {
+            kind: "sequence",
+            position: 5,
+        });
+        expect(best()).toBe("30");
+        publish(seq, [], { kind: "sequence", position: 10, baseline: true });
+        expect(best()).toBe("50");
     });
 
     it("protects a newer stream observation while a REST traversal is staged", () => {
@@ -376,6 +385,7 @@ describe("publishing a scoped orderbook", () => {
             });
             record.proceeds = net;
             record.fees = (100n - BigInt(net)).toString();
+            record.nativeId = feed.venue + "-native";
             return record;
         }
         publish(os, [bid(os, "98")]);
@@ -383,11 +393,15 @@ describe("publishing a scoped orderbook", () => {
         const visible = () =>
             db
                 .prepare(
-                    "SELECT source,seller_proceeds FROM orders WHERE source_status='active'",
+                    "SELECT source,seller_proceeds,winning_native_id FROM orders WHERE source_status='active'",
                 )
                 .all();
         expect(visible()).toEqual([
-            { source: os.venue, seller_proceeds: "98" },
+            {
+                source: os.venue,
+                seller_proceeds: "98",
+                winning_native_id: os.venue + "-native",
+            },
         ]);
         db.exec(
             "INSERT INTO trading_jobs(job_id,bot_kind,chain_id,collection_id,status,target_kind) VALUES('bot','bidding',1,99,'paused','collection')",
@@ -396,17 +410,29 @@ describe("publishing a scoped orderbook", () => {
             "INSERT INTO trading_bidding_order_cancellations(order_id,job_id,chain_id,collection_id,maker,requested_at) VALUES('same-hash','bot',1,99,?,CURRENT_TIMESTAMP)",
         ).run(seller);
         expect(visible()).toEqual([
-            { source: os.venue, seller_proceeds: "98" },
+            {
+                source: os.venue,
+                seller_proceeds: "98",
+                winning_native_id: os.venue + "-native",
+            },
         ]);
         db.exec(
             "UPDATE trading_bidding_order_cancellations SET completed_at=CURRENT_TIMESTAMP",
         );
         expect(visible()).toEqual([
-            { source: vvv.venue, seller_proceeds: "95" },
+            {
+                source: vvv.venue,
+                seller_proceeds: "95",
+                winning_native_id: vvv.venue + "-native",
+            },
         ]);
         publish(os, [bid(os, "98")]);
         expect(visible()).toEqual([
-            { source: vvv.venue, seller_proceeds: "95" },
+            {
+                source: vvv.venue,
+                seller_proceeds: "95",
+                winning_native_id: vvv.venue + "-native",
+            },
         ]);
     });
 
