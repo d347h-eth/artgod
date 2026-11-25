@@ -2,7 +2,10 @@
 // transports. Playwright serves the saved public response to the browser GET.
 import { readFile, appendFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { chromium } from "playwright-core";
+import { createRequire } from "node:module";
+
+// Intercept the same driver instance the staged worker will load.
+const { chromium } = createRequire(process.argv[1])("playwright-core");
 
 const directory = process.env.ORDERBOOK_FIXTURE_DIR;
 // Run periodic scheduler checks promptly while retaining its actual due-time policy.

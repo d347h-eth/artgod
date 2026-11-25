@@ -1,7 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, readFile, writeFile } from "node:fs/promises";
+import {
+    access,
+    mkdir,
+    mkdtemp,
+    open,
+    readFile,
+    writeFile,
+} from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import captured from "../tests/fixtures/vvv-cash-book.json" with { type: "json" };
 import { expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -33,6 +40,13 @@ import {
 
 it("runs bounded venue consumers in the packaged worker, keeps an accepted book through an outage and restarts", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
+    const runtime = path.join(root, "src-tauri/resources/runtime");
+    const node = path.join(
+        runtime,
+        "node",
+        process.platform === "win32" ? "node.exe" : "node",
+    );
+    await access(node);
     const binary = process.env.OPENSEA_RECONCILE_TEST_NATS_BINARY;
     if (!binary) throw new Error("Missing OPENSEA_RECONCILE_TEST_NATS_BINARY");
     await mkdir(path.join(root, "tmp"), { recursive: true });
@@ -62,22 +76,24 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
             "a",
         );
         const child = spawn(
-            process.execPath,
+            node,
             [
                 "--import",
-                path.join(
-                    root,
-                    "indexer/integration/orderbook-fetch-fixture.mjs",
-                ),
-                path.join(root, "indexer/dist-desktop/" + role + ".mjs"),
+                pathToFileURL(
+                    path.join(
+                        root,
+                        "indexer/integration/orderbook-fetch-fixture.mjs",
+                    ),
+                ).href,
+                path.join(runtime, "indexer/dist-desktop/" + role + ".mjs"),
             ],
             {
-                cwd: root,
+                cwd: runtime,
                 env: {
                     PATH: process.env.PATH,
                     HOME: process.env.HOME,
                     TMPDIR: dir,
-                    ARTGOD_WORKSPACE_ROOT: root,
+                    ARTGOD_WORKSPACE_ROOT: runtime,
                     ARTGOD_DB_PATH: database,
                     NATS_URL: broker.url,
                     NATS_STREAM_PREFIX: "packaged",

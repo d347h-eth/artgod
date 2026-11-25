@@ -783,21 +783,23 @@ screenshots in a project-local task-artifact directory without secrets.
 
 ## Packaged orderbook workers
 
-Build the runtime workers and stage their production dependencies. Use the
-repository’s matching Chromium installation and an existing pinned NATS binary.
+Build the desktop runtime resources, including the pinned Node and NATS binaries.
+Use the Chromium installation matching the bundled Playwright driver.
 
 ```sh
+yarn build:userland
 yarn build:desktop-runtime
-yarn node scripts/build/prepare-desktop-runtime-dependencies.mjs
+yarn build:desktop-runtime-resources
 mkdir -p tmp
 TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
   OPENSEA_RECONCILE_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
   yarn workspace @artgod/indexer test:orderbook:packaged
 ```
 
-The suite starts the packaged scheduler and reconciler with a disposable
-SQLite database and loopback broker. A local browser fixture supplies market
-responses for idle, OpenSea-only, VVV-only and combined configurations. It
+The suite starts the scheduler and reconciler with the bundled Node executable,
+their staged dependency tree, a disposable SQLite database and a loopback
+broker. A local browser fixture supplies market responses for idle,
+OpenSea-only, VVV-only and combined configurations. It
 checks successive reads, browser restart, interrupted publication and continued
 OpenSea progress during a VVV outage. It also rejects the last page of an
 initial OpenSea read and follows the retry to readiness on the original
