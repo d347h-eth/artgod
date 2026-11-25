@@ -43,6 +43,7 @@ import {
     type OpenSeaReconcileCollectionPayload,
 } from "../src/domain/opensea-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
+import { OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
@@ -262,7 +263,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 calls.push(id);
                 await delay(scanMs / 2);
                 await receive({
-                    eventType: "fixture-listing",
+                    eventType: OPENSEA_REST_EVENT_TYPE.Listing,
                     orderId: `listing-${id}`,
                     sourceEventAt: null,
                     payload: {},
@@ -271,7 +272,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
             async forEachOffer(slug, _address, receive) {
                 await delay(scanMs / 2);
                 await receive({
-                    eventType: "fixture-offer",
+                    eventType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
                     orderId: `offer-${slug}`,
                     sourceEventAt: null,
                     payload: {},

@@ -29,6 +29,13 @@ export const OPENSEA_REST_EVENT_TYPE = {
 export type OpenSeaRestEventType =
     (typeof OPENSEA_REST_EVENT_TYPE)[keyof typeof OPENSEA_REST_EVENT_TYPE];
 
+export type OpenSeaRestRecord = {
+    eventType: OpenSeaRestEventType;
+    orderId: string;
+    sourceEventAt: number | null;
+    payload: Record<string, unknown>;
+};
+
 export type OffchainOrderRawPayload = {
     source: string;
     chainId: number;

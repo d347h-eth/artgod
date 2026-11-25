@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { OpenSeaContractLookupPort } from "@artgod/shared/network/opensea-contract-lookup";
+import { db, setDbPath } from "@artgod/shared/database";
+import { createMigrationRunner } from "@artgod/shared/migrations";
+import { getSettingDefault } from "@artgod/shared/config/generated-settings-defaults";
+import { BOOK_CHANGE } from "../src/domain/orderbook.js";
+import { OpenSeaOrderbookSync } from "../src/application/offchain/opensea-orderbook-sync.js";
+import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
+import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
 import {
-    OpenSeaApiAdapter,
-    type OpenSeaRestRecord,
-} from "../src/infra/offchain/opensea-api.js";
+    BULK_ORDER_OBSERVED_AT,
+    capturedBulkOrder,
+} from "./fixtures/seaport-bulk-order.js";
+import { createTempDbPath } from "./helpers/test-helpers.js";
+import type { OpenSeaContractLookupPort } from "@artgod/shared/network/opensea-contract-lookup";
+import { OpenSeaApiAdapter } from "../src/infra/offchain/opensea-api.js";
+import type { OpenSeaRestRecord } from "../src/domain/offchain-jobs.js";
 import { normalizeOpenSeaRestOrder } from "../src/application/offchain/opensea-rest-normalize.js";
 import { OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
 
@@ -16,6 +26,90 @@ const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 describe("OpenSeaApiAdapter", () => {
+    it("records an unavailable listing as a change and its later disappearance as a removal", async () => {
+        setDbPath(await createTempDbPath());
+        try {
+            await createMigrationRunner().runMigrations();
+            const order = capturedBulkOrder();
+            db.prepare(
+                "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug,opensea_status) VALUES(91,1,'fixture',?,'erc721','live','contract_all_tokens','book','ready')",
+            ).run(order.contract);
+            const collection = new SqliteCollectionRegistry().getCollection(
+                1,
+                91,
+            )!;
+            const store = new SqliteOrderSourceStateStore(
+                getSettingDefault("WETH_ADDRESS"),
+                () => BULK_ORDER_OBSERVED_AT * 1000,
+            );
+            const adapter = createAdapter();
+            const listing = {
+                order_hash: order.id,
+                status: "ACTIVE",
+                fillable: true,
+                protocol_address: order.seaportData!.protocolAddress,
+                protocol_data: {
+                    parameters: order.seaportData,
+                    signature: order.seaportData!.signature,
+                },
+            };
+            let listings = [listing];
+            adapter.api = {
+                getAllListings: async () => ({ listings }),
+                getAllOffers: async () => ({ offers: [] }),
+            };
+            const sync = new OpenSeaOrderbookSync(adapter.instance, store);
+            const read = () => sync.syncCollection(collection, "reconcile", 1);
+            const membership = () =>
+                db
+                    .prepare(
+                        "SELECT present,eligible,json_extract(record_json,'$.status') AS status FROM orderbook_members WHERE native_id=?",
+                    )
+                    .get(order.id);
+            await read();
+            expect(membership()).toEqual({
+                present: 1,
+                eligible: 1,
+                status: "active",
+            });
+            listing.fillable = false;
+            await read();
+            expect(membership()).toEqual({
+                present: 1,
+                eligible: 0,
+                status: "active",
+            });
+            listing.status = "INACTIVE";
+            await read();
+            expect(membership()).toEqual({
+                present: 1,
+                eligible: 0,
+                status: "inactive",
+            });
+            listings = [];
+            await read();
+            expect(membership()).toEqual({
+                present: 0,
+                eligible: 0,
+                status: null,
+            });
+            expect(
+                db
+                    .prepare(
+                        "SELECT change FROM orderbook_changes ORDER BY generation",
+                    )
+                    .all()
+                    .map((row) => (row as { change: string }).change),
+            ).toEqual([
+                BOOK_CHANGE.Addition,
+                BOOK_CHANGE.Change,
+                BOOK_CHANGE.Change,
+                BOOK_CHANGE.Removal,
+            ]);
+        } finally {
+            db.raw.close();
+        }
+    });
     it("resolves collections through the shared contract lookup client", async () => {
         const requests: string[] = [];
         const adapter = createAdapter({

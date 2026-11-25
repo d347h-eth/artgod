@@ -14,6 +14,7 @@ import {
     type BookOrder,
 } from "../../domain/orderbook.js";
 import { type OpenSeaOrderbookRunKind } from "../../domain/opensea-jobs.js";
+import type { OpenSeaRestRecord } from "../../domain/offchain-jobs.js";
 import type { NormalizedOffchainOrder } from "./normalize.js";
 import { normalizeOpenSeaRestOrder } from "./opensea-rest-normalize.js";
 import {
@@ -22,12 +23,8 @@ import {
 } from "./seaport-protocol.js";
 import { extractSeaportSellTerms } from "./seaport-order-data.js";
 
-type OpenSeaRestRecord = {
-    eventType: string;
-    orderId: string;
-    sourceEventAt: number | null;
-    payload: Record<string, unknown>;
-};
+const OPENSEA_ACTIVE = "active";
+const OPENSEA_UNKNOWN_STATUS = "unknown";
 type Visit = (record: OpenSeaRestRecord) => Promise<void>;
 type OpenSeaOrderbookApiPort = {
     forEachListing(slug: string, contract: string, visit: Visit): Promise<void>;
@@ -58,7 +55,7 @@ export async function openSeaObservation(
         nativeId: nativeId.toLowerCase(),
         placement: market,
         settlementId: null,
-        status: "active",
+        status: OPENSEA_ACTIVE,
         fillable: false,
         audience: order?.taker ?? null,
         sourceTime,
@@ -229,6 +226,16 @@ export class OpenSeaOrderbookSync {
                             : raw.sourceEventAt * 1000,
                     );
                 }
+                // A venue can still list an ID after it stops offering a route.
+                // Only absence from a completed traversal removes its membership.
+                observation.status =
+                    typeof raw.payload.status === "string"
+                        ? raw.payload.status.toLowerCase()
+                        : OPENSEA_UNKNOWN_STATUS;
+                observation.fillable &&=
+                    observation.status === OPENSEA_ACTIVE &&
+                    (raw.payload.fillable === undefined ||
+                        raw.payload.fillable === true);
                 read.record(observation);
             };
             await this.api.forEachListing(feed.reference, feed.contract, visit);

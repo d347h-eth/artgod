@@ -17,7 +17,7 @@ import {
 } from "@artgod/shared/network/opensea-contract-lookup";
 import {
     OPENSEA_REST_EVENT_TYPE,
-    type OpenSeaRestEventType,
+    type OpenSeaRestRecord,
 } from "../../domain/offchain-jobs.js";
 
 export type OpenSeaApiConfig = {
@@ -26,13 +26,6 @@ export type OpenSeaApiConfig = {
 } & OpenSeaHttpConfig;
 
 export type OpenSeaResolvedCollection = OpenSeaResolvedContractCollection;
-
-export type OpenSeaRestRecord = {
-    eventType: OpenSeaRestEventType;
-    orderId: string;
-    sourceEventAt: number | null;
-    payload: Record<string, unknown>;
-};
 
 type ListingRecord = Record<string, unknown>;
 type OfferRecord = Record<string, unknown>;
@@ -99,7 +92,6 @@ export class OpenSeaApiAdapter {
                 const listing = asRecord(entry);
                 if (!getOpenSeaOrderHash(listing))
                     throw new Error("OpenSea listing missing identity");
-                if (!isActiveStatus(listing.status)) continue;
                 const record = toRestListingRecord(listing, contractAddress);
                 if (!record) continue;
                 await handler(record);
@@ -132,7 +124,6 @@ export class OpenSeaApiAdapter {
                 const offer = asRecord(entry);
                 if (!getOpenSeaOrderHash(offer))
                     throw new Error("OpenSea offer missing identity");
-                if (!isActiveStatus(offer.status)) continue;
                 const record = toRestOfferRecord(offer, contractAddress);
                 if (!record) continue;
                 await handler(record);
@@ -166,13 +157,9 @@ function toRestListingRecord(
 ): OpenSeaRestRecord | null {
     const parameters = getOpenSeaProtocolParameters(listing);
     const nftItem = findNftItem(asArray(parameters.offer));
-    if (!nftItem) return null;
-
-    const contract = String(nftItem.token ?? "").toLowerCase();
-    if (contract !== contractAddress.toLowerCase()) return null;
-
-    const tokenId = identifierToString(nftItem.identifierOrCriteria);
-    if (!tokenId) return null;
+    const contract = stringOrNull(nftItem?.token);
+    if (contract && contract.toLowerCase() !== contractAddress.toLowerCase())
+        return null;
 
     const orderHash = getOpenSeaOrderHash(listing);
     if (!orderHash) return null;
@@ -225,12 +212,9 @@ function toRestOfferRecord(
     }
 
     const nftItem = findNftItem(asArray(parameters.consideration));
-    if (!nftItem) return null;
-    const contract = String(nftItem.token ?? "").toLowerCase();
-    if (contract !== contractAddress.toLowerCase()) return null;
-
-    const tokenId = identifierToString(nftItem.identifierOrCriteria);
-    if (!tokenId) return null;
+    const contract = stringOrNull(nftItem?.token);
+    if (contract && contract.toLowerCase() !== contractAddress.toLowerCase())
+        return null;
 
     return {
         eventType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
@@ -250,14 +234,6 @@ function findNftItem(
         }
         return item;
     }
-    return null;
-}
-
-function identifierToString(value: unknown): string | null {
-    if (typeof value === "string" && value.length > 0) return value;
-    if (typeof value === "number" && Number.isFinite(value))
-        return String(value);
-    if (typeof value === "bigint") return value.toString();
     return null;
 }
 
@@ -288,8 +264,4 @@ function asArray(value: unknown): Array<Record<string, unknown>> {
     return value
         .filter((entry) => !!entry && typeof entry === "object")
         .map((entry) => entry as Record<string, unknown>);
-}
-
-function isActiveStatus(value: unknown): boolean {
-    return String(value ?? "").toUpperCase() === "ACTIVE";
 }

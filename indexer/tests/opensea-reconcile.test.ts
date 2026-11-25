@@ -27,7 +27,7 @@ import type { JobEnvelope } from "../src/domain/jobs.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
-import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
+import { OFFCHAIN_ORDER_SOURCE, OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -389,7 +389,7 @@ describe("OpenSea reconciliation admission", () => {
                 async (_slug, _address, receive) => {
                     events.push("listings");
                     await receive({
-                        eventType: "fixture",
+                        eventType: OPENSEA_REST_EVENT_TYPE.Listing,
                         orderId: "listing",
                         sourceEventAt: null,
                         payload: {},
@@ -405,7 +405,7 @@ describe("OpenSea reconciliation admission", () => {
                     ).toBeNull();
                     if (fail) throw new Error("incomplete offers");
                     await receive({
-                        eventType: "fixture",
+                        eventType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
                         orderId: "offer",
                         sourceEventAt: null,
                         payload: {},
