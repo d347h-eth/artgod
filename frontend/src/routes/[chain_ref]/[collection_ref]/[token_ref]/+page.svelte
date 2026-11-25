@@ -925,7 +925,9 @@
 				</div>
 			{/if}
 			<BidBookPanel
-				traitBindings={displayedToken.attributes.map(a => ({key:a.key, values:[a]}))}
+				traitBindings={displayedToken.attributes.map((trait) => ({
+					key: trait.key, nativeKey: trait.nativeKey, values: [trait]
+				}))}
 				bidBook={tokenBiddingBidBook}
 				job={tokenBiddingJob}
 				nextUpdateAtMs={tokenBiddingNextUpdateAtMs}
