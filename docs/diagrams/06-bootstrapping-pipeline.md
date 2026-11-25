@@ -62,7 +62,7 @@ sequenceDiagram
     participant Image as Image-cache scheduler lane
     participant Obs as BootstrapStepProgressObserver
     participant Ext as Extension artifact worker
-    participant OS as OpenSea bootstrap worker
+    participant OS as Shared orderbook reconciler
     participant Net as RPC / HTTP / IPFS
     participant Detail as Run detail UI
 

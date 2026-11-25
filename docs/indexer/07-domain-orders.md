@@ -130,35 +130,26 @@ mapping translates the shared OpenSea offer parser into the canonical order
 DTO and attaches validated Seaport data. Event names provide diagnostic
 context; the complete parsed criteria determine the persisted scope.
 
-1. Offchain ingest normalizes a stream or REST record.
-2. `dispatchOffchainPayload()` publishes `orders.upsert`.
-3. Domain worker admits a current observation and writes only changed canonical
-   state; observation/validation freshness is separate from material changes.
-4. If validation is requested and needed, the same write transaction admits
-   durable `order_validation_demand` for the canonical revision and observation.
-   Recently validated identical upserts do not produce another validation.
-5. The application-owned demand worker performs full validation asynchronously
-   from current canonical data, with a fenced lease and captured generation.
+1. Venue adapters normalize signed terms and identify the observation, its
+   placement and its settlement order. The latter includes chain, Seaport
+   deployment and signed order hash.
+2. The reconciler stages each page privately. After the final page it checks
+   that the feed generation and binding revision still match. OpenSea stream
+   sightings use the same publication contract with narrower coverage.
+3. One SQLite transaction commits membership changes, the eligible route for
+   each settlement order, the seller’s daily price and each required validation
+   outbox job. An incomplete read keeps the last accepted generation. The
+   collection bootstrap run records its OpenSea steps separately.
+4. The domain worker admits a validation hint into durable demand. The demand
+   executor checks signature, chain status, funds and approvals at a pinned
+   block and guards its result against a changed order revision. Partial fills
+   also require a fresh quantity check before the remaining amount can return.
 
-`orders.upsert` writes optimistic defaults:
-
-- `fillability_status = fillable`
-- `source_status = active` (unless explicitly overridden)
-
-The demand executor corrects `fillability_status` after protocol checks run.
-
-Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
-repeat validation have a five-minute freshness interval; explicit maker/state
-change triggers still revalidate. A changed canonical upsert clears `validated_at`
-in the same write that advances `state_revision` and commits its validation demand.
-There is no post-commit broker publication on this path. An unchanged upsert retry
-retains its original observation requirement instead of advancing it to retry time.
-A newer source observation does not erase that obligation: an older retry leaves
-stored state untouched and requests validation of the current active revision.
-Validation commits with a state-revision and
-active-source guard, so a result obtained before an awaited RPC cannot overwrite
-a newer cancellation. No SQLite reader or writer transaction stays open across
-that RPC.
+New source-eligible orders use the existing optimistic admission policy.
+Confirmed protocol fills, cancellations and failed validation constrain every
+placement of the same signed order. A venue withdrawal affects that placement
+and its relays. Other eligible placements can still win.
+[Orderbook storage](05-storage-and-schema.md#market-publications-and-alpha-cutover)
 
 ### Coalesced ordinary validation
 
@@ -309,14 +300,14 @@ The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
   asks and follow the normal cleanup policy.
   User trading intent and own orders remain separate owners.
 
-REST reconciliation streams active identities into connection-local temporary
-SQLite tables. It stages missing identities once, updates 500 at a time and
-rechecks eligibility between batches. New stream observations, including their
-coalesced freshness bucket, win over older REST absence. Temporary membership
-is closed on success, failure or collection removal; no whole-orderbook JS array
-or durable reconcile receipt ledger is retained. Each deactivation batch also
-refreshes today's existing listing price once per affected ask seller/NFT, in the
-same transaction. Bids and orders whose eligibility changed do not cause a refresh.
+Snapshot reconciliation stages normalized records in connection-local temporary
+tables. Its final writer transaction traverses bounded pages, records additions,
+changes and withdrawals, and refreshes affected sellers after route selection.
+Readers see one committed version. Newer stream evidence survives an earlier
+REST traversal. Failed reads retain the accepted generation and record their
+error independently. A bounded retention pass removes old changes and
+withdrawals once they are outside the replay horizon and no active relay still
+depends on their authority.
 
 Maker-update selection excludes expired orders in SQL and pages 500 candidates
 at a time. The known-maker index likewise includes current/recoverable buy orders
@@ -758,8 +749,9 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - Raw audit payloads are not runtime input. The backend's indexed-orders
   bid-book fallback uses normalized order columns and canonical source-schema
   JSON, not the optional raw debug payload.
-- Partial fill quantity progression is not modeled; fills can make an order
-  terminal, but the order row does not expose a remaining-quantity state machine.
+- Seaport validation records outstanding units in `remaining_quantity`. A
+  partial-fill event temporarily removes the quote pending a pinned status and
+  funding check. A terminal fill or cancellation applies across venues.
 - Ingest fails closed on local criteria linkage: empty membership is
   `unresolved`, a root difference is `mismatch`, and neither state attaches a
   local token-set id. There is no automatic redrive that rematerializes those
@@ -773,7 +765,7 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 Automatic repair imports missing chain history under the background RPC allowance.
 An event hint still passes canonical block identity, collection anchor, scope,
 source activity, expiry and protocol-terminal checks before requiring validation.
-Fills and cancellations apply lifecycle facts without validation RPC.
+Terminal fills and cancellations apply directly. Partial fills request validation at or after their event block.
 
 `eventValidationRequest` requires a full validation at or after the event block.
 Its eventual delivery time is not a new source observation.

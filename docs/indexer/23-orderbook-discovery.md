@@ -1,7 +1,8 @@
 # Orderbook discovery notes
 
-These notes record the requirements and evidence behind the proposed
-multi-orderbook design. The code reference is local `main` at `938ece5c`.
+These notes describe the system as it stood during discovery on local `main`
+at `938ece5c`. The [worker and storage design](21-multiple-orderbooks.md)
+describes the implementation.
 
 ## Requirements recorded on 25 November 2026
 
@@ -103,13 +104,13 @@ collection purge, and rollback if refreshing the price fails.
   [OpenSea config](../../indexer/src/config/opensea.ts) ·
   [Desktop supervisor](../../src-tauri/src/runtime/supervisor.rs) ·
   [Runtime registry](../desktop/02-runtime-registry-maintenance.md)
-- The existing OpenSea bootstrap worker and reconciler call the same reader.
+- At discovery time, the OpenSea bootstrap worker and reconciler called the same reader.
   Bootstrap also records identity, snapshot and readiness for the requesting
   run. The live-collection action can request a first read independently. The
   generic reconciler can take over both entry points. The existing sync worker
   demonstrates multiple bounded consumers in one Node process.
   [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
-  · [OpenSea bootstrap worker](../../indexer/src/application/offchain/opensea-first-read.ts)
+  · [First-read handler after implementation](../../indexer/src/application/offchain/opensea-first-read.ts)
   · [Sync worker](../../indexer/src/runtime/sync-worker.ts)
 - Raw queue envelopes require a local collection ID. Dispatch builds the order
   upsert job ID from chain, order ID and receipt time. Two venues can publish
@@ -213,8 +214,9 @@ another collection’s book.
   received HTTP 429. The saved comparison is
   `tmp/vvv-orderbook-20261115/browser/transport-2026-11-16T00-01-49.893Z/results.json`.
   A second successful browser read is recorded in
-  `tmp/vvv-orderbook-20261124/results.json`. The packaged worker still needs
-  to demonstrate scheduled browser reads and recovery after a restart or outage.
+  `tmp/vvv-orderbook-20261124/results.json`. Later, the packaged Linux
+  worker passed scheduled reads and restart recovery with local responses.
+  Its public request received HTTP 429. [Packaged verification](11-testing.md#packaged-orderbook-workers)
 - Replayed the saved IDs through **the same SQLite source-state store OpenSea
   calls** on a disposable migrated database. Seeded the 5,047 earlier cash
   orders as source members with observation times outside the OpenSea stream

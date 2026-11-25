@@ -125,7 +125,7 @@ sequenceDiagram
     participant NATS as NATS JetStream
     participant RPC as RPC / metadata HTTP
     participant Ext as Collection Extension Worker
-    participant OSBoot as OpenSea Bootstrap Worker
+    participant OSBoot as Shared orderbook reconciler
     participant Offchain as Offchain Ingest Worker
     participant Domain as Domain Worker
 
@@ -174,8 +174,8 @@ sequenceDiagram
         NATS-->>OSBoot: OpenSea bootstrap job
         OSBoot->>DB: Start collection snapshot run
         OSBoot->>RPC: Fetch OpenSea listing/offer pages
-        OSBoot->>NATS: Publish offchain.order.raw snapshot jobs
-        OSBoot->>DB: Mark missing source orders inactive
+        OSBoot->>DB: Stage each page privately
+        OSBoot->>DB: Publish completed book, daily prices and validation outbox
         OSBoot->>DB: Mark collection OpenSea-ready
         OSBoot->>DB: Complete source run
     end

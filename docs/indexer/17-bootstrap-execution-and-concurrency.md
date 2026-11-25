@@ -18,7 +18,7 @@ runs, scheduler entry points, or processes.
 - Bootstrap worker: `indexer/src/runtime/bootstrap-worker.ts`
 - Collection-extension worker: `indexer/src/runtime/collection-extension-worker.ts`
 - Sync worker: `indexer/src/runtime/sync-worker.ts`
-- OpenSea bootstrap worker: `indexer/src/application/offchain/opensea-first-read.ts`
+- OpenSea first-read handler in the shared reconciler: `indexer/src/application/offchain/opensea-first-read.ts`
 - Queue runtime: `indexer/src/application/worker-runner.ts`, `indexer/src/infra/queue/nats.ts`
 - Bootstrap step scheduler: `indexer/src/application/bootstrap-step-scheduler.ts`, `indexer/src/application/bootstrap-step-orchestrator.ts`
 - Bootstrap step planner: `backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts`
@@ -40,7 +40,7 @@ runs, scheduler entry points, or processes.
 | `BACKFILL_BATCH_SIZE`                                   |              10 | `IndexerConfig.sync.backfillBatchSize`                           | Bootstrap catchup range chunk size.                                |
 | `BACKFILL_WORKER_COUNT`                                 |               1 | `IndexerConfig.sync.backfillWorkerCount`                         | Backfill sync queue max-in-flight.                                 |
 
-There is no dedicated OpenSea bootstrap concurrency setting. The OpenSea bootstrap worker currently subscribes with `maxInFlight: 1`.
+The shared reconciler’s OpenSea consumer processes one initial or periodic read at a time. Its VVV consumer runs independently.
 
 ## Shared Concurrency Primitives
 
@@ -451,32 +451,18 @@ Scaling boundary:
 
 ### 12. OpenSea Bootstrap
 
-Current concurrency setting: 1.
+After metadata and ownership, the collection bootstrap worker queues the first
+OpenSea read with its run ID. The shared reconciler’s OpenSea consumer uses
+`maxInFlight: 1` for both initial and periodic reads. The initial-read handler
+records identity, snapshot and readiness against the requesting run. It
+schedules retries on the same subject and records a terminal outcome when the
+retry policy is exhausted.
 
-Typed runtime config: no. The OpenSea runtime has page size, retry, stale-start, subscription poll, and rate-limit settings, but no bootstrap concurrency setting.
-
-Current model:
-
-- Bootstrap plans OpenSea side-lane steps only when OpenSea integration is enabled and an explicit slug exists.
-- After metadata and ownership, bootstrap schedules one OpenSea bootstrap job.
-- The OpenSea bootstrap worker subscribes with `maxInFlight: 1`.
-- The worker marks identity running/succeeded, snapshot running, then calls `OpenSeaOrderbookSync.syncCollection`.
-- The orderbook sync paginates listings serially, then offers serially.
-- Each REST record is published to the offchain raw queue.
-- When the REST snapshot completes, the source-state store marks missing orders
-  inactive for the run's active order id set, the collection OpenSea state is
-  marked ready, and the source run is completed.
-
-Scaling boundary:
-
-- A dedicated `OPENSEA_BOOTSTRAP_CONCURRENCY` setting could be added, but only with per-collection snapshot ownership guarantees.
-- Clean requirements:
-    - prevent two OpenSea snapshot runs for the same collection from concurrently marking missing orders inactive,
-    - fence work by latest bootstrap/reconcile run id,
-    - share API rate limiting across concurrent snapshots,
-    - keep OpenSea bootstrap step terminality tied to the correct run,
-    - preserve idempotent raw observation dedupe keys.
-- Page-level parallelism is not obviously clean because pagination cursors are sequential. The safe first concurrency boundary is collection-level, not page-level.
+`OpenSeaOrderbookSync` traverses listings and offers. The store stages each
+page and commits the complete publication against its feed generation and
+binding revision. A successful commit can satisfy multiple bootstrap requests
+for the same market. Each requesting run still receives its own outcome.
+[Publication and validation](07-domain-orders.md#upsert-flow)
 
 ### 13. Metadata Stats Follow-Ups
 

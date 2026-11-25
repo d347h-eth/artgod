@@ -780,3 +780,28 @@ screenshots in a project-local task-artifact directory without secrets.
 - The DB-backed project intentionally owns migration and repository behavior;
   adding an in-memory mock for those tests would hide the contracts they exist
   to verify.
+
+## Packaged orderbook workers
+
+Build the runtime workers and stage their production dependencies. Use the
+repository’s matching Chromium installation and an existing pinned NATS binary.
+
+```sh
+yarn build:desktop-runtime
+yarn node scripts/build/prepare-desktop-runtime-dependencies.mjs
+mkdir -p tmp
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  OPENSEA_RECONCILE_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
+  yarn workspace @artgod/indexer test:orderbook:packaged
+```
+
+The suite starts the packaged scheduler and reconciler with a disposable
+SQLite database and loopback broker. A local browser fixture supplies market
+responses for idle, OpenSea-only, VVV-only and combined configurations. It
+checks successive reads, browser restart, interrupted publication and continued
+OpenSea progress during a VVV outage. It also rejects the last page of an
+initial OpenSea read and follows the retry to readiness on the original
+collection bootstrap run. A separate upgrade fixture seeds the
+pre-publication schema and both order and unrelated broker work, runs the
+cutover and checks delivery and retained history. Live VVV access requires a
+successful public response on the target installation.

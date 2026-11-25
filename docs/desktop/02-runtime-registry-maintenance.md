@@ -54,7 +54,11 @@ What is explicit here:
 
 Supervisor uses these lists to spawn, monitor, and log runtime processes.
 
-OpenSea indexer workers are still part of this registry and staged artifacts, but their launch is capability-gated by `OPENSEA_INTEGRATION_MODE` + `OPENSEA_API_KEY`. Keep registry membership separate from launch eligibility: removing a worker from the registry means it cannot run; disabling OpenSea means the supervisor intentionally skips that worker at startup.
+The orderbook scheduler and reconciler start with the composition. Each service
+waits when it has no eligible venue. `OPENSEA_INTEGRATION_MODE` and
+`OPENSEA_API_KEY` control the OpenSea stream process and the OpenSea consumer
+inside the reconciler. An existing VVV binding can run independently. Only the
+reconciler opens Chromium, on its first eligible VVV read.
 
 If a worker is missing here, desktop app will not start it even if artifact exists.
 

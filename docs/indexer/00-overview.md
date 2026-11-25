@@ -12,7 +12,7 @@ Current scope:
 - Cross-process jobs use NATS JetStream; SQLite owns automatic repair and pending hash checks.
 - All persisted state lives in SQLite (`better-sqlite3`).
 - Onchain ownership, metadata, and activities are maintained from RPC data.
-- Offchain orders are ingested from OpenSea streams plus REST snapshot/reconcile passes.
+- The local book combines verified OpenSea and VVV publications. OpenSea also supplies stream updates.
 - Collection-specific extensions can enrich indexing and presentation without changing canonical metadata or order storage.
 - Every job is idempotent; at-least-once delivery is assumed.
 
@@ -20,7 +20,10 @@ Current scope:
 
 Each runtime is an independent Node.js process. There is no shared memory across runtimes.
 
-OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=auto` starts them only when `OPENSEA_API_KEY` is configured; `enabled` makes the key mandatory; `disabled` always skips them.
+The shared orderbook scheduler and reconciler start with the composition.
+The OpenSea stream and the OpenSea consumer use `OPENSEA_INTEGRATION_MODE`.
+In `auto` mode they require a configured key. A bound VVV market can refresh
+while OpenSea is disabled.
 
 - Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
@@ -69,7 +72,7 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
     - Skips queued OpenSea stream payloads when the collection stream ingestion
       gate is paused.
     - Optionally stores raw observations for accepted payloads.
-    - Normalizes accepted OpenSea stream and REST records into canonical order jobs.
+    - Publishes accepted OpenSea stream observations and dispatches metadata and maker hints.
 
 - OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)
     - Maintains per-collection stream subscriptions using persisted OpenSea slug
@@ -146,24 +149,23 @@ These assumptions are relied on by the implementation and should be preserved in
 6. A mismatch atomically hands off to retained rollback and canonical resync.
 7. The sync worker continuously revisits live collection coverage in bounded descending windows. Durable scan cursors and one pending repair per collection survive restart; 30-minute checks give newer holes priority, and completed cycles wait until their next check.
 
-### OpenSea offchain flow
+### Marketplace orderbook flow
 
-1. Bootstrap completes local metadata + ownership capture for a collection.
-2. Bootstrap schedules short onchain backfill and, when OpenSea is enabled, an OpenSea bootstrap job in parallel.
-3. OpenSea bootstrap worker resolves OpenSea slug, marks offchain snapshot running, and streams the full orderbook through the offchain raw queue.
-4. If OpenSea was skipped during bootstrap, the backend can enqueue the same OpenSea bootstrap job later for a live collection with a persisted slug.
-5. OpenSea stream worker maintains live subscriptions for collections with known
-   OpenSea slug while their stream ingestion gate is enabled, and publishes raw
-   events into the same offchain raw queue.
-6. Offchain ingest worker skips queued OpenSea stream payloads for collections
-   whose stream ingestion gate has since been paused, records raw observations
-   for accepted payloads, and normalizes:
-    - canonical order upserts
-    - source-status updates by order id
-    - maker revalidation hints
-    - metadata refresh hints
-7. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
-8. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
+1. Collection bootstrap schedules onchain work and requests its first OpenSea
+   read with the original bootstrap run ID. Admin can request a first read for
+   an existing collection with a verified slug.
+2. The shared reconciler runs OpenSea identity, snapshot and readiness steps.
+   It records each outcome against the requesting run. Periodic reads use the
+   same traversal and publication path.
+3. The shared scheduler queues each due market. The reconciler has independent
+   OpenSea and VVV consumers. A VVV job opens Chromium to read the bound market.
+4. The publication transaction admits the complete feed, selects eligible
+   routes, refreshes seller history and queues required validation. A failed
+   traversal retains the last accepted book.
+5. The OpenSea stream worker publishes raw events. Offchain ingest applies
+   source updates and dispatches maker or metadata hints. The domain worker
+   validates current settlement orders against a pinned chain snapshot.
+   [Orders domain](07-domain-orders.md#upsert-flow)
 
 ### Collection extension flow
 
@@ -185,18 +187,11 @@ Current embedded extension:
 
 ## Eventual Consistency Notes
 
-OpenSea snapshot/reconcile completion currently means:
-
-- the REST fetch completed
-- raw records were published to the offchain queue
-- source-active/inactive reconciliation for the run was applied
-
-It does **not** mean every published order has completed downstream upsert and
-validation. Convergence also depends on pending SQLite validation demand and
-unfinished maker scans after queue admission. A maker scan may finish after
-durably handing a failed order to demand. Neither an empty broker queue nor a
-completed source run proves that validation is caught up; use the
-[order progress measurements](18-order-queue-recovery.md#failure-and-progress-interpretation).
+A completed market read has committed its feed membership, selected quotes,
+daily prices and validation obligations in SQLite. Validation and maker scans
+can still be running after publication. Use the
+[order progress measurements](18-order-queue-recovery.md#failure-and-progress-interpretation)
+to check those obligations.
 
 Collection-extension artifact completion is similarly eventual:
 

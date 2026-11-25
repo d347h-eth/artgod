@@ -706,6 +706,40 @@ Trading bid-book fallback also reads normalized order scope fields, not raw REST
 Raw order audit payload persistence is disabled by default with `PERSIST_RAW_DEBUG_PAYLOADS=false`.
 When disabled, canonical order upserts still persist normalized order fields and `seaport_data_json`; only `raw_rest_data` and `raw_stream_data` stop growing.
 
+## Market publications and alpha cutover
+
+Migration 078 adds a feed per chain, venue, remote market, NFT contract and
+view. `orderbook_bindings` maps a feed to the collections it serves.
+`orderbook_members` keeps the latest placement terms and availability.
+`orderbook_changes` records additions, changes and withdrawals by generation.
+One transaction publishes those rows, the canonical settlement route in
+`orders`, its validation outbox entries and the affected daily seller prices.
+Successful and attempted read times are separate. A failed fetch can leave a
+last-seen quote eligible. Expiry, validation and settlement still apply.
+Migration 079 links a broad offer to the proven token set in each local
+collection that it covers. A contract-wide offer can serve two tracked ranges
+while retaining one quantity and validation obligation. Purging a range
+preserves the offer in the surviving range. A nonzero signed criteria root
+must match the locally materialized set.
+
+For a populated alpha database, perform the cutover with its matching broker:
+
+1. Stop marketplace producers. Let the old offchain ingest and domain workers
+   drain the mixed raw subject and its pending SQLite outbox. That subject also
+   carries metadata and maker hints.
+2. Stop the remaining old order writers and consumers. Keep the target broker
+   available and select the matching `ARTGOD_DB_PATH`, chain settings,
+   `NATS_URL` and `NATS_STREAM_PREFIX` in the indexer environment.
+3. Run `yarn workspace @artgod/indexer orderbook:cutover`. It fences the broker
+   scan, retires legacy order jobs and resets passive order and validation
+   state in SQLite. A stopped or interrupted attempt can be rerun.
+4. Restart the new composition. Check that `orderbook_cutover.pending` is zero,
+   previously tracked markets finish a first generation, and unrelated work
+   continues. Chain history, collection registration, daily seller history
+   and bot jobs survive. A new empty database starts directly.
+
+[Packaged worker and cutover verification](11-testing.md#packaged-orderbook-workers)
+
 ## Offchain OpenSea Tables
 
 ### `offchain_order_observations`
@@ -1016,12 +1050,12 @@ Important operations:
 
 ### Order source-state store (`indexer/src/infra/offchain/sqlite-order-source-state.ts`)
 
-- marks missing previously-active orders `source_status = inactive`
-- does **not** mark them `cancelled`
-- scope is `(chain_id, collection_id, source)` plus streamed membership in
-  connection-local temporary tables; it does not build an entire JS ID array
-- 500-row updates recheck stream freshness/admission, yield between transactions
-  and do not override observations in the coalesced freshness bucket
+- stages observations privately per feed and run
+- compares complete snapshots against that feed’s previous membership
+- selects an eligible placement per settlement order, with exact seller
+  proceeds for WETH bids and total buyer cost for listings
+- publishes membership, prices, seller history and validation obligations
+  atomically after checking the active bindings
 
 ### Orders domain storage (`indexer/src/infra/domain/orders.ts`)
 

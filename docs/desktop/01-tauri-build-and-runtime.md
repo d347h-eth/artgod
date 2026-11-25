@@ -215,7 +215,8 @@ contract rather than combining independently distributed package trees with
    producers start. Healthy pending work is preserved regardless of age; an
    unrecoverable full store fails startup instead of dropping jobs. The backend
    and enabled indexer workers then start from bundled resources with their
-   isolated dependencies. OpenSea workers are skipped when disabled, and
+   isolated dependencies. The shared orderbook workers start. The OpenSea stream
+   worker starts when OpenSea is enabled, and
    wallet-bound bots start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe
    succeeds, not merely until process state is `running`.
@@ -830,9 +831,9 @@ Trading bot runtime keys:
 
 OpenSea capability keys:
 
-- `OPENSEA_INTEGRATION_MODE=auto|enabled|disabled` controls whether OpenSea indexer workers and OpenSea-dependent bot starts are allowed.
+- `OPENSEA_INTEGRATION_MODE=auto|enabled|disabled` controls the OpenSea stream worker, the OpenSea consumer in the shared reconciler and OpenSea-dependent bot starts.
 - `OPENSEA_API_KEY` enables OpenSea integration in `auto` mode. In `enabled` mode it is mandatory and missing config fails desktop runtime startup.
-- With `auto` and no `OPENSEA_API_KEY`, desktop startup continues; the supervisor skips OpenSea indexer workers, backend/userland report OpenSea disabled, and Admin bots show the disabled reason instead of starting.
+- With `auto` and no `OPENSEA_API_KEY`, desktop startup continues; the shared orderbook workers start, the supervisor skips the OpenSea stream worker, backend/userland report OpenSea disabled, and Admin bots show the disabled reason instead of starting.
 - Bidding additionally requires `OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`, and `BIDDING_ENABLED=true`.
 
 Core runtime keys are also validated (for backend/indexer startup), for example:
@@ -896,7 +897,7 @@ Supervisor startup order:
    work deadline; insufficient headroom or a failed shrink does not undo logical
    readiness, and the task journals its one automatic VACUUM attempt
 7. start the backend and wait for its listener
-8. start enabled indexer workers; skip disabled OpenSea workers
+8. start the shared orderbook workers and other enabled indexer workers
 9. wait for backend semantic readiness via `GET /health/runtime`
 10. set runtime status to `running` only after semantic readiness succeeds
 

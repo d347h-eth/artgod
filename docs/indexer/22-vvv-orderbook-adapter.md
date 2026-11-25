@@ -1,6 +1,6 @@
 # VVV orderbook adapter
 
-**Proposed adapter.** VVV supplies market locations and signed order data to the
+**VVV adapter.** VVV supplies market locations and signed order data to the
 same local indexer that reads OpenSea. The adapter’s job ends after it
 identifies a market, reads its public book, and translates its records. The
 order domain decides what changed and what price users see.
@@ -46,14 +46,20 @@ The scheduler and order domain use the same paths for both venues. Users can
 open a collection page later and read the book ArtGod has already indexed.
 [Shared worker lifecycle](21-multiple-orderbooks.md#run-two-shared-orderbook-workers)
 
-The probe used the frontend workspace’s development copy of Playwright. Make
-the browser and its driver available to the installed reconciler wherever VVV
-is enabled. Apply the adapter’s timeout and retry policy to each read. A
-browser error, HTTP 429, or invalid response records a failed attempt.
-The last accepted VVV book retains its observation time, and normal expiry and
-chain updates still apply. The next valid read reconciles against that book.
-[Frontend dependencies](../../frontend/package.json) ·
-[Runtime registry](../desktop/02-runtime-registry-maintenance.md)
+The packaged indexer includes the Playwright driver. A VVV-enabled installation
+also needs the matching Chromium executable available to that driver. The
+reconciler creates a local reader document at the market origin and uses
+Chromium to fetch the fixed public URL anonymously. It identifies itself as
+`ArtGod-Orderbook`, times out after 45 seconds, and limits the decoded body to
+32 MiB. It transfers up to 64 orders at a time to the indexer. Invalid JSON,
+misidentified markets, transport errors and HTTP 429 all fail the read. The
+prior book keeps its last successful timestamp.
+
+The packaged Linux test uses a real browser with local market responses to
+exercise scheduling, shutdown, interruption and recovery. The live public
+endpoint returned HTTP 429 during implementation verification. Live access
+must succeed on a supported installation before enabling its VVV binding.
+[Packaged worker test](11-testing.md#packaged-orderbook-workers)
 
 ## Read the signed terms
 

@@ -1089,8 +1089,9 @@ Desktop-first path defaults:
   absolute.
 - `USERLAND_UI_DIST_DIR=frontend/userland`, resolved relative to desktop
   runtime resources dir unless absolute.
-- `OPENSEA_INTEGRATION_MODE=auto`, so OpenSea workers start only when
-  `OPENSEA_API_KEY` is configured.
+- `OPENSEA_INTEGRATION_MODE=auto` enables the OpenSea stream worker and
+  OpenSea reconciliation when `OPENSEA_API_KEY` is configured. The shared
+  orderbook scheduler and reconciler always start and wait for eligible markets.
 
 ## Desktop Release Builds
 

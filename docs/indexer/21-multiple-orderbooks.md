@@ -1,6 +1,6 @@
 # Multiple orderbooks in ArtGod
 
-**Proposed design.** Collection and token pages show one local book of
+**Orderbook design.** Collection and token pages show one local book of
 currency-priced listings and offers from all matching marketplaces. If VVV
 withdraws a 0.8 ETH listing and OpenSea still offers the token for 1 ETH, the
 card shows 1 ETH as soon as ArtGod publishes that refresh. The core orderbook
@@ -51,12 +51,10 @@ own writer. These storage boundaries allow a market-only reset.
 
 ## Build on the OpenSea path
 
-OpenSea bootstrap and periodic reconciliation already share a reader. It records
-the IDs returned across listings and offers, compares them with active local
-orders after the last page, and protects newer stream observations. Today it
-applies missing orders in batches visible to readers and refreshes a seller’s
-existing daily price inside each batch. Keep the reader, set comparison and
-orders domain. Change the point at which a completed book becomes visible.
+OpenSea first reads and periodic reconciliation share a reader. It stages
+listings and offers privately through the final page and protects stream
+observations received during the traversal. One transaction publishes the
+eligible routes and refreshes each affected seller’s daily price.
 [OpenSea reader](../../indexer/src/application/offchain/opensea-orderbook-sync.ts)
 ·
 [SQLite comparison](../../indexer/src/infra/offchain/sqlite-order-source-state.ts)
@@ -70,10 +68,9 @@ the existing collection and token routes. [Worker ownership](00-overview.md) ·
 
 ## Run two shared orderbook workers
 
-Rename `opensea-reconcile-scheduler-worker` to
-`orderbook-reconcile-scheduler-worker` and `opensea-reconcile-worker` to
-`orderbook-reconcile-worker`. Start both with the rest of the indexer in
-desktop, development and Compose. The scheduler queues due markets. The
+The former OpenSea reconcile scheduler and reconciler now run as
+`orderbook-reconcile-scheduler-worker` and `orderbook-reconcile-worker`.
+Both start with the indexer in desktop, development and Compose. The scheduler queues due markets. The
 reconciler runs the selected venue adapter for initial reads, refreshes and
 retries. The VVV adapter opens its anonymous browser inside the reconciler
 when there is a VVV book to read. OpenSea’s stream worker starts its
@@ -98,18 +95,14 @@ The shared workers stay up.
 when a user newly tracks or bootstraps a collection, including VVV for 111K,
 is separate work. This includes any changes to the 111K embedded extension.
 
-**Move the existing responsibilities with the names.** The desktop supervisor
-currently skips these processes when OpenSea is off, and both entrypoints load
-a config that requires its key. Remove the OpenSea launch gate from the shared
-pair and load provider configuration only for eligible adapters. Move the
-existing OpenSea first-read handler into the reconciler, including its
-identity, snapshot and ready steps, their retry and terminal outcomes, and the
-action that starts sync for an already live collection. Preserve the bootstrap
-run that requested each result. Once both publishers use the shared reader,
-retire the old OpenSea snapshot worker. The collection bootstrap worker keeps
-its metadata and ownership responsibilities.
+**OpenSea first reads.** Collection bootstrap requests an initial read and
+retains its run ID. Admin can request an initial read for a live collection.
+The shared reconciler executes the read. When a bootstrap run requested it,
+the reconciler records the identity, snapshot and readiness steps on that run
+and handles their retry or terminal outcome. The collection bootstrap worker
+owns metadata and ownership.
 [Desktop launch rules](../../src-tauri/src/runtime/supervisor.rs) ·
-[OpenSea bootstrap worker](../../indexer/src/application/offchain/opensea-first-read.ts) ·
+[OpenSea first-read handler in the reconciler](../../indexer/src/application/offchain/opensea-first-read.ts) ·
 [Start sync for a live collection](../../backend/src/application/use-cases/collections/start-opensea-collection-sync.ts)
 
 Carry the rename through the shared queue contracts, publishers, consumers,

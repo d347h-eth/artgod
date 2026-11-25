@@ -338,7 +338,7 @@ Metadata stats recompute jobs use `domain.metadata.stats-recompute` on
 and extension-artifact terminality publish this job only after their owning
 state is committed.
 
-`offchain.order.raw` jobs are produced by the OpenSea stream/bootstrap/reconcile workers and consumed by the offchain ingest worker. These payloads carry:
+The OpenSea stream worker publishes `offchain.order.raw` for offchain ingest. Complete book traversals stage and publish directly. Retained raw payloads carry the following fields.
 
 - `channel` (`stream`, `snapshot`, `reconcile`)
 - `eventType`
@@ -404,11 +404,15 @@ so first-fetch success and delayed metadata both populate the cache.
 OpenSea job production/consumption:
 
 - `opensea.collection.bootstrap`
-    - produced by `bootstrap-worker`
-    - consumed by `orderbook-reconcile-worker`
+    - produced by collection bootstrap or the Admin start-sync action
+    - consumed on `orderbook-opensea` by the shared reconciler
 - `opensea.collection.reconcile`
     - produced by `orderbook-reconcile-scheduler-worker`
     - consumed by `orderbook-reconcile-worker`
+
+- `orderbook.vvv.read`
+    - produced by the shared scheduler for a bound, due VVV book
+    - consumed on `orderbook-vvv` by the shared reconciler
 
 Collection extension job production/consumption:
 

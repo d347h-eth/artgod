@@ -206,12 +206,18 @@ display source as the user's offers. This passive maker identity is separate
 from collection authorization. Own-maker feedback is therefore available on
 the indexed-orders fallback; it is not dependent on a live bot projection.
 
-In the proposed combined OpenSea and VVV book, the best indexed offer is the
+In the combined OpenSea and VVV book, the best indexed offer is the
 one that pays the seller the most after required fees. When the selector uses
 the bot snapshot, it shows the amounts OpenSea bidders offer before fees. A
 fresh empty bot snapshot displays zero offers. Listings use the local index in
 either case. [Offer ranking example](../indexer/21-multiple-orderbooks.md#which-offer-appears-first)
 · [Bot snapshot selection](../indexer/21-multiple-orderbooks.md#bot-snapshot-selection)
+
+For indexed token-offer pages, SQLite groups eligible settlement orders
+before loading the offers on a page. In private views, the repository applies
+job and cancellation rules to the operator’s orders. It combines their token
+totals with the market totals before sorting and paging. Own-state and
+price-tier counts include matching tokens across all pages.
 
 ## Why Full Snapshots Are Expensive
 

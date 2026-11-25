@@ -655,7 +655,7 @@ It also does **not** mean collection-extension artifact refresh has fully conver
 
 ### 10. Mark OpenSea offchain `ready`
 
-The OpenSea bootstrap worker marks the collection OpenSea state `ready` after the first full snapshot succeeds.
+The shared reconciler marks the collection OpenSea state `ready` after the first full publication commits. For an initial read requested by bootstrap it also marks the requesting run’s OpenSea steps.
 
 This is tracked separately via:
 
@@ -781,7 +781,6 @@ Workers:
 - `bootstrap-worker`
 - `sync-worker`
 - `collection-extension-worker`
-- `orderbook-reconcile-worker`
 - `opensea-stream-worker`
 - `orderbook-reconcile-worker`
 - `orderbook-reconcile-scheduler-worker`
