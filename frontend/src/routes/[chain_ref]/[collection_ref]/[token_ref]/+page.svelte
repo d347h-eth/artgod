@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { COLLECTION_CHART_PATH } from '$lib/price-chart/routing';
 	import { useCollectionView } from '$lib/collection-view-context';
 	import {detailTraitTree} from '$lib/trait-tree';
 	import TraitTree from '$lib/components/TraitTree.svelte';
@@ -234,6 +235,7 @@
 
 	function backLabel(): string {
 		if (!data?.chain || !data.collection) return 'back';
+		if (data.backPath?.endsWith('/' + COLLECTION_CHART_PATH)) return 'back to chart';
 		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 			return data.backPath && data.backPath.endsWith('/bidding')

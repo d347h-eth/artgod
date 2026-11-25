@@ -24,6 +24,7 @@
 	} from '$lib/api-types';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import { BackendApiError, getPriceHistory, getTokenCard } from '$lib/backend-api';
+	import { buildTokenDetailHref } from '$lib/token-browser-query';
 	import { buildTokenMediaQuery } from '$lib/media-mode';
 	import { COLLECTION_CHART_TOKEN_QUERY } from '$lib/price-chart/routing';
 	import {
@@ -100,6 +101,17 @@
 		pinnedSales.length ? pinnedSales : hoveredSales.length ? hoveredSales : recentSales
 	);
 
+	function saleTokenHref(tokenId: string): string {
+		return buildTokenDetailHref({
+			basePath,
+			tokenId,
+			catalogScope: selectedCollectionScope(collectionViewPage()),
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
+			returnPath: page.url.pathname,
+			returnQuery: page.url.searchParams.toString()
+		});
+	}
 	function choice<T extends string>(value: string | null, values: T[], fallback: T): T {
 		return values.includes(value as T) ? (value as T) : fallback;
 	}
@@ -395,13 +407,13 @@
 				</button>
 			{/if}
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {media} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {saleTokenHref} {basePath} {media} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
 	</div>
 	{#if loader && (pinnedPreview || preview)}
-		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
+		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {saleTokenHref} />
 	{/if}
 	{#if loader && sidebarPreview}
-		<SaleCardPreview target={sidebarPreview} pinned={false} {loader} {chain} {collection} {media} {basePath} />
+		<SaleCardPreview target={sidebarPreview} pinned={false} {loader} {chain} {collection} {media} {saleTokenHref} />
 	{/if}
 </section>
 
