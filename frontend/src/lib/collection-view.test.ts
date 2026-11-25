@@ -109,7 +109,10 @@ it.each([
 	}
 );
 
-it('retains the complete token selection and blocks a native draft with an unbound field', () => {
+it.each([
+	{ missing: 'field binding', pinnedTraits: view.pinnedTraits, fieldBound: false },
+	{ missing: 'view pin', pinnedTraits: [], fieldBound: true }
+])('blocks a trait bid without a $missing', ({ pinnedTraits, fieldBound }) => {
 	const selected = { key: 'Decoration', value: 'blue' };
 	const filter = buildBiddingAutomationResolvedTokenFilterSnapshot({
 		collectionView: {
@@ -120,7 +123,7 @@ it('retains the complete token selection and blocks a native draft with an unbou
 				collection: BIDDING_E2E_COLLECTION,
 				required: true,
 				selectedViewId: view.id,
-				views: [view]
+				views: [{ ...view, pinnedTraits }]
 			}
 		},
 		source: Surface.TokenBrowser,
@@ -132,7 +135,12 @@ it('retains the complete token selection and blocks a native draft with an unbou
 				minValue: null,
 				maxValue: null,
 				values: [
-					{ value: selected.value, tokenCount: 2, marketplaceBiddingSupported: false, native: null }
+					{
+						value: selected.value,
+						tokenCount: 2,
+						marketplaceBiddingSupported: fieldBound,
+						native: fieldBound ? selected : null
+					}
 				]
 			}
 		],
@@ -140,7 +148,7 @@ it('retains the complete token selection and blocks a native draft with an unbou
 		traitJoinMode: Join.And
 	});
 	expect(filter.nativeSelection).toBeNull();
-	expect(filter.selectedTraits).toEqual([{ ...selected, marketplaceBiddingSupported: false }]);
+	expect(filter.selectedTraits).toEqual([{ ...selected, marketplaceBiddingSupported: fieldBound }]);
 	expect(
 		buildBiddingAutomationDraftFromSelection({
 			type: Source.FilteredTokens,
