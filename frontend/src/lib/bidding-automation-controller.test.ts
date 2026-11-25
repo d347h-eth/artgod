@@ -194,8 +194,9 @@ describe('createBiddingAutomationController', () => {
 		});
 	});
 
-	it('adds explicit token selections instead of replacing the active selection', () => {
-		const controller = createBiddingAutomationController();
+	it('adds explicit token picks in the originating collection group', () => {
+		const group = { groupId: 'family' };
+		const controller = createBiddingAutomationController(() => group);
 
 		controller.toggleToken({
 			tokenId: '1',
@@ -216,6 +217,7 @@ describe('createBiddingAutomationController', () => {
 			throw new Error('expected explicit token selection');
 		}
 		expect(selection.tokenIds).toEqual(['1', '2']);
+		expect(selection.catalogScope).toEqual(group);
 		expect(controller.selectionSummary()).toBe('2 tokens selected');
 	});
 

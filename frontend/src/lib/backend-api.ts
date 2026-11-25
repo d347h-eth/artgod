@@ -673,6 +673,7 @@ export async function upsertTraitBiddingJob(
 export type BatchTokenBiddingJobSelectionRequest =
 	| {
 			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
+			catalogScope?: CatalogScope;
 			tokenIds: string[];
 	  }
 	| {
@@ -695,7 +696,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 			priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 	  };
 
-// Filtered batches carry presentation scope in the query for both lookup and submission.
+// Batch lookups and writes carry the originating catalog scope in the query.
 function batchSelectionRequest(selection: BatchTokenBiddingJobSelectionRequest) {
 	if ('catalogScope' in selection) {
 		const { catalogScope, ...filter } = selection;

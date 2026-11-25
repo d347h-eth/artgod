@@ -1706,6 +1706,40 @@ describe("backend api routes", () => {
                     traits: [],
                 },
             };
+            const pageSelection = {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                tokenIds: ["1", "2"],
+            };
+            const pageLookup = await resolve(
+                "POST",
+                batch,
+                { selection: pageSelection },
+                auth,
+            );
+            expect(pageLookup.payload.tokenIds).toEqual(pageSelection.tokenIds);
+            db.exec("SAVEPOINT page_token_leaves_view");
+            try {
+                db.prepare(
+                    "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
+                ).run(collectionId);
+                const commands = listTradingCommandKinds();
+                for (const tokenIds of [pageSelection.tokenIds, ["2"]]) {
+                    const moved = await resolve(
+                        "PUT",
+                        batchWrite,
+                        {
+                            ...batchRequest,
+                            selection: { ...pageSelection, tokenIds },
+                        },
+                        auth,
+                    );
+                    expect(moved.statusCode).toBe(422);
+                }
+                expect(listTradingCommandKinds()).toEqual(commands);
+            } finally {
+                db.exec("ROLLBACK TO page_token_leaves_view");
+                db.exec("RELEASE page_token_leaves_view");
+            }
             const repository = SqliteBiddingJobsRepository.prototype;
             const write = repository.upsertTokenJobs;
             const commandKinds = listTradingCommandKinds();
