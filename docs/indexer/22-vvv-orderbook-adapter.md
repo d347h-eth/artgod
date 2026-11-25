@@ -46,19 +46,24 @@ The scheduler and order domain use the same paths for both venues. Users can
 open a collection page later and read the book ArtGod has already indexed.
 [Shared worker lifecycle](21-multiple-orderbooks.md#run-two-shared-orderbook-workers)
 
-The packaged indexer includes the Playwright driver. A VVV-enabled installation
-also needs the matching Chromium executable available to that driver. The
-reconciler creates a local reader document at the market origin and uses
-Chromium to fetch the fixed public URL anonymously. It identifies itself as
-`ArtGod-Orderbook`, times out after 45 seconds, and limits the decoded body to
-32 MiB. It transfers up to 64 orders at a time to the indexer. Invalid JSON,
-misidentified markets, transport errors and HTTP 429 all fail the read. The
-prior book keeps its last successful timestamp.
+The packaged indexer includes the Playwright driver. The account running a
+VVV-enabled reconciler needs the matching Chromium installation in Playwright’s
+browser cache or at its configured `PLAYWRIGHT_BROWSERS_PATH`. For the verified
+111K market, Chromium opens the public `/api/111k/artists` JSON document and
+fetches `/api/111k/state?orders=1` from that page without credentials. Both
+locations belong to the adapter’s catalog. The page is reused across refreshes.
 
-The packaged Linux test uses a real browser with local market responses to
-exercise scheduling, shutdown, interruption and recovery. The live public
-endpoint returned HTTP 429 during implementation verification. Live access
-must succeed on a supported installation before enabling its VVV binding.
+The indexer pulls at most 64 KiB per chunk and stages each completed public
+order before asking for more bytes. A book read has a 45-second deadline and a
+32 MiB decoded response limit. Invalid JSON, a mismatched market, an interrupted
+response or HTTP 429 leaves the prior book and successful timestamp intact.
+The scheduler checks the VVV market’s own 15-minute refresh interval even when
+OpenSea uses a longer interval.
+
+On 25 November 2026 the packaged Linux scheduler and reconciler published the
+live public book. Local browser fixtures exercised interruption, recovery,
+multiple bindings and releasing Chromium after the last binding was removed.
+The packaged worker also replayed both full archived responses.
 [Packaged worker test](11-testing.md#packaged-orderbook-workers)
 
 ## Read the signed terms

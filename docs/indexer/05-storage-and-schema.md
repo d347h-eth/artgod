@@ -722,6 +722,16 @@ while retaining one quantity and validation obligation. Purging a range
 preserves the offer in the surviving range. A nonzero signed criteria root
 must match the locally materialized set.
 
+Migration 080 records the winning feed and its venue-native order ID together.
+This identifies which placement supplies the quote, its last successful
+observation and any proof of collection scope. Its native ID can differ from
+the signed order hash. A reported availability change keeps a member present
+and updates its eligibility. Omission from a completed snapshot withdraws it.
+If a refresh crosses UTC midnight or an affected ask starts or expires while
+daily prices are being written, the publisher rolls back those price writes
+and recalculates them at the new time. A second crossing rolls back the entire
+publication for the venue’s next retry.
+
 For a populated alpha database, perform the cutover with its matching broker:
 
 1. Stop marketplace producers. Let the old offchain ingest and domain workers

@@ -800,10 +800,27 @@ The suite starts the scheduler and reconciler with the bundled Node executable,
 their staged dependency tree, a disposable SQLite database and a loopback
 broker. A local browser fixture supplies market responses for idle,
 OpenSea-only, VVV-only and combined configurations. It
-checks successive reads, browser restart, interrupted publication and continued
-OpenSea progress during a VVV outage. It also rejects the last page of an
-initial OpenSea read and follows the retry to readiness on the original
-collection bootstrap run. A separate upgrade fixture seeds the
+checks successive reads, browser restart, interrupted publication, release of
+Chromium when the last binding is removed, and continued OpenSea progress
+during a VVV outage. With OpenSea disabled, two ranges share one VVV request
+and a separate contract keeps its own book through a failed and an empty read.
+The suite also rejects the last page of an initial OpenSea read and follows
+the retry to readiness on the original collection bootstrap run.
+A separate upgrade fixture seeds the
 pre-publication schema and both order and unrelated broker work, runs the
-cutover and checks delivery and retained history. Live VVV access requires a
-successful public response on the target installation.
+cutover and checks delivery and retained history.
+
+On 25 November 2026 the staged Linux reconciler replayed the 15,134,646-byte
+and 11,455,722-byte captured responses, then replayed the latter unchanged.
+Chromium made one reader-document request for the session and one book request
+per refresh. The successive books took 17.0, 14.4 and 13.6 seconds to publish.
+The second recorded 2,638 additions, 44 changes and 4,610 removals. The third
+recorded zero changes.
+
+Worker RSS peaked at 470,148 KiB and the Chromium process tree peaked at
+490,232 KiB. Their highest simultaneous sum was 927,064 KiB, sampled every
+250 ms during the fixture replay. Summing process RSS counts shared pages in
+each process. At the default 15-minute interval a continuously bound market
+requests about four books per hour and one reader document when a session opens.
+Public endpoint availability is checked separately by running the packaged
+scheduler and reconciler with an existing binding on the target installation.

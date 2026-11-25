@@ -214,9 +214,15 @@ another collection’s book.
   received HTTP 429. The saved comparison is
   `tmp/vvv-orderbook-20261115/browser/transport-2026-11-16T00-01-49.893Z/results.json`.
   A second successful browser read is recorded in
-  `tmp/vvv-orderbook-20261124/results.json`. Later, the packaged Linux
-  worker passed scheduled reads and restart recovery with local responses.
-  Its public request received HTTP 429. [Packaged verification](11-testing.md#packaged-orderbook-workers)
+  `tmp/vvv-orderbook-20261124/results.json`. An early packaged run from a
+  synthetic page received HTTP 429. On 25 November the packaged Linux
+  reconciler opened VVV’s public artists document and published successive live
+  books from that page. Cash-order membership moved from 3,014 to 3,013 and
+  then to 3,028. A restarted worker read the 3,028-order book again and
+  recorded zero changes. The next unattended refresh ran 15 minutes and
+  1.4 seconds later, withdrawing one order and leaving 3,027. Local fixtures
+  exercised interrupted reads and recovery.
+  [Packaged verification](11-testing.md#packaged-orderbook-workers)
 - Replayed the saved IDs through **the same SQLite source-state store OpenSea
   calls** on a disposable migrated database. Seeded the 5,047 earlier cash
   orders as source members with observation times outside the OpenSea stream
