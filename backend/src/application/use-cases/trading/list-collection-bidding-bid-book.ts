@@ -1,5 +1,5 @@
 import {
-    resolveEffectiveNativeTraits,
+    resolveNativeOfferFilters,
     TRAIT_CATALOG,
 } from "@artgod/shared/types/trait-catalog";
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
@@ -983,12 +983,8 @@ function translateTraitBookSelection(
     pinned: TraitFilter[],
     catalog: TraitReadContext["catalog"],
 ) {
-    if (!pinned.length)
-        throw new ReadModelBadRequestError(
-            "This view has no exact native scope",
-        );
     const byKey = new Map(facets.map((facet) => [facet.key, facet]));
-    const native = resolveEffectiveNativeTraits({
+    const native = resolveNativeOfferFilters({
         catalog,
         pinned,
         traits: input.traits,

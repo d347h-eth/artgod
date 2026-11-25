@@ -168,8 +168,7 @@ export function createNativeTraitPresentation(
     };
 }
 
-/** Translate a view's pinned criteria and ordinary facet choices as a single native target. */
-export function resolveEffectiveNativeTraits(input: {
+type NativeTraitFilterInput = {
     catalog: TraitCatalogKind;
     /** Omit for the whole collection. An empty pin list on a leaf means its scope is unresolved. */
     pinned?: readonly TraitFilter[];
@@ -182,12 +181,24 @@ export function resolveEffectiveNativeTraits(input: {
             marketplaceBiddingSupported?: boolean;
         }[];
     }[];
-}): TraitFilter[] | null {
+};
+
+/** A filter-driven bid must represent the entire selected view in native criteria. */
+export function resolveEffectiveNativeTraits(
+    input: NativeTraitFilterInput,
+): TraitFilter[] | null {
     if (
         input.pinned?.length === 0 ||
         (!input.pinned && input.catalog !== TRAIT_CATALOG.Canonical)
     )
         return null;
+    return resolveNativeOfferFilters(input);
+}
+
+/** The bid book checks view membership separately. Translate every selected filter and any known pins. */
+export function resolveNativeOfferFilters(
+    input: NativeTraitFilterInput,
+): TraitFilter[] | null {
     const facets = new Map(input.facets.map((facet) => [facet.key, facet]));
     const bindings = input.traits.map((trait) => {
         const pin = input.pinned?.find((scope) => scope.key === trait.key);

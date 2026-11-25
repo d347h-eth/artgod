@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
@@ -16,6 +16,12 @@ import {
     TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
+import { TRAIT_CATALOG } from "@artgod/shared/types/trait-catalog";
+import {
+    nft111kTraitCatalog,
+    NFT111K_EXTENSION_KEY,
+    NFT111K_METADATA,
+} from "@artgod/shared/extensions/111k";
 import {
     COLLECTION_MEDIA_MODE_OPTIONS,
     COLLECTION_MEDIA_MODES,
@@ -62,6 +68,83 @@ class CapturingApm implements ApmPort {
 }
 
 describe("ListCollectionBiddingBidBookUseCase observability", () => {
+    it("browses trait offers in a block without a shared canonical pin", () => {
+        const block = nft111kTraitCatalog.classify([
+            { key: NFT111K_METADATA.CollectionBlock, value: "DriMi" },
+        ]);
+        const version = nft111kTraitCatalog.availableVersion(block);
+        // Members with different spellings of the block key have no universal pin.
+        const view = {
+            ...block,
+            pinnedTraits: [],
+            classified: 2,
+            ready: 2,
+            generation: 1,
+            activeMapperVersion: version,
+            availableMapperVersion: version,
+        };
+        const native = { key: "01 Background", value: "blue" };
+        const facet = {
+            ...traitFacet("Background"),
+            values: [
+                {
+                    value: "blue",
+                    tokenCount: 1,
+                    marketplaceBiddingSupported: true,
+                    native,
+                },
+            ],
+        };
+        const listCollectionBidBook = vi.fn<
+            BiddingBidBookRepositoryPort["listCollectionBidBook"]
+        >(() => bidBook([]));
+        const useCase = buildUseCase(
+            { listCollectionBidBook, listTokenBidBook: () => bidBook([]) },
+            undefined,
+            undefined,
+            {
+                resolveCollectionRef: () => ({
+                    ...collection(),
+                    extensions: [{ key: NFT111K_EXTENSION_KEY }],
+                }),
+                readViewStatus: () => [view],
+                readTokenViewId: () => view.id,
+                listCollectionTraitFacets: () => [facet],
+            },
+        );
+        const input = biddingInput({
+            view: view.id,
+            generation: view.generation,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+        });
+        const expectedRead = {
+            scopeFilter: input.scopeFilter,
+            traitContext: {
+                viewId: view.id,
+                generation: view.generation,
+                catalog: TRAIT_CATALOG.Derived,
+            },
+        };
+        useCase.listCollectionBiddingBidBook(input);
+        expect(listCollectionBidBook).toHaveBeenCalledWith(
+            expect.objectContaining({ ...expectedRead, selectedTraits: [] }),
+        );
+        const filter = { key: facet.key, value: "blue" };
+        useCase.listCollectionBiddingBidBook({ ...input, traits: [filter] });
+        expect(listCollectionBidBook).toHaveBeenCalledWith(
+            expect.objectContaining({
+                ...expectedRead,
+                selectedTraits: [native],
+            }),
+        );
+        expect(() =>
+            useCase.listCollectionBiddingBidBook({
+                ...input,
+                traits: [filter, { key: "Character", value: "unknown" }],
+            }),
+        ).toThrow(ReadModelBadRequestError);
+    });
+
     it.each(COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)(
         "rejects collection-scoped state filter %s before reading",
         (ownStateFilter) => {
@@ -826,6 +909,9 @@ function buildUseCase(
     priceTiersReadPort: ListCollectionBiddingBidBookUseCase["priceTiersReadPort"] = {
         listCollectionPriceTiers: () => [],
     },
+    collectionReads: Partial<
+        ListCollectionBiddingBidBookUseCase["collectionReadPort"]
+    > = {},
 ): ListCollectionBiddingBidBookUseCase {
     return new ListCollectionBiddingBidBookUseCase(
         1,
@@ -837,6 +923,7 @@ function buildUseCase(
             listCollectionTokenCardsByIds: tokenReader,
             countMarketplaceBiddingSupportedTokensByIds: ({ tokenIds }) =>
                 tokenIds.length,
+            ...collectionReads,
         },
         {
             getTraitFilterPresentationState: () => ({
