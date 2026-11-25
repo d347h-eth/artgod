@@ -261,9 +261,12 @@ permanent history as well as for the current price.
 
 ## Read one combined book
 
-**Prices.** Rank listings by the total the buyer must pay on an eligible route.
-Rank indexed seller-facing offers by what the seller receives after all required
-fees. Keep gross amount, required fees and net proceeds in exact currency units.
+Start VVV with fixed-price, single-unit cash listings and offers. NFT-for-NFT
+and NFT-plus-currency trades are deferred.
+
+Rank listings by the total the buyer must pay on an eligible route. Rank
+indexed offers by what the seller receives after all required fees. Keep the
+bidder’s full amount, required fees and seller’s proceeds in exact currency units.
 Calculate each route’s cost and proceeds in its settlement currency. Compare
 offers for the same fill quantity and currency, with a stable order and route
 tie-break. For each verified order, choose the eligible route with the lowest
@@ -277,29 +280,45 @@ supported WETH at **1:1** for the same NFT quantity, after including required
 fees. A 1 ETH listing and a 0.95 WETH listing produce **0.95 WETH** on the card.
 Keep the winning listing’s payment currency and link. The shared ask selector
 uses the same comparison for listed sorting, the floor and each seller’s daily
-price. Other currencies keep their own comparison groups.
-[Current asks](../../shared/database/current-asks.ts)
+price. Other currencies keep their own comparison groups. VVV displayed one
+listing as 0.13 ETH. Its signed payments add up to **0.130585 ETH**, the price
+ArtGod shows the buyer.
+[Current asks](../../shared/database/current-asks.ts) ·
+[Captured listing terms](22-vvv-orderbook-adapter.md#read-the-signed-terms)
 
-A VVV listing displayed as 0.13 ETH requires **0.130585 ETH** across all
-recipients. That is the buyer’s cost. One captured VVV bid offers **0.0914095
-WETH** and requires **0.000819 WETH** in seller-paid fees. It pays **0.0905905
-WETH**. A fee-free **0.091 WETH** bid therefore ranks higher for the seller of
-the same NFT. The adapter notes describe the gross bid on the existing
-competition scale. For the combined indexed book, the seller-proceeds rule here
-supersedes that proposed gross ranking for both venues. The bot continues to
-compare gross OpenSea bids. Start VVV with fixed-price, single-unit cash
-listings and offers. NFT-for-NFT and NFT-plus-currency trades are deferred.
-[Captured signed terms](22-vvv-orderbook-adapter.md#read-the-signed-terms) ·
-[Bot bid-price calculation](../../shared/trading/open-sea-bidding-offers.ts)
+### Which offer appears first
 
-**Which bids appear on a token.** Apply the same passive bid-book rule to both
-venues. On OpenSea the read selects active, fillable buy orders within their
+Suppose two bids are eligible for the same NFT. Buyer A offers **1.00 WETH**. The
+order pays **0.05 WETH** to fee recipients, leaving **0.95 WETH** for the
+seller. Buyer B offers **0.98 WETH** with no fees, so the seller receives the
+full **0.98 WETH**.
+
+1. **Rank by what the buyer offers before fees (gross).** Compare 1.00 WETH
+   from A with 0.98 WETH from B. A ranks first at **1.00 WETH**. A seller
+   accepting A receives **0.95 WETH**. The bidding bot uses this rule to
+   determine which OpenSea bid to beat. If both bids are on OpenSea, its
+   snapshot shows A first.
+2. **Rank by what the seller receives after fees (net).** Compare 0.95 WETH
+   from A with 0.98 WETH from B. B ranks first at **0.98 WETH** and pays the
+   seller **0.03 WETH more**. Collection and token pages use this rule when
+   showing the combined OpenSea and VVV book. If B withdraws, A becomes the
+   best offer and those pages show **0.95 WETH**.
+
+On either venue, ArtGod checks that buyer A has **1.00 WETH** and has authorized
+the protocol to spend that much. The buyer must fund both the seller’s payment
+and the fee.
+[Captured VVV bid and fees](22-vvv-orderbook-adapter.md#read-the-signed-terms) ·
+[OpenSea bot bid calculation](../../shared/trading/open-sea-bidding-offers.ts)
+
+### Which bids appear on a token
+
+Apply the same passive bid-book rule to both venues. On OpenSea the read
+selects active, fillable buy orders within their
 validity window and matches the token ID or applicable criteria. ArtGod admits
 orders optimistically and validates them asynchronously. For a WETH bid it
 checks the order hash, signature when supplied, protocol status, maker counter,
-and the bidder’s WETH balance and spending allowance. Use the gross WETH the
-bidder promises for those funding checks. The token page does not require the
-viewer’s wallet or the seller’s NFT transfer approval to display a bid.
+and the bidder’s WETH balance and spending allowance. Users can see an eligible
+bid on a token page without connecting a wallet or approving an NFT transfer.
 [Order admission](07-domain-orders.md#upsert-flow) ·
 [Seaport validator](../../indexer/src/application/offchain/seaport-validate.ts)
 ·
@@ -318,7 +337,9 @@ token membership to contribute to that token’s price.
 [Seaport order types](https://docs.opensea.io/docs/seaport-enums) ·
 [Bid-book selection](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
 
-**Rows, counts and floor.** The collection view, token cards and listed sorting
+### Rows, counts and floor
+
+The collection view, token cards and listed sorting
 use the same price selection. Read rows, order and token counts, and the floor
 from one SQLite snapshot at one collection revision and evaluation time.
 Deduplicate settlement orders and choose their eligible routes **before**
@@ -329,7 +350,9 @@ Restart the page sequence when that version or a time-based eligibility boundary
 changes. [Current asks](../../shared/database/current-asks.ts) ·
 [Collection reads](../../shared/read-models/collections.ts)
 
-**Refresh and navigation.** Preserve the existing public single-collection scope
+### Refresh and navigation
+
+Preserve the existing public single-collection scope
 and private-context rules. Check the collection revision on each cache hit and
 prevent an older refresh from overwriting a newer result. Recheck prices at
 order start and expiry. Refresh the winning feed’s last-seen label on failure or
@@ -380,13 +403,17 @@ same maker or signed order remains independent.
   changes an affected quote.
 - Exercise a relayed order, two independent placements, two otherwise identical
   orders with different salts, and identical hashes on different deployments.
-  Check total quantity after a partial fill, cancellation and reorg. Verify both
-  fee examples, and that the 0.95 WETH ask wins over 1 ETH with the correct
-  currency and link. An otherwise eligible open bid must rank the same for #42
-  on either venue even if VVV names a different counterparty. Exercise a genuine
-  restriction, an unresolved criterion and an underfunded bidder. Check the
-  bot’s fresh, empty and fallback views with an own cancellation on one
-  placement.
+  Check total quantity after a partial fill, cancellation and reorg.
+- Check that the captured VVV listing costs the buyer 0.130585 ETH and the
+  captured VVV offer pays the seller 0.0905905 WETH. In the two-buyer example,
+  verify the combined book shows B at 0.98 WETH and switches to A at 0.95 WETH
+  when B withdraws. With both bids on OpenSea, the bot ranks A at 1.00 WETH.
+  Check that the 0.95 WETH ask wins over 1 ETH with the correct currency and
+  link.
+- An otherwise eligible open bid must rank the same for #42 on either venue
+  even if VVV names a different counterparty. Exercise a genuine restriction,
+  an unresolved criterion and an underfunded bidder. Check the bot’s fresh,
+  empty and fallback views with an own cancellation on one placement.
 - On a deep book, add many duplicate publications and check that pages have the
   same groups, counts and floor with no repeated or skipped group. Inspect query
   plans and measure peak memory to verify a page read does not materialize the

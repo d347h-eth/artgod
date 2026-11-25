@@ -206,10 +206,12 @@ display source as the user's offers. This passive maker identity is separate
 from collection authorization. Own-maker feedback is therefore available on
 the indexed-orders fallback; it is not dependent on a live bot projection.
 
-The proposed combined feed supplies indexed listings and offers from OpenSea
-and VVV. The selector still gives a fresh OpenSea bot snapshot precedence for
-offers, including when that snapshot is empty. Listings use the local index
-in either case. [Multiple orderbooks](../indexer/21-multiple-orderbooks.md#bot-snapshot-selection)
+In the proposed combined OpenSea and VVV book, the best indexed offer is the
+one that pays the seller the most after required fees. When the selector uses
+the bot snapshot, it shows the amounts OpenSea bidders offer before fees. A
+fresh empty bot snapshot displays zero offers. Listings use the local index in
+either case. [Offer ranking example](../indexer/21-multiple-orderbooks.md#which-offer-appears-first)
+· [Bot snapshot selection](../indexer/21-multiple-orderbooks.md#bot-snapshot-selection)
 
 ## Why Full Snapshots Are Expensive
 

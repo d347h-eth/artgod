@@ -45,12 +45,12 @@ below come from the Seaport offer and consideration arrays. Every row had VVV
 status `active`. VVV’s separate `fillable` flag varied.
 [Capture identity and checks](23-orderbook-discovery.md#checks-completed-on-25-november)
 
-| What the maker offers and requests           |  Rows | VVV reported fillable | How ArtGod handles it                                                                     |
-| -------------------------------------------- | ----: | --------------------: | ----------------------------------------------------------------------------------------- |
-| One ERC-721 for native ETH                   | 2,953 |                 2,344 | A currency-priced listing. Compare the total the buyer pays.                              |
-| WETH for one ERC-721, with WETH fees         |   122 |                    20 | A currency-priced token offer. Compare gross WETH per NFT on the existing bid-book scale. |
-| NFTs for an NFT, with currency fees          |   116 |                    60 | Deferred barter. Skip it.                                                                 |
-| NFTs and WETH for an NFT, with currency fees |     5 |                     2 | Deferred barter. Skip it.                                                                 |
+| What the maker offers and requests           |  Rows | VVV reported fillable | How ArtGod handles it                                               |
+| -------------------------------------------- | ----: | --------------------: | ------------------------------------------------------------------- |
+| One ERC-721 for native ETH                   | 2,953 |                 2,344 | A currency-priced listing. Compare the total the buyer pays.        |
+| WETH for one ERC-721, with WETH fees         |   122 |                    20 | Rank the offer by the WETH the seller receives after required fees. |
+| NFTs for an NFT, with currency fees          |   116 |                    60 | Deferred barter. Skip it.                                           |
+| NFTs and WETH for an NFT, with currency fees |     5 |                     2 | Deferred barter. Skip it.                                           |
 
 Classify the exchange before admission. A cash offer with a fee stays a cash
 offer. Giving an NFT in exchange for another NFT makes it barter even if one
@@ -75,13 +75,16 @@ price or offer count in this design.
   maker 0.129415 ETH and other recipients 0.00117 ETH, so the buyer pays
   **0.130585 ETH**. The first cash offer has `priceWei = 0` and `giveWeth`
   equivalent to 0.091 WETH. The signed maker amount is **0.0914095 WETH** and
-  the required fees are 0.000819 WETH. The seller would receive **0.0905905
-  WETH** after those fees. After classifying cash orders, reuse
-  `extractSeaportSellTerms` for fixed asks. Factor the existing WETH unit
-  calculation out of its OpenSea envelope reader so both venues use the same
-  signed amounts. The summary field alone would lose this bid or misprice it.
+  the required fees are 0.000819 WETH. ArtGod checks whether the bidder can fund
+  the full **0.0914095 WETH**. The combined book ranks and displays this bid at
+  **0.0905905 WETH**, the amount the seller receives. A competing fee-free bid
+  of **0.091 WETH** pays the seller more and ranks above it.
+  Reuse `extractSeaportSellTerms` for fixed asks. Move the signed WETH amount
+  calculation out of the OpenSea envelope reader so both adapters can reuse
+  it. For cash offers, also read the required fee transfers so the order domain
+  can compute the seller’s proceeds for each eligible route.
   [Listing terms](../../indexer/src/application/offchain/seaport-order-data.ts)
-  · [Bid-price calculation](../../shared/trading/open-sea-bidding-offers.ts)
+  · [Offer ranking](21-multiple-orderbooks.md#which-offer-appears-first)
 - **Who the offer is for.** The public book includes a `counterparty` on all 243
   offers. Each uses an open Seaport order type and a zero zone. Keep the
   intended counterparty reported by VVV with the publication and the signed
@@ -127,10 +130,11 @@ listings whose availability changed.
 ## Adapter acceptance
 
 1. Feed a saved listing and WETH offer through the actual venue reader, Seaport
-   decoder, order worker and local market queries. Assert the verified identity,
-   exact unit price, audience and local collection. Include a bulk signature, a
-   tampered order and both barter shapes. Check that only eligible cash orders
-   contribute to a price.
+   decoder, order worker and local market queries. Check the buyer’s total
+   listing cost, the bidder’s full funding requirement and the seller’s proceeds
+   against the signed amounts above. Check the order identity, audience and local
+   collection. Include a bulk signature, a tampered order and both barter shapes.
+   Check that only eligible cash orders contribute to a price.
 2. Read two known VVV books in sequence, including an empty book, then replay
    the last run. Insert a challenge or malformed response between two successful
    reads. Assert the per-order changes and the price visible on the next local
