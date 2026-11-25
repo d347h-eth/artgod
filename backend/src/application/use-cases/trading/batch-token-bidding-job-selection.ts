@@ -22,6 +22,7 @@ import {
 import type { BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
 import {
     buildTokenOfferGroups,
+    tokenCardIdBatches,
     filterTokenOfferGroupsByOwnFilters,
     sortTokenIdsByTopOffer,
     tokenMatchesTraitFiltersWithJoinMode,
@@ -48,6 +49,7 @@ export type BatchTokenBiddingJobSelectionTokenReadPort = {
         traitRangeFilters?: TraitRangeFilter[];
         owner?: string;
     }): TokenCursorPage;
+    /** Existing cards in requested token ID order. */
     listCollectionTokenCardsByIds(params: {
         traitContext?: TraitReadContext;
         chainId: number;
@@ -149,22 +151,18 @@ function resolveExplicitTokenIds(params: {
     collectionReadPort: BatchTokenBiddingJobSelectionTokenReadPort;
 }): string[] {
     const tokenIds = uniqueNonEmptyTokenIds(params.selection.tokenIds);
-    if (tokenIds.length === 0) {
-        return [];
+    const supported: string[] = [];
+    for (const batch of readTokenCardBatches(params, tokenIds)) {
+        const found = new Set(batch.cards.map((card) => card.tokenId));
+        const missing = batch.tokenIds.find((id) => !found.has(id));
+        if (missing !== undefined) {
+            throw new TradingValidationError(`unknown token id ${missing}`);
+        }
+        for (const card of marketplaceBiddingSupportedTokens(batch.cards)) {
+            supported.push(card.tokenId);
+        }
     }
-    // Verify explicit token IDs belong to this collection before any job operation.
-    const cards = params.collectionReadPort.listCollectionTokenCardsByIds({
-        traitContext: params.traitContext,
-        chainId: params.chainId,
-        collectionId: params.collectionId,
-        tokenIds,
-    });
-    const found = new Set(cards.map((card) => card.tokenId));
-    const missing = tokenIds.filter((tokenId) => !found.has(tokenId));
-    if (missing.length > 0) {
-        throw new TradingValidationError(`unknown token id ${missing[0]}`);
-    }
-    return marketplaceBiddingSupportedTokens(cards).map((card) => card.tokenId);
+    return supported;
 }
 
 function resolveFilteredTokenIds(params: {
@@ -227,6 +225,12 @@ function resolveTokenOfferFilterTokenIds(params: {
         priceTierFilter: params.selection.priceTierFilter,
     });
 
+    // Token Offers applies AND across fields. A direct API batch may request OR
+    // across fields, which must keep all candidates for the card-level check.
+    const { traits, traitRanges, traitJoinMode } = params.selection;
+    const canFilterBook =
+        traitJoinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And ||
+        traits.length + traitRanges.length === 1;
     // Read token-scoped bids from the same source-selection path used by the offers page.
     const tokenBidBook = params.bidBookRepositoryPort.listCollectionBidBook({
         traitContext: params.traitContext,
@@ -235,8 +239,8 @@ function resolveTokenOfferFilterTokenIds(params: {
         includeOwnJobContext: params.includeOwnJobContext,
         scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
         traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-        selectedTraits: [],
-        selectedTraitRanges: [],
+        selectedTraits: canFilterBook ? traits : [],
+        selectedTraitRanges: canFilterBook ? traitRanges : [],
         makerAddress: params.selection.makerAddress ?? null,
         ownershipFilter: params.selection.ownershipFilter ?? null,
     });
@@ -262,30 +266,44 @@ function resolveTokenOfferFilterTokenIds(params: {
         params.selection,
     );
     const tokenIds = sortTokenIdsByTopOffer(offersByTokenId);
-    if (tokenIds.length === 0) {
-        return [];
+    const matches: string[] = [];
+    for (const batch of readTokenCardBatches(params, tokenIds)) {
+        for (const card of marketplaceBiddingSupportedTokens(batch.cards)) {
+            if (
+                tokenMatchesTraitFiltersWithJoinMode(
+                    card,
+                    traits,
+                    traitRanges,
+                    traitJoinMode,
+                )
+            ) {
+                matches.push(card.tokenId);
+            }
+        }
     }
-    // Hydrate matched token IDs so trait filters apply to token metadata, not bid payloads.
-    const cards = params.collectionReadPort.listCollectionTokenCardsByIds({
-        traitContext: params.traitContext,
-        chainId: params.chainId,
-        collectionId: params.collectionId,
-        tokenIds,
-    });
-    const cardsById = new Map(cards.map((card) => [card.tokenId, card]));
-    return tokenIds.filter((tokenId) => {
-        const card = cardsById.get(tokenId);
-        return (
-            card !== undefined &&
-            isTokenMarketplaceBiddingSupported(card) &&
-            tokenMatchesTraitFiltersWithJoinMode(
-                card,
-                params.selection.traits,
-                params.selection.traitRanges,
-                params.selection.traitJoinMode,
-            )
-        );
-    });
+    return matches;
+}
+
+// Lookup and save only retain eligible IDs. Read bounded groups of cards even
+// when the query or an explicit selection covers the entire collection.
+function* readTokenCardBatches(
+    params: {
+        chainId: number;
+        collectionId: number;
+        traitContext?: TraitReadContext;
+        collectionReadPort: BatchTokenBiddingJobSelectionTokenReadPort;
+    },
+    tokenIds: string[],
+) {
+    for (const batch of tokenCardIdBatches(tokenIds)) {
+        const cards = params.collectionReadPort.listCollectionTokenCardsByIds({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitContext: params.traitContext,
+            tokenIds: batch,
+        });
+        yield { tokenIds: batch, cards };
+    }
 }
 
 function uniqueNonEmptyTokenIds(values: string[]): string[] {

@@ -135,6 +135,7 @@ import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -1395,31 +1396,9 @@ describe("backend api routes", () => {
         try {
             clearTradingJobFixtures();
             db.prepare(
-                "UPDATE orders SET source_status='inactive' WHERE collection_id=? AND side='buy'",
-            ).run(collectionId);
-            db.prepare(
                 "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,?,'{}')",
             ).run(collectionId, NFT111K_EXTENSION_KEY);
-            db.prepare(
-                `
-                WITH RECURSIVE ids(id) AS (VALUES(110001) UNION ALL SELECT id+1 FROM ids WHERE id < 127001)
-                INSERT INTO tokens(chain_id,collection_id,contract_address,token_id)
-                SELECT 1,?,?,CAST(id AS TEXT) FROM ids
-            `,
-            ).run(collectionId, MILADY_ADDRESS);
-            db.prepare(
-                `
-                INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,
-                    quantity,price,currency,valid_from,valid_until,fillability_status,source_status,created_at,updated_at)
-                SELECT 'page-offer-' || token_id,chain_id,collection_id,'seaport','buy','opensea',?,contract_address,token_id,'token',
-                    '1','500000000000000000',?,1,4000000000,'fillable','active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
-                FROM tokens WHERE chain_id=1 AND collection_id=? AND length(token_id)=6 AND token_id BETWEEN '110001' AND '127001'
-            `,
-            ).run(
-                "0x9999999999999999999999999999999999999999",
-                WETH_ADDRESS.toLowerCase(),
-                collectionId,
-            );
+            seedIndexedTokenOffers(collectionId, 17_001);
             const response = await resolve(
                 "GET",
                 "/api/ethereum/milady/bidding/bids?limit=1",
@@ -1440,6 +1419,105 @@ describe("backend api routes", () => {
             db.exec("RELEASE aggregate_token_offers");
         }
     });
+    it.each(Object.values(TRADING_BIDDING_BID_BOOK_SOURCE))(
+        "looks up and saves the single matching token in a 33,001-token offer book from %s",
+        async (source) => {
+            const { ExtensionAwareCollectionDetailRead } =
+                await import("./infra/collections/extension-aware-collection-detail-read.js");
+            const collectionId =
+                getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+            const base = "/api/ethereum/milady/bidding";
+            const csrf = await issueAdminCsrf();
+            const selection = {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                traits: [{ key: "Edition", value: "Proof" }],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            };
+            db.exec("SAVEPOINT large_filtered_token_offers");
+            const hydrate = vi.spyOn(
+                ExtensionAwareCollectionDetailRead.prototype,
+                "listCollectionTokenCardsByIds",
+            );
+            try {
+                clearTradingJobFixtures();
+                seedIndexedTokenOffers(collectionId, 33_001);
+                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)
+                    useBotSnapshotForTokenOffers(collectionId);
+                db.prepare(
+                    `
+                    INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key)
+                    VALUES (1, ?, ?, '110001', ?, ?, ?)
+                `,
+                ).run(
+                    collectionId,
+                    MILADY_ADDRESS,
+                    insertCollectionAttribute(
+                        MILADY_ADDRESS,
+                        "Edition",
+                        "Proof",
+                    ),
+                    TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                );
+                db.prepare(
+                    "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,?,'{}')",
+                ).run(collectionId, NFT111K_EXTENSION_KEY);
+                for (const catalogEnabled of [true, false]) {
+                    if (!catalogEnabled)
+                        db.prepare(
+                            "DELETE FROM collection_extension_installs WHERE collection_id=?",
+                        ).run(collectionId);
+                    const page = await resolve(
+                        "GET",
+                        base + "/bids?limit=1&traits=Edition:Proof",
+                    );
+                    expect(page.statusCode).toBe(200);
+                    expect(page.payload.bidBook.state.source).toBe(source);
+                    expect(page.payload.tokenOfferCards).toMatchObject({
+                        totalItems: 1,
+                        items: [{ tokenId: "110001" }],
+                    });
+                    hydrate.mockClear();
+                    const lookup = await resolve(
+                        "POST",
+                        base + "/jobs/tokens/lookup",
+                        { selection },
+                        csrf,
+                    );
+                    expect(lookup.statusCode).toBe(200);
+                    expect(lookup.payload.tokenIds).toEqual(["110001"]);
+                    const saved = await resolve(
+                        "PUT",
+                        base + "/jobs/tokens/batch",
+                        {
+                            selection,
+                            status: TRADING_JOB_STATUS.Paused,
+                            floorEth: "0.1",
+                            ceilingEth: "0.2",
+                            deltaEth: "0.01",
+                        },
+                        csrf,
+                    );
+                    expect(saved.statusCode).toBe(200);
+                    expect(saved.payload.jobs).toMatchObject([
+                        {
+                            status: TRADING_JOB_STATUS.Paused,
+                            target: { tokenId: "110001" },
+                        },
+                    ]);
+                    if (catalogEnabled) {
+                        for (const [request] of hydrate.mock.calls)
+                            expect(request.tokenIds).toEqual(["110001"]);
+                    }
+                }
+            } finally {
+                hydrate.mockRestore();
+                db.exec("ROLLBACK TO large_filtered_token_offers");
+                db.exec("RELEASE large_filtered_token_offers");
+            }
+        },
+        30_000,
+    );
     it("scopes collection reads, continuations and local rebuilds to the selected published view", async () => {
         const collectionId =
             getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
@@ -9886,6 +9964,36 @@ function insertActivityFixture(input: {
                   input.occurredAt / MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
               )
             : null,
+    );
+}
+
+function seedIndexedTokenOffers(collectionId: number, count: number): void {
+    const firstTokenId = 110001;
+    const lastTokenId = firstTokenId + count - 1;
+    db.prepare(
+        "UPDATE orders SET source_status='inactive' WHERE collection_id=? AND side='buy'",
+    ).run(collectionId);
+    db.prepare(
+        `
+        WITH RECURSIVE ids(id) AS (VALUES(CAST(? AS INTEGER)) UNION ALL SELECT id+1 FROM ids WHERE id < ?)
+        INSERT INTO tokens(chain_id,collection_id,contract_address,token_id)
+        SELECT 1,?,?,CAST(id AS TEXT) FROM ids
+    `,
+    ).run(firstTokenId, lastTokenId, collectionId, MILADY_ADDRESS);
+    db.prepare(
+        `
+        INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,
+            quantity,price,currency,valid_from,valid_until,fillability_status,source_status,created_at,updated_at)
+        SELECT 'page-offer-' || token_id,chain_id,collection_id,'seaport','buy','opensea',?,contract_address,token_id,'token',
+            '1','500000000000000000',?,1,4000000000,'fillable','active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+        FROM tokens WHERE chain_id=1 AND collection_id=? AND length(token_id)=6 AND token_id BETWEEN ? AND ?
+    `,
+    ).run(
+        "0x9999999999999999999999999999999999999999",
+        WETH_ADDRESS.toLowerCase(),
+        collectionId,
+        String(firstTokenId),
+        String(lastTokenId),
     );
 }
 

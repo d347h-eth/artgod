@@ -64,6 +64,7 @@ import {
 import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import {
     buildPersistedTokenOfferCards,
+    tokenCardIdBatches,
     buildTokenOfferGroups,
     countTokenOfferOwnFilters,
     filterTokenOfferGroupsByOwnFilters,
@@ -641,7 +642,6 @@ export class ListCollectionBiddingBidBookUseCase {
                         attributes,
                         tokenIds: tokenIdPage.items,
                         offersByTokenId: matchedOffers,
-                        tokenOfferGroupsCount: tokenIdPage.items.length,
                     }),
                 },
             };
@@ -652,7 +652,6 @@ export class ListCollectionBiddingBidBookUseCase {
             attributes,
             tokenIds,
             offersByTokenId,
-            tokenOfferGroupsCount: tokenIds.length,
         });
         const counts = countTokenOfferOwnFilters(
             offersByTokenId,
@@ -701,7 +700,6 @@ export class ListCollectionBiddingBidBookUseCase {
         attributes: SpanAttributes;
         tokenIds: string[];
         offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
-        tokenOfferGroupsCount: number;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedTokenOfferCard[] {
@@ -709,25 +707,6 @@ export class ListCollectionBiddingBidBookUseCase {
             return [];
         }
 
-        // Load compact token cards for explicit token bids so the UI can reuse token-browser previews.
-        const tokenCards = this.apm.withSyncSpan(
-            "backend.bidding.collection_bid_book.token_offer_token_cards",
-            {
-                ...params.attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: params.tokenIds.length,
-                [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
-            },
-            () =>
-                this.collectionReadPort.listCollectionTokenCardsByIds({
-                    traitContext: params.traitContext,
-                    chainId: params.chainId,
-                    collectionId: params.collectionId,
-                    tokenIds: params.tokenIds,
-                    mediaMode: params.mediaMode,
-                    mediaPreference: params.mediaPreference,
-                    includeListings: true,
-                }),
-        );
         const traitSummaryTemplate = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_trait_summary_template",
             params.attributes,
@@ -741,24 +720,48 @@ export class ListCollectionBiddingBidBookUseCase {
                 ),
         );
 
-        return this.apm.withSyncSpan(
-            "backend.bidding.collection_bid_book.token_offer_card_build",
-            {
-                ...params.attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
-                [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
-                    params.tokenOfferGroupsCount,
-            },
-            () =>
-                buildPersistedTokenOfferCards({
-                    tokenCards,
-                    offersByTokenId: params.offersByTokenId,
-                    selectedTraits: params.selectedTraits,
-                    selectedTraitRanges: params.selectedTraitRanges,
-                    traitSummaryTemplate:
-                        traitSummaryTemplate.effectiveConfig.template,
-                }),
-        );
+        const cards: PersistedTokenOfferCard[] = [];
+        for (const tokenIds of tokenCardIdBatches(params.tokenIds)) {
+            // Load compact token cards for explicit token bids so the UI can reuse token-browser previews.
+            const tokenCards = this.apm.withSyncSpan(
+                "backend.bidding.collection_bid_book.token_offer_token_cards",
+                {
+                    ...params.attributes,
+                    [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenIds.length,
+                    [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
+                },
+                () =>
+                    this.collectionReadPort.listCollectionTokenCardsByIds({
+                        traitContext: params.traitContext,
+                        chainId: params.chainId,
+                        collectionId: params.collectionId,
+                        tokenIds,
+                        mediaMode: params.mediaMode,
+                        mediaPreference: params.mediaPreference,
+                        includeListings: true,
+                    }),
+            );
+            const matches = this.apm.withSyncSpan(
+                "backend.bidding.collection_bid_book.token_offer_card_build",
+                {
+                    ...params.attributes,
+                    [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
+                        tokenIds.length,
+                },
+                () =>
+                    buildPersistedTokenOfferCards({
+                        tokenCards,
+                        offersByTokenId: params.offersByTokenId,
+                        selectedTraits: params.selectedTraits,
+                        selectedTraitRanges: params.selectedTraitRanges,
+                        traitSummaryTemplate:
+                            traitSummaryTemplate.effectiveConfig.template,
+                    }),
+            );
+            cards.push(...matches);
+        }
+        return cards;
     }
 }
 
