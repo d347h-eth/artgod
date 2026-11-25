@@ -36,6 +36,11 @@ export class SqliteCollectionPurgeRepository {
 
     constructor() {
         this.deleteStatements = [
+            // A shared market can retain the same protocol bid in another local range.
+            this.deleteFrom(
+                "orderbook_bindings",
+                "DELETE FROM orderbook_bindings WHERE collection_id=@collectionId AND feed_id IN (SELECT feed_id FROM orderbook_feeds WHERE chain_id=@chainId)",
+            ),
             ...(db
                 .prepare<[string]>("SELECT 1 FROM sqlite_schema WHERE name=?")
                 .get("activity_sources")

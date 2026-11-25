@@ -1,3 +1,4 @@
+import { normalizeCriteriaRoot } from "@artgod/shared/offchain/normalizer-utils";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import type { BookPublicationPort } from "../../ports/orderbooks.js";
 import type { CollectionRecord } from "../../domain/collections.js";
@@ -70,14 +71,16 @@ export async function openSeaObservation(
         !order ||
         !data ||
         data.offerer !== order.maker.toLowerCase() ||
-        BigInt(data.totalOriginalConsiderationItems) !== BigInt(data.consideration.length) ||
+        BigInt(data.totalOriginalConsiderationItems) !==
+            BigInt(data.consideration.length) ||
         order.contract.toLowerCase() !== market.contract ||
         (order.taker && order.taker !== zeroAddress)
     )
         return record;
     // Restricted orders need a recognized public marketplace execution path.
     const open = data.orderType === "0" || data.orderType === "1";
-    const signedZone = (data.orderType === "2" || data.orderType === "3") &&
+    const signedZone =
+        (data.orderType === "2" || data.orderType === "3") &&
         market.chainId === OPENSEA_MAINNET_SECURITY_POLICY.chainId &&
         data.zone === OPENSEA_MAINNET_SECURITY_POLICY.signedZoneAddress;
     if (!open && !signedZone) return record;
@@ -86,13 +89,29 @@ export async function openSeaObservation(
         if (
             !amounts ||
             amounts.target.token !== market.contract ||
-            (order.tokenId != null && (amounts.target.itemType === "2" || amounts.target.itemType === "3") &&
-                amounts.target.identifierOrCriteria !== order.tokenId) ||
             amounts.target.recipient !== order.maker.toLowerCase()
         )
             return record;
         if (amounts.quantity > 1n && !["1", "3"].includes(data.orderType))
             return record;
+        const exactNft =
+            amounts.target.itemType === "2" || amounts.target.itemType === "3";
+        if (exactNft && amounts.target.identifierOrCriteria !== order.tokenId)
+            return record;
+        if (!exactNft) {
+            // A venue's claimed token ID cannot prove membership in signed criteria.
+            if (order.tokenId != null) return record;
+            const signedRoot = normalizeCriteriaRoot(
+                amounts.target.identifierOrCriteria,
+                "signed criteria root",
+            );
+            if (
+                order.sourceCriteriaRoot &&
+                order.sourceCriteriaRoot !== signedRoot
+            )
+                return record;
+            order = { ...order, sourceCriteriaRoot: signedRoot };
+        }
         record.fees = amounts.fees.toString();
         record.proceeds = amounts.proceeds.toString();
         order = {
@@ -104,7 +123,9 @@ export async function openSeaObservation(
     } else {
         const ask = extractSeaportSellTerms(data);
         if (
-            !ask || ask.contract !== market.contract || ask.tokenId !== order.tokenId ||
+            !ask ||
+            ask.contract !== market.contract ||
+            ask.tokenId !== order.tokenId ||
             data.offer.length !== 1 ||
             data.consideration.some((item) => Number(item.itemType) > 1)
         )

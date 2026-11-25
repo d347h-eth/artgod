@@ -20,7 +20,11 @@ import {
     ORDER_UPDATE_REASON,
 } from "../../domain/order-jobs.js";
 import { orderUpdateQueue } from "../../domain/order-processing.js";
-import { makeOrderUpsert } from "../../application/offchain/dispatch.js";
+import {
+    makeOrderUpsert,
+    resolveOrderTokenSet,
+} from "../../application/offchain/dispatch.js";
+import { ORDER_LOCAL_TOKEN_SET_STATUS } from "../../domain/orders.js";
 import { SqliteOrderProjection } from "../domain/orders.js";
 import { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
 import { SqliteTokenSetRegistry } from "../token-sets/sqlite.js";
@@ -48,6 +52,7 @@ type Member = {
     terms: string;
 };
 type Route = {
+    native_id: string;
     record_json: string;
     feed_id: number;
     collection_id: number;
@@ -375,6 +380,40 @@ export class SqliteOrderSourceStateStore {
                             )
                                 return;
                             const order = record.order;
+                            // Whole-market offers can apply to multiple local ranges. Resolve
+                            // each local set independently and keep one settlement owner.
+                            const offerScopes = order?.sourceSchema
+                                ? scopes.flatMap((scope) => {
+                                      if (
+                                          scope.address.toLowerCase() !==
+                                          order.contract.toLowerCase()
+                                      )
+                                          return [];
+                                      const resolved = resolveOrderTokenSet(
+                                          this.tokenSets,
+                                          {
+                                              ...order,
+                                              chainId: feed.chainId,
+                                              source: record.placement.venue,
+                                              rawSourceKind: "rest",
+                                              rawPayload: null,
+                                          },
+                                          scope.id,
+                                      );
+                                      return resolved.tokenSetId &&
+                                          resolved.tokenSetSchemaHash
+                                          ? [
+                                                {
+                                                    collectionId: scope.id,
+                                                    tokenSetId:
+                                                        resolved.tokenSetId,
+                                                    schemaHash:
+                                                        resolved.tokenSetSchemaHash,
+                                                },
+                                            ]
+                                          : [];
+                                  })
+                                : [];
                             const collection =
                                 order?.tokenId != null
                                     ? this.scopes.resolveTokenScopedCollectionId(
@@ -383,11 +422,12 @@ export class SqliteOrderSourceStateStore {
                                           order.contract,
                                           order.tokenId,
                                       )
-                                    : scopes.length === 1 &&
-                                        order?.contract.toLowerCase() ===
-                                            scopes[0]!.address.toLowerCase()
-                                      ? scopes[0]!.id
-                                      : null;
+                                    : (offerScopes[0]?.collectionId ??
+                                      (scopes.length === 1 &&
+                                      order?.contract.toLowerCase() ===
+                                          scopes[0]!.address.toLowerCase()
+                                          ? scopes[0]!.id
+                                          : null));
                             const owns =
                                 record.placement.venue === feed.venue &&
                                 record.placement.reference === feed.reference;
@@ -440,6 +480,25 @@ export class SqliteOrderSourceStateStore {
                                 price ?? null,
                                 collection,
                             );
+                            if (
+                                order?.sourceSchema ||
+                                (old && old.terms !== row.terms)
+                            ) {
+                                db.prepare(
+                                    "DELETE FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=?",
+                                ).run(id, row.native_id);
+                                for (const scope of offerScopes) {
+                                    db.prepare(
+                                        "INSERT INTO orderbook_offer_scopes(feed_id,native_id,collection_id,token_set_id,schema_hash) VALUES(?,?,?,?,?)",
+                                    ).run(
+                                        id,
+                                        row.native_id,
+                                        scope.collectionId,
+                                        scope.tokenSetId,
+                                        scope.schemaHash,
+                                    );
+                                }
+                            }
                             if (!old?.present || old.terms !== row.terms)
                                 change.run(
                                     id,
@@ -628,7 +687,7 @@ export class SqliteOrderSourceStateStore {
         seller();
         const winner = db
             .prepare(
-                "SELECT feed_id,collection_id,record_json,observed_ms FROM orderbook_eligible_routes WHERE settlement_id=? LIMIT 1",
+                "SELECT feed_id,native_id,collection_id,record_json,observed_ms FROM orderbook_eligible_routes WHERE settlement_id=? LIMIT 1",
             )
             .get(settlement) as Route | undefined;
         if (!winner) {
@@ -651,11 +710,32 @@ export class SqliteOrderSourceStateStore {
             rawPayload: null,
             orderId: settlement,
         };
+        const local = order.sourceSchema
+            ? (db
+                  .prepare(
+                      "SELECT token_set_id,schema_hash FROM orderbook_offer_scopes WHERE feed_id=? AND native_id=? AND collection_id=?",
+                  )
+                  .get(
+                      winner.feed_id,
+                      winner.native_id,
+                      winner.collection_id,
+                  ) as
+                  | { token_set_id: string; schema_hash: string }
+                  | undefined)
+            : undefined;
         const payload = makeOrderUpsert(
             this.tokenSets,
             normalized,
             winner.collection_id,
             now,
+            local
+                ? {
+                      localTokenSetStatus:
+                          ORDER_LOCAL_TOKEN_SET_STATUS.Resolved,
+                      tokenSetId: local.token_set_id,
+                      tokenSetSchemaHash: local.schema_hash,
+                  }
+                : undefined,
         );
         const result = this.projection.applyOrderUpsert(payload, false);
         db.prepare(

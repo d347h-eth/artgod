@@ -230,14 +230,14 @@ export class SqliteMarketDataMaintenance
                                   )
                                   .get(table) as { seq: number } | undefined)
                             : undefined;
-                    // The cancellation ledger owns triggers that update the live orders
+                    // Cancellation and binding triggers update the live orders
                     // table. SQLite validates their SQL while renaming the shadow.
                     // Restore them in the same transaction as the table swap.
                     const dependentTriggers =
                         table === "orders"
                             ? (this.conn
                                   .prepare(
-                                      "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name='trading_bidding_order_cancellations' AND name IN ('book_cancellation_insert','book_cancellation_update')",
+                                      "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name IN ('book_cancellation_insert','book_cancellation_update','book_rehome_offer')",
                                   )
                                   .all() as { name: string; sql: string }[])
                             : [];

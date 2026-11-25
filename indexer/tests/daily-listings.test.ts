@@ -445,6 +445,27 @@ describe("permanent daily listings and current asks", () => {
             occurredAt: pinned.occurredAt,
             price: "20",
         });
+        for (const [cheap, expensive] of [
+            ["first", "last"],
+            ["last", "first"],
+        ] as const) {
+            const pair = books.begin(feed);
+            pair.record(listing(cheap, "10"));
+            pair.record(listing(expensive, "20"));
+            pair.publish();
+            expect(list().items[0]).toMatchObject({
+                id: pinned.id,
+                price: "10",
+            });
+            books.begin(feed).publish();
+            expect(list().items[0]).toMatchObject({
+                id: pinned.id,
+                price: "10",
+            });
+        }
+        const restored = books.begin(feed);
+        restored.record(listing("remaining", "20"));
+        restored.publish();
         now++;
         prices.refreshBatch(now);
         expect(list().items[0]).toMatchObject({ id: pinned.id, price: "20" });

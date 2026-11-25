@@ -1,3 +1,7 @@
+import {
+    buildCollectionSchema,
+    generateMerkleRoot,
+} from "../src/application/token-sets/utils.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { ORDER_STATUS } from "@artgod/shared/market-data/orders";
@@ -283,6 +287,86 @@ describe("publishing a scoped orderbook", () => {
         ).toEqual([{ id: "low" }, { id: "unrelated" }]);
     });
 
+    it("links a single contract-wide bid to both bound ranges and preserves the surviving scope", () => {
+        db.exec(
+            "UPDATE collections SET token_scope_kind='token_range',scope_start_token_id='0',scope_total_supply=500 WHERE collection_id=99",
+        );
+        db.prepare(
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,scope_start_token_id,scope_total_supply,opensea_slug,opensea_status) VALUES(100,1,'upper',?,'erc721','live','token_range','500',500,?,'ready')",
+        ).run(os.contract, os.reference);
+        store.bind(os, 100);
+        const token = db.prepare(
+            "INSERT INTO nft_balances(chain_id,collection_id,contract_address,token_id,owner,amount,last_block_number,last_block_hash,last_block_timestamp,last_tx_hash,last_log_index) VALUES(1,?,?,?,'holder','1',1,'block',1,'tx',0)",
+        );
+        token.run(99, os.contract, "1");
+        token.run(100, os.contract, "700");
+        const broad = (id: string, root: string) => {
+            const record = ask(os, id, "100", { proceeds: "95", fees: "5" });
+            record.order = {
+                ...record.order!,
+                side: ORDER_SIDE.Buy,
+                tokenId: null,
+                currency: weth,
+                sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Collection,
+                sourceSchema: buildCollectionSchema(os.contract),
+                sourceCriteriaRoot: root,
+            };
+            return record;
+        };
+        publish(os, [
+            broad("wildcard", "0x0"),
+            broad("criterion", generateMerkleRoot(["700"])),
+        ]);
+        expect(
+            db
+                .prepare(
+                    "SELECT native_id,collection_id FROM orderbook_offer_scopes ORDER BY native_id,collection_id",
+                )
+                .all(),
+        ).toEqual([
+            { native_id: "criterion", collection_id: 100 },
+            { native_id: "wildcard", collection_id: 99 },
+            { native_id: "wildcard", collection_id: 100 },
+        ]);
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS n FROM orders WHERE source_status='active'",
+                )
+                .get(),
+        ).toEqual({ n: 2 });
+        // A job in the upper range controls the same OpenSea publication.
+        publish(os, [
+            broad("wildcard", "0x0"),
+            broad("criterion", generateMerkleRoot(["700"])),
+            broad("controlled", "0x0"),
+        ]);
+        db.exec(
+            "INSERT INTO trading_jobs(job_id,bot_kind,chain_id,collection_id,status,target_kind) VALUES('upper-bot','bidding',1,100,'paused','collection')",
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_order_cancellations(order_id,job_id,chain_id,collection_id,maker,requested_at,completed_at) VALUES('controlled','upper-bot',1,100,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+        ).run(seller);
+        expect(
+            db
+                .prepare(
+                    "SELECT source_status FROM orders WHERE id='controlled'",
+                )
+                .get(),
+        ).toEqual({ source_status: "inactive" });
+        store.unbind(os, 99);
+        expect(
+            db
+                .prepare(
+                    "SELECT id,collection_id,source_status FROM orders WHERE source_status='active' ORDER BY id",
+                )
+                .all(),
+        ).toEqual([
+            { id: "criterion", collection_id: 100, source_status: "active" },
+            { id: "wildcard", collection_id: 100, source_status: "active" },
+        ]);
+    });
+
     it("applies a completed OpenSea cancellation to its controlled placement immediately", () => {
         function bid(feed: BookFeed, net: string) {
             const record = ask(feed, "same-hash", "100");
@@ -376,6 +460,9 @@ describe("publishing a scoped orderbook", () => {
             expect(current.all()).toEqual([{ id: "old" }]);
             const staged = store.begin(vvv);
             staged.record(ask(vvv, "new", "90"));
+            // Cross the production comparison batch boundary within one publication.
+            for (let i = 0; i < 501; i++)
+                staged.record(ask(vvv, "more-" + i, "100"));
             expect(best()).toBe("80");
             db.exec(
                 "CREATE TEMP TRIGGER fail_book BEFORE UPDATE OF last_success_ms ON orderbook_feeds BEGIN SELECT RAISE(ABORT,'fixture failure'); END",
@@ -387,7 +474,8 @@ describe("publishing a scoped orderbook", () => {
             expect(best()).toBe("90");
             expect(current.all()).toEqual([{ id: "old" }]);
             reader.exec("COMMIT");
-            expect(current.all()).toEqual([{ id: "new" }]);
+            expect(current.all()).toHaveLength(502);
+            expect(current.all()).toContainEqual({ id: "new" });
         } finally {
             reader.close();
         }

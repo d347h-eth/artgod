@@ -7,9 +7,13 @@ import {
     filterCatalogTokenBids,
     scopeBidsToCollectionView,
 } from "./sqlite-view-bid-applicability.js";
+import { createHash } from "node:crypto";
 import { groupTraitFilters } from "@artgod/shared/read-models/trait-filters";
 import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
-import { BIDDING_BID_BOOK_LOW_SIGNAL_COLLECTION_BID_FLOOR_DENOMINATOR } from "../../application/use-cases/trading/bidding-bid-book-low-signal.js";
+import {
+    BIDDING_BID_BOOK_LOW_SIGNAL_COLLECTION_BID_FLOOR_DENOMINATOR,
+    topBidBookRowPriceWei,
+} from "../../application/use-cases/trading/bidding-bid-book-low-signal.js";
 import {
     collectionMarketVersion,
     hasCurrentOrderBindingSql,
@@ -40,6 +44,8 @@ import {
     resolveTradingBotLifecycleStatus,
 } from "@artgod/shared/trading/runtime-state";
 import {
+    countBiddingBidBookOwnFilters,
+    filterBiddingBidBookRowsByOwnFilters,
     isBiddingBidBookCancellationPhase,
     resolveBiddingBidBookOrderPhase,
 } from "@artgod/shared/trading/bid-book-own-state";
@@ -249,6 +255,7 @@ type IndexedOrderSourceScopeKind =
     (typeof INDEXED_ORDER_SOURCE_SCOPE_KIND)[keyof typeof INDEXED_ORDER_SOURCE_SCOPE_KIND];
 
 type IndexedOrderRow = {
+    last_seen_ms: number | null;
     venue: OrderbookVenue | null;
     id: string;
     source_scope_kind: IndexedOrderSourceScopeKind;
@@ -318,18 +325,58 @@ export type SqliteBiddingBidBookRepositoryConfig = {
 
 // A managed row already represents its best independent placement. Keep both
 // aggregation and detail hydration on this predicate and evaluation time.
-const INDEXED_BIDS = `SELECT COALESCE(order_hash,id) AS id, source AS venue, source_scope_kind,
-    token_id, source_encoded_token_ids, source_schema_json, maker,
+const INDEXED_BID_FIELDS = `COALESCE(order_hash,orders.id) AS id, source AS venue, source_scope_kind,
+    (SELECT m.observed_ms FROM orderbook_feeds f JOIN orderbook_members m USING(feed_id)
+     WHERE f.feed_id=orders.winning_feed_id AND f.last_error IS NOT NULL AND m.settlement_id=orders.id AND m.present=1 LIMIT 1) AS last_seen_ms,
+    orders.token_id, source_encoded_token_ids, source_schema_json, maker,
     CASE WHEN order_hash IS NULL THEN price ELSE seller_proceeds END AS price,
     COALESCE(remaining_quantity,quantity) AS quantity, currency, valid_from, valid_until,
     seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at,
     COALESCE(datetime((SELECT m.observed_ms / 1000 FROM orderbook_members m WHERE m.feed_id=orders.winning_feed_id AND m.settlement_id=orders.id AND m.present=1 LIMIT 1),'unixepoch'),
-        datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0),'unixepoch'),updated_at) AS updated_at
-    FROM orders INDEXED BY orders_book_bid_scopes WHERE chain_id=@chainId AND collection_id=@collectionId AND side='buy' AND source_status='active' AND fillability_status='fillable'
-    AND ${hasCurrentOrderBindingSql("orders")} AND (order_hash IS NULL OR (seller_proceeds IS NOT NULL AND (source_scope_kind='token' OR local_token_set_status='resolved')))
-    AND price IS NOT NULL AND price<>'' AND (valid_from IS NULL OR valid_from<=@nowSeconds) AND (valid_until IS NULL OR valid_until>@nowSeconds)`;
+        datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0),'unixepoch'),updated_at) AS updated_at`;
+const INDEXED_BID_STATUS = `side='buy' AND source_status='active' AND fillability_status='fillable' AND price IS NOT NULL AND price<>'' AND (valid_from IS NULL OR valid_from<=@nowSeconds) AND (valid_until IS NULL OR valid_until>@nowSeconds)`;
+function indexedBids(
+    index: "orders_book_bid_scopes" | "orders_book_bid_maker",
+): string {
+    return `SELECT ${INDEXED_BID_FIELDS} FROM orders INDEXED BY ${index}
+    WHERE chain_id=@chainId AND collection_id=@collectionId AND ${INDEXED_BID_STATUS}
+    AND ${hasCurrentOrderBindingSql("orders")} AND (order_hash IS NULL OR (seller_proceeds IS NOT NULL AND (source_scope_kind='token' OR (local_token_set_status='resolved' AND EXISTS (SELECT 1 FROM orderbook_offer_scopes s WHERE s.feed_id=winning_feed_id AND s.native_id=order_hash AND s.collection_id=orders.collection_id)))))`;
+}
+const INDEXED_BIDS = indexedBids("orders_book_bid_scopes");
+const INDEXED_MAKER_BIDS = indexedBids("orders_book_bid_maker");
+
+// Only broad offers need the additional local associations. The exact-token
+// scan stays bounded by the ordinary collection/side/scope index.
+const SHARED_SCOPE_BIDS = `SELECT ${INDEXED_BID_FIELDS} FROM orderbook_offer_scopes scope
+    JOIN orderbook_members member USING(feed_id,native_id)
+    JOIN orders ON orders.id=member.settlement_id AND orders.winning_feed_id=member.feed_id
+    WHERE scope.collection_id=@collectionId AND orders.collection_id<>@collectionId AND orders.chain_id=@chainId
+    AND member.present=1 AND member.eligible=1 AND ${INDEXED_BID_STATUS} AND orders.seller_proceeds IS NOT NULL`;
+
+type CollectionBookInput = Parameters<
+    BiddingBidBookRepositoryPort["listCollectionBidBook"]
+>[0];
+type CollectionBookContext = {
+    source: TradingBiddingBidBookSource;
+    knownMakerAddress: string | null;
+    biddingBotStatus: TradingBotLifecycleStatus;
+    biddingAuthorization: TradingBiddingAuthorization | null;
+    jobs: BiddingJobSignal[];
+    cancelledOwnOrderIds: Map<string, Set<string | null>>;
+    nowSeconds: number;
+};
+
+type PrivateIndexedPage = {
+    maker: string | null;
+    ownRows: PersistedBiddingBidBookRow[];
+    ownCollectionTop: bigint;
+    onlyOwn: boolean;
+};
 
 type IndexedScope = {
+    nowSeconds?: number;
+    onlyOwnMaker?: string | null;
+    privatePage?: PrivateIndexedPage;
     traits?: TraitFilter[];
     ranges?: TraitRangeFilter[];
     tokenId?: string;
@@ -559,19 +606,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         return db.raw.transaction(read)();
     }
 
-    listCollectionBidBook(params: {
-        traitContext?: TraitReadContext;
-        chainId: number;
-        collectionId: number;
-        includeOwnJobContext: boolean;
-        tokenPage?: IndexedTokenPageRequest;
-        scopeFilter: CollectionBiddingBidScopeFilter;
-        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
-        selectedTraits: TraitFilter[];
-        selectedTraitRanges: TraitRangeFilter[];
-        makerAddress?: string | null;
-        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
-    }): PersistedBiddingBidBook {
+    listCollectionBidBook(
+        params: CollectionBookInput,
+    ): PersistedBiddingBidBook {
         return this.apm.withSyncSpan(
             "backend.bidding.repository.collection_bid_book",
             collectionBidBookSpanAttributes(params),
@@ -610,19 +647,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         })();
     }
 
-    private listCollectionBidBookInner(params: {
-        traitContext?: TraitReadContext;
-        chainId: number;
-        collectionId: number;
-        includeOwnJobContext: boolean;
-        tokenPage?: IndexedTokenPageRequest;
-        scopeFilter: CollectionBiddingBidScopeFilter;
-        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
-        selectedTraits: TraitFilter[];
-        selectedTraitRanges: TraitRangeFilter[];
-        makerAddress?: string | null;
-        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
-    }): PersistedBiddingBidBook {
+    private listCollectionBidBookInner(
+        params: CollectionBookInput,
+    ): PersistedBiddingBidBook {
         const attributes = collectionBidBookSpanAttributes(params);
         const knownMakerAddress = params.includeOwnJobContext
             ? this.apm.withSyncSpan(
@@ -655,6 +682,93 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   biddingAuthorization,
               )
             : [];
+        const context: CollectionBookContext = {
+            knownMakerAddress,
+            biddingBotStatus,
+            biddingAuthorization,
+            source,
+            jobs,
+            cancelledOwnOrderIds: this.loadCompletedOwnCancellationOrderIds(
+                params.chainId,
+                params.collectionId,
+                knownMakerAddress,
+            ),
+            nowSeconds: Math.floor(Date.now() / 1000),
+        };
+        if (
+            source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders &&
+            params.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token &&
+            params.tokenPage &&
+            (knownMakerAddress ||
+                jobs.length ||
+                params.ownershipFilter ||
+                params.tokenPage.ownStateFilter ||
+                params.tokenPage.priceTierFilter)
+        ) {
+            // Apply the existing private lifecycle rules only to the operator's rows.
+            // Opponent orders remain in the indexed query until their page is selected.
+            const own = this.readCollectionBidRows(
+                { ...params, tokenPage: undefined },
+                context,
+                true,
+            );
+            const ownFloor = this.readCollectionBidRows(
+                {
+                    ...params,
+                    tokenPage: undefined,
+                    scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                    makerAddress: null,
+                    ownershipFilter: null,
+                    selectedTraits: [],
+                    selectedTraitRanges: [],
+                },
+                context,
+                true,
+            );
+            const page = this.loadIndexedOrdersBidBook(
+                params.chainId,
+                params.collectionId,
+                biddingBotStatus,
+                biddingAuthorization,
+                {
+                    scope: INDEXED_ORDER_SOURCE_SCOPE_KIND.Token,
+                    nowSeconds: context.nowSeconds,
+                    maker: params.makerAddress,
+                    traits: params.selectedTraits,
+                    ranges: params.selectedTraitRanges,
+                    page: params.tokenPage,
+                    privatePage: {
+                        maker: knownMakerAddress,
+                        ownRows: own.bids,
+                        ownCollectionTop:
+                            topBidBookRowPriceWei(ownFloor.bids) ?? 0n,
+                        onlyOwn: Boolean(params.ownershipFilter),
+                    },
+                },
+            );
+            return {
+                ...page,
+                ownMakerAddress: knownMakerAddress,
+                attributedPriceTierIds: own.attributedPriceTierIds,
+            };
+        }
+        return this.readCollectionBidRows(params, context);
+    }
+
+    private readCollectionBidRows(
+        params: CollectionBookInput,
+        context: CollectionBookContext,
+        onlyOwnMaker = false,
+    ): PersistedBiddingBidBook {
+        const {
+            source,
+            biddingBotStatus,
+            biddingAuthorization,
+            knownMakerAddress,
+            jobs,
+            cancelledOwnOrderIds,
+        } = context;
+        const attributes = collectionBidBookSpanAttributes(params);
         const rawBidBook =
             source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
                 ? this.loadProjectedBidBook(
@@ -680,12 +794,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                           maker: params.makerAddress,
                           traits: params.selectedTraits,
                           ranges: params.selectedTraitRanges,
-                          page:
-                              !knownMakerAddress &&
-                              !jobs.length &&
-                              !params.ownershipFilter
-                                  ? params.tokenPage
-                                  : undefined,
+                          page: params.tokenPage,
+                          nowSeconds: context.nowSeconds,
+                          onlyOwnMaker: onlyOwnMaker
+                              ? knownMakerAddress
+                              : undefined,
                       },
                   );
         const markedBidBook = this.apm.withSyncSpan(
@@ -698,11 +811,6 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                     knownMakerAddress !== null,
             },
             () => markOwnBids(rawBidBook, knownMakerAddress),
-        );
-        const cancelledOwnOrderIds = this.loadCompletedOwnCancellationOrderIds(
-            params.chainId,
-            params.collectionId,
-            knownMakerAddress,
         );
         const currentOwnBidBook = suppressCancelledOwnMarketRows(
             suppressStaleOwnJobMarketRows(
@@ -1069,7 +1177,8 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             makerAddress: ownMakerAddress,
         }) as CompletedOwnCancellationRow[];
         for (const row of rows) {
-            const protocols = deployments.get(row.order_id) ?? new Set<string | null>();
+            const protocols =
+                deployments.get(row.order_id) ?? new Set<string | null>();
             protocols.add(row.protocol_address?.toLowerCase() ?? null);
             deployments.set(row.order_id, protocols);
         }
@@ -1257,22 +1366,31 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         const params = {
             chainId,
             collectionId,
-            nowSeconds: Math.floor(Date.now() / 1000),
+            nowSeconds: selection.nowSeconds ?? Math.floor(Date.now() / 1000),
         };
         let where = "";
-        const values: Record<string, string | number> = { ...params };
+        let memberFilter = "";
+        const values: Record<string, string | number | null> = { ...params };
+        let ownRestriction = "";
+        if (selection.onlyOwnMaker !== undefined) {
+            ownRestriction = " AND lower(maker)=@ownMaker";
+            values.ownMaker = selection.onlyOwnMaker;
+        }
         if (selection.scope) {
             where += " AND source_scope_kind=@scope";
             values.scope = selection.scope;
         }
         if (selection.tokenId !== undefined) {
             values.tokenId = selection.tokenId;
-            where += ` AND (token_id=@tokenId OR (source_scope_kind<>'token' AND (order_hash IS NULL OR EXISTS (
+            memberFilter =
+                " AND EXISTS (SELECT 1 FROM token_sets_tokens t WHERE t.chain_id=@chainId AND t.collection_id=@collectionId AND t.token_set_id=scope.token_set_id AND t.token_set_schema_hash=scope.schema_hash AND t.token_id=@tokenId)";
+            where += ` AND (orders.token_id=@tokenId OR (source_scope_kind<>'token' AND (order_hash IS NULL OR EXISTS (
                 SELECT 1 FROM token_sets_tokens t WHERE t.chain_id=orders.chain_id AND t.collection_id=orders.collection_id
                   AND t.token_set_id=orders.token_set_id AND t.token_set_schema_hash=orders.token_set_schema_hash AND t.token_id=@tokenId))))`;
         }
         let detailFilter = "";
         let tokenGroups: IndexedTokenGroupPage | undefined;
+        let ownPageRows: PersistedBiddingBidBookRow[] = [];
         if (
             selection.page &&
             selection.scope === INDEXED_ORDER_SOURCE_SCOPE_KIND.Token
@@ -1282,13 +1400,35 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 selection.page,
                 selection,
             );
-            tokenGroups = page;
-            values.minimum = page.minimum;
+            const { ownPageRows: owned, minimum, ...groups } = page;
+            tokenGroups = groups;
+            ownPageRows = owned;
+            if (selection.privatePage) {
+                values.ownMaker = selection.privatePage.maker;
+                values.includeOpponents = Number(
+                    !selection.privatePage.onlyOwn,
+                );
+                where +=
+                    " AND @includeOpponents=1 AND lower(maker) IS NOT @ownMaker";
+            }
+            if (selection.maker) {
+                values.maker = selection.maker.toLowerCase();
+                where += " AND lower(maker)=@maker";
+            }
+            values.minimum = minimum;
             detailFilter =
                 " WHERE length(price)>length(@minimum) OR (length(price)=length(@minimum) AND price>=@minimum)";
             values.pageIds = JSON.stringify(tokenGroups.tokenIds);
             where += " AND token_id IN (SELECT value FROM json_each(@pageIds))";
         }
+        const sharedScopes =
+            selection.scope === INDEXED_ORDER_SOURCE_SCOPE_KIND.Token
+                ? ""
+                : " UNION ALL " +
+                  SHARED_SCOPE_BIDS +
+                  ownRestriction +
+                  (selection.scope ? " AND source_scope_kind=@scope" : "") +
+                  memberFilter;
         const rows = this.apm.withSyncSpan(
             "backend.bidding.repository.orders_query",
             attributes,
@@ -1296,8 +1436,12 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 db.raw
                     .prepare(
                         "SELECT * FROM (" +
-                            INDEXED_BIDS +
+                            (selection.onlyOwnMaker !== undefined
+                                ? INDEXED_MAKER_BIDS
+                                : INDEXED_BIDS) +
+                            ownRestriction +
                             where +
+                            sharedScopes +
                             ")" +
                             detailFilter,
                     )
@@ -1329,7 +1473,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             biddingBotStatus,
             biddingAuthorization,
             ownMakerAddress: null,
-            bids,
+            bids: selection.privatePage
+                ? sortBidsDesc([...bids, ...ownPageRows])
+                : bids,
         };
     }
 }
@@ -1340,18 +1486,25 @@ function readIndexedTokenGroups(
     params: { chainId: number; collectionId: number; nowSeconds: number },
     request: IndexedTokenPageRequest,
     selection: IndexedScope,
-): IndexedTokenGroupPage & { minimum: string } {
+): IndexedTokenGroupPage & {
+    minimum: string;
+    ownPageRows: PersistedBiddingBidBookRow[];
+} {
+    const personal = selection.privatePage;
+    const otherMaker = personal ? " AND lower(maker) IS NOT @ownMaker" : "";
     const top = db.raw
         .prepare(
-            `SELECT price FROM (${INDEXED_BIDS} AND source_scope_kind='collection') ORDER BY length(price) DESC,price DESC LIMIT 1`,
+            `SELECT price FROM (${INDEXED_BIDS} AND source_scope_kind='collection'${otherMaker} UNION ALL ${SHARED_SCOPE_BIDS} AND source_scope_kind='collection'${otherMaker}) ORDER BY length(price) DESC,price DESC LIMIT 1`,
         )
-        .get(params) as { price: string } | undefined;
+        .get({ ...params, ownMaker: personal?.maker ?? null }) as
+        | { price: string }
+        | undefined;
+    const opponentTop = BigInt(top?.price ?? "0");
+    const ownTop = personal?.ownCollectionTop ?? 0n;
+    const collectionTop = ownTop > opponentTop ? ownTop : opponentTop;
     const divisor =
         BIDDING_BID_BOOK_LOW_SIGNAL_COLLECTION_BID_FLOOR_DENOMINATOR;
-    const minimum = (
-        (BigInt(top?.price ?? "0") + divisor - 1n) /
-        divisor
-    ).toString();
+    const minimum = ((collectionTop + divisor - 1n) / divisor).toString();
     const args: Record<string, string | number | null> = {
         ...params,
         minimum,
@@ -1391,12 +1544,68 @@ function readIndexedTokenGroups(
         }
         attributeMatches(range.key, tests.join(" AND "));
     }
-    const query = `WITH offers AS (${INDEXED_BIDS} AND source_scope_kind='token'),
-       groups AS (SELECT t.token_id,t.record_kind,t.token_sort_length,t.token_sort_value,
-         MAX(printf('%078s',o.price)) AS best,COUNT(*) AS offers
-         FROM offers o JOIN tokens t ON t.chain_id=@chainId AND t.collection_id=@collectionId AND t.token_id=o.token_id
-         WHERE (length(o.price)>length(@minimum) OR (length(o.price)=length(@minimum) AND o.price>=@minimum))
-           AND (@maker IS NULL OR lower(o.maker)=@maker) ${traitTests.map((sql) => " AND " + sql).join("")} GROUP BY o.token_id)`;
+    const traits = traitTests.map((sql) => " AND " + sql).join("");
+    const marketWhere = `(length(o.price)>length(@minimum) OR (length(o.price)=length(@minimum) AND o.price>=@minimum))
+        AND (@maker IS NULL OR lower(o.maker)=@maker)`;
+    let ownCounts: IndexedTokenGroupPage["ownCounts"];
+    let matchingOwn: PersistedBiddingBidBookRow[] = [];
+    let offers = `SELECT o.token_id,o.price FROM offers o WHERE ${marketWhere}`;
+    if (personal) {
+        args.ownMaker = personal.maker;
+        args.ownTokenIds = JSON.stringify([
+            ...new Set(personal.ownRows.map((bid) => bid.tokenId)),
+        ]);
+        const ownIds = new Set(
+            (
+                db.raw
+                    .prepare(
+                        `SELECT t.token_id FROM tokens t
+            WHERE t.chain_id=@chainId AND t.collection_id=@collectionId AND t.token_id IN (SELECT value FROM json_each(@ownTokenIds))${traits}`,
+                    )
+                    .all(args) as { token_id: string }[]
+            ).map((row) => row.token_id),
+        );
+        const eligible = personal.ownRows.filter(
+            (bid) => bid.tokenId !== null && ownIds.has(bid.tokenId),
+        );
+        ownCounts = countBiddingBidBookOwnFilters(
+            eligible,
+            request,
+            request.priceTiers,
+        );
+        matchingOwn = filterBiddingBidBookRowsByOwnFilters(
+            eligible,
+            request,
+            (bid) => bid.tokenId!,
+        );
+        args.ownOffers = JSON.stringify(
+            matchingOwn.map((bid) => [
+                bid.tokenId,
+                persistedBidBookRowEffectiveWei(bid),
+            ]),
+        );
+        args.includeOpponents = Number(!personal.onlyOwn);
+        offers +=
+            " AND @includeOpponents=1 AND lower(o.maker) IS NOT @ownMaker";
+        if (request.ownStateFilter || request.priceTierFilter) {
+            offers +=
+                " AND o.token_id IN (SELECT value ->> 0 FROM json_each(@ownOffers))";
+        }
+    }
+    const tokenFields = "t.token_id,t.record_kind,t.token_sort_length,t.token_sort_value";
+    let groups = `SELECT ${tokenFields}, MAX(printf('%078s',o.price)) AS best, COUNT(*) AS offers
+        FROM (${offers}) o JOIN tokens t ON t.chain_id=@chainId AND t.collection_id=@collectionId AND t.token_id=o.token_id
+        WHERE 1 ${traits} GROUP BY o.token_id`;
+    if (personal) {
+        // Collapse opponent orders in index order before adding any job rows.
+        // The second grouping handles only per-token totals from each side.
+        const ownGroups = `SELECT ${tokenFields}, MAX(printf('%078s',j.value ->> 1)) AS best, COUNT(*) AS offers
+            FROM json_each(@ownOffers) j CROSS JOIN tokens t ON t.chain_id=@chainId AND t.collection_id=@collectionId
+            AND t.token_id=(j.value ->> 0) GROUP BY t.token_id`;
+        groups = `SELECT token_id,record_kind,token_sort_length,token_sort_value, MAX(best) AS best, SUM(offers) AS offers
+            FROM (${groups} UNION ALL ${ownGroups}) GROUP BY token_id`;
+    }
+    const query = `WITH offers AS (${INDEXED_BIDS} AND source_scope_kind='token'), groups AS (${groups})`;
     const counts = db.raw
         .prepare(
             query +
@@ -1407,12 +1616,36 @@ function readIndexedTokenGroups(
         IndexedTokenGroupPage,
         "totalItems" | "totalOffers" | "supportedItems"
     >;
-    const version = collectionMarketVersion(
+    let version = collectionMarketVersion(
         db.raw,
         params.chainId,
         params.collectionId,
         params.nowSeconds,
     );
+    if (personal) {
+        const hash = createHash("sha256");
+        hash.update(
+            JSON.stringify([
+                personal.maker,
+                personal.onlyOwn,
+                minimum,
+                ownCounts,
+                args.ownOffers,
+            ]),
+        );
+        for (const bid of matchingOwn) {
+            hash.update(
+                JSON.stringify([
+                    bid.orderId,
+                    bid.venue,
+                    bid.materialization,
+                    bid.ownStatus,
+                    bid.ownJob,
+                ]),
+            );
+        }
+        version += "/" + hash.digest("base64url");
+    }
     const offset =
         request.version !== undefined && request.version !== version
             ? 0
@@ -1427,7 +1660,19 @@ function readIndexedTokenGroups(
             token_id: string;
         }[]
     ).map((row) => row.token_id);
-    return { ...counts, tokenIds, version, offset, minimum };
+    const pageIds = new Set(tokenIds);
+    const ownPageRows = matchingOwn.filter(
+        (bid) => bid.tokenId !== null && pageIds.has(bid.tokenId),
+    );
+    return {
+        ...counts,
+        tokenIds,
+        version,
+        offset,
+        minimum,
+        ownCounts,
+        ownPageRows,
+    };
 }
 
 function resolveBiddingAuthorization(
@@ -2000,10 +2245,14 @@ function isCancelledOwnMarketRow(
 ): boolean {
     const deployments = cancelledOwnOrderIds.get(bid.orderId);
     return Boolean(
-        deployments && bid.isOwn &&
-        bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid &&
+        deployments &&
+        bid.isOwn &&
+        bid.materialization.kind ===
+            TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid &&
         bid.venue !== ORDERBOOK_VENUE.Vvv &&
-        (bid.protocolAddress == null || deployments.has(null) || deployments.has(bid.protocolAddress.toLowerCase()))
+        (bid.protocolAddress == null ||
+            deployments.has(null) ||
+            deployments.has(bid.protocolAddress.toLowerCase())),
     );
 }
 
@@ -2664,6 +2913,9 @@ function mapIndexedOrderRow(
                 orderId: row.id,
                 source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
                 venue: row.venue ?? undefined,
+                ...(row.last_seen_ms == null
+                    ? {}
+                    : { lastSeenMs: row.last_seen_ms }),
                 materialization: marketBidMaterialization(),
                 scopeKind: scope.kind,
                 scopeLabel: scope.label,

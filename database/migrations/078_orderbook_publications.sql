@@ -116,7 +116,9 @@ CREATE VIEW orderbook_eligible_routes AS
  AND (json_extract(m.placement,'$[1]')<>'opensea' OR NOT EXISTS (
    SELECT 1 FROM trading_bidding_order_cancellations c
    WHERE c.order_id=json_extract(m.record_json,'$.order.orderId')
-   AND c.chain_id=json_extract(m.placement,'$[0]') AND c.collection_id=m.collection_id
+   AND c.chain_id=json_extract(m.placement,'$[0]')
+   AND EXISTS (SELECT 1 FROM orderbook_bindings controlled
+       WHERE controlled.feed_id=m.feed_id AND controlled.collection_id=c.collection_id)
    AND c.maker=json_extract(m.record_json,'$.order.maker')
    AND (c.protocol_address IS NULL OR lower(c.protocol_address)=lower(json_extract(m.record_json,'$.order.seaportData.protocolAddress')))
    AND c.completed_at IS NOT NULL AND c.cancellation_error IS NULL))
@@ -133,7 +135,9 @@ CREATE TRIGGER book_cancellation_insert AFTER INSERT ON trading_bidding_order_ca
      CASE WHEN r.feed_id IS NULL THEN 'inactive' ELSE 'active' END
    FROM (SELECT 1) LEFT JOIN
    (SELECT * FROM orderbook_eligible_routes WHERE settlement_id=orders.id LIMIT 1) r)
- WHERE order_hash=NEW.order_id AND chain_id=NEW.chain_id AND collection_id=NEW.collection_id
+ WHERE order_hash=NEW.order_id AND chain_id=NEW.chain_id
+ AND EXISTS (SELECT 1 FROM orderbook_bindings controlled
+     WHERE controlled.feed_id=orders.winning_feed_id AND controlled.collection_id=NEW.collection_id)
  AND maker=NEW.maker AND side='buy' AND source='opensea' AND source_status='active'
  AND (NEW.protocol_address IS NULL OR lower(NEW.protocol_address)=lower(protocol_address));
 END;
@@ -144,7 +148,9 @@ CREATE TRIGGER book_cancellation_update AFTER UPDATE OF completed_at,cancellatio
      CASE WHEN r.feed_id IS NULL THEN 'inactive' ELSE 'active' END
    FROM (SELECT 1) LEFT JOIN
    (SELECT * FROM orderbook_eligible_routes WHERE settlement_id=orders.id LIMIT 1) r)
- WHERE order_hash=NEW.order_id AND chain_id=NEW.chain_id AND collection_id=NEW.collection_id
+ WHERE order_hash=NEW.order_id AND chain_id=NEW.chain_id
+ AND EXISTS (SELECT 1 FROM orderbook_bindings controlled
+     WHERE controlled.feed_id=orders.winning_feed_id AND controlled.collection_id=NEW.collection_id)
  AND maker=NEW.maker AND side='buy' AND source='opensea' AND source_status='active'
  AND (NEW.protocol_address IS NULL OR lower(NEW.protocol_address)=lower(protocol_address));
 END;

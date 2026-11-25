@@ -65,6 +65,25 @@ describe("VVV public cash orders", () => {
             ).order,
         ).toBeNull();
     });
+    it("requires local proof when an OpenSea record labels a signed criterion as an exact token", async () => {
+        const [, bid] = await translate(captured);
+        const order = bid!.order!;
+        const data = structuredClone(order.seaportData!);
+        const nft = data.consideration.find(
+            (item) => item.token === captured.contract,
+        )!;
+        nft.itemType = "4";
+        data.signature = null;
+        const market = { ...VVV_MARKET, venue: ORDERBOOK_VENUE.OpenSea };
+        const claimed = await openSeaObservation(
+            market,
+            computeSeaportOrderHash(data),
+            { ...order, seaportData: data },
+            null,
+        );
+        expect(claimed.fillable).toBe(false);
+        expect(claimed.order).toBeNull();
+    });
     it("keeps barter out of orders and rejects unverifiable terms, wrong markets and incomplete books", async () => {
         const bid = captured.orders[1]!;
         const different = structuredClone(bid);

@@ -40,22 +40,20 @@ export function collectionMarketVersion(
     collectionId: number,
     now: number,
 ): string {
+    // A broad bid can establish the collection floor in several local ranges.
+    const nextBoundary = (
+        column: "valid_from" | "valid_until",
+    ) => `(SELECT MIN(boundary) FROM (
+        SELECT MIN(${column}) AS boundary FROM orders WHERE chain_id=@chain AND collection_id=@collection AND ${column}>@now
+        UNION ALL SELECT MIN(o.${column}) FROM orderbook_offer_scopes s JOIN orderbook_members m USING(feed_id,native_id)
+        JOIN orders o ON o.id=m.settlement_id AND o.winning_feed_id=m.feed_id
+        WHERE s.collection_id=@collection AND m.present=1 AND o.collection_id<>@collection AND o.${column}>@now))`;
     const row = conn
         .prepare(
-            "SELECT market_revision AS revision,(SELECT MIN(valid_from) FROM orders WHERE chain_id=? AND collection_id=? AND valid_from>?) AS start,(SELECT MIN(valid_until) FROM orders WHERE chain_id=? AND collection_id=? AND valid_until>?) AS expiry FROM collections WHERE chain_id=? AND collection_id=?",
+            `SELECT market_revision AS revision, ${nextBoundary("valid_from")} AS start,
+        ${nextBoundary("valid_until")} AS expiry FROM collections WHERE chain_id=@chain AND collection_id=@collection`,
         )
-        .get(
-            chainId,
-            collectionId,
-            now,
-            chainId,
-            collectionId,
-            now,
-            chainId,
-            collectionId,
-        ) as
-        | { revision: number; start: number | null; expiry: number | null }
-        | undefined;
+        .get({ chain: chainId, collection: collectionId, now });
     return JSON.stringify(row ?? null);
 }
 
@@ -130,7 +128,7 @@ export class SqliteCurrentAsks {
     }
     private sellerStatement() {
         return (this.select ??= this.conn.prepare(
-            "SELECT id,price,currency,quantity FROM orders WHERE id=(" +
+            "SELECT id,price,currency,COALESCE(remaining_quantity,quantity) AS quantity FROM orders WHERE id=(" +
                 currentAskIdSql({
                     chain: "?",
                     collection: "?",

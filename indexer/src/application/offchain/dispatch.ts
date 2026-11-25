@@ -35,10 +35,7 @@ import { orderUpdateQueue } from "../../domain/order-processing.js";
 import type { QueuePort } from "../../ports/queue.js";
 import type { TokenSetRegistryPort } from "../../ports/token-sets.js";
 import type { MetadataRefreshPayload } from "../../domain/domain-jobs.js";
-import {
-    ORDER_LOCAL_TOKEN_SET_STATUS,
-    ORDER_SOURCE_SCOPE_KIND,
-} from "../../domain/orders.js";
+import { ORDER_LOCAL_TOKEN_SET_STATUS } from "../../domain/orders.js";
 
 export type DispatchOffchainPayloadResult = {
     handled: boolean;
@@ -207,12 +204,19 @@ export async function dispatchOffchainPayload(
     };
 }
 
-export function makeOrderUpsert(
+type NormalizedOrder = import("./normalize.js").NormalizedOffchainOrder;
+type LocalOrderScope = Pick<
+    OrderUpsertPayload,
+    "localTokenSetStatus" | "tokenSetId" | "tokenSetSchemaHash"
+>;
+
+/** Keep the signed root and the venue's narrower description together when
+ * establishing which locally tracked tokens can actually accept the offer. */
+export function resolveOrderTokenSet(
     tokenSets: TokenSetRegistryPort,
-    normalized: import("./normalize.js").NormalizedOffchainOrder,
+    normalized: NormalizedOrder,
     collectionId: number,
-    observedAt: number,
-): OrderUpsertPayload {
+): LocalOrderScope {
     let tokenSetId: string | null = null;
     let tokenSetSchemaHash: string | null = null;
     let localTokenSetStatus =
@@ -221,7 +225,7 @@ export function makeOrderUpsert(
     if (normalized.sourceSchema) {
         const resolved = tokenSets.ensureTokenSet({
             chainId: normalized.chainId,
-            collectionId: collectionId,
+            collectionId,
             schema: normalized.sourceSchema,
         });
         if (!resolved) {
@@ -232,12 +236,12 @@ export function makeOrderUpsert(
                 source: normalized.source,
                 orderId: normalized.orderId,
                 chainId: normalized.chainId,
-                collectionId: collectionId,
+                collectionId,
                 sourceScopeKind: normalized.sourceScopeKind,
             });
         } else if (
-            normalized.sourceScopeKind === ORDER_SOURCE_SCOPE_KIND.Attribute &&
             normalized.sourceCriteriaRoot &&
+            !/^0x0+$/i.test(normalized.sourceCriteriaRoot) &&
             normalized.sourceCriteriaRoot.toLowerCase() !==
                 resolved.merkleRoot.toLowerCase()
         ) {
@@ -248,7 +252,7 @@ export function makeOrderUpsert(
                 source: normalized.source,
                 orderId: normalized.orderId,
                 chainId: normalized.chainId,
-                collectionId: collectionId,
+                collectionId,
                 sourceScopeKind: normalized.sourceScopeKind,
                 expected: normalized.sourceCriteriaRoot,
                 resolved: resolved.merkleRoot,
@@ -260,6 +264,20 @@ export function makeOrderUpsert(
         }
     }
 
+    return { localTokenSetStatus, tokenSetId, tokenSetSchemaHash };
+}
+
+export function makeOrderUpsert(
+    tokenSets: TokenSetRegistryPort,
+    normalized: NormalizedOrder,
+    collectionId: number,
+    observedAt: number,
+    localScope: LocalOrderScope = resolveOrderTokenSet(
+        tokenSets,
+        normalized,
+        collectionId,
+    ),
+): OrderUpsertPayload {
     return {
         observedAt,
         chainId: normalized.chainId,
@@ -275,9 +293,7 @@ export function makeOrderUpsert(
         sourceCriteriaRoot: normalized.sourceCriteriaRoot ?? null,
         sourceEncodedTokenIds: normalized.sourceEncodedTokenIds ?? null,
         sourceSchema: normalized.sourceSchema ?? null,
-        localTokenSetStatus,
-        tokenSetId,
-        tokenSetSchemaHash,
+        ...localScope,
         quantity: normalized.quantity ?? "1",
         price: normalized.price ?? null,
         currency: normalized.currency ?? null,

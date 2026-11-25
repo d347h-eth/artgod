@@ -6,6 +6,7 @@ import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
+import { SqliteCollectionPurgeRepository } from "../collections/sqlite-collection-purge-repository.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -256,6 +257,162 @@ describe("SqliteBiddingBidBookRepository", () => {
         assert.equal(restarted.offset, 0);
         assert.equal(restarted.tokenIds[0], "1");
         assert.equal(restarted.totalItems, count - 1);
+    });
+
+    it("pages indexed private orders with job intent, opponent context and off-page facet counts", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        for (const tokenId of ["11", "12", "13"]) {
+            db.prepare(
+                "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES(1,?,?,?)",
+            ).run(collectionId, COLLECTION_ADDRESS, tokenId);
+            insertIndexedOrder({
+                collectionId,
+                id: "opponent-" + tokenId,
+                scopeKind: "token",
+                tokenId,
+                updatedAt: INDEXED_ORDER_PLACED_AT,
+            });
+        }
+        for (const tokenId of ["11", "12"]) {
+            seedTokenBiddingJob({
+                collectionId,
+                jobId: "job-" + tokenId,
+                tokenId,
+                floorWei: "20",
+                ceilingWei: "80",
+            });
+        }
+        db.prepare(
+            "UPDATE trading_jobs SET status=? WHERE job_id='job-12'",
+        ).run(TRADING_JOB_STATUS.Paused);
+        const params = {
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        };
+        const page = repository.listCollectionBidBook({
+            ...params,
+            tokenPage: { offset: 0, limit: 1 },
+        });
+        assert.deepEqual(page.tokenGroups?.tokenIds, ["11"]);
+        assert.equal(page.tokenGroups.totalItems, 3);
+        assert.equal(page.tokenGroups.totalOffers, 5);
+        assert.equal(page.tokenGroups.ownCounts?.ownBidStateCounts.total, 2);
+        assert.equal(page.bids.length, 2);
+        assert.equal(page.bids.filter((bid) => bid.isOwn).length, 1);
+        const paused = repository.listCollectionBidBook({
+            ...params,
+            tokenPage: {
+                offset: 0,
+                limit: 1,
+                ownStateFilter: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
+                priceTierFilter: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+            },
+        });
+        assert.deepEqual(paused.tokenGroups?.tokenIds, ["12"]);
+        assert.equal(paused.tokenGroups.totalOffers, 2);
+        assert.equal(paused.tokenGroups.ownCounts?.ownBidStateCounts.total, 2);
+        assert.equal(
+            paused.tokenGroups.ownCounts?.ownPriceTierCounts.manual,
+            1,
+        );
+        assert.deepEqual(
+            paused.bids.filter((bid) => !bid.isOwn).map((bid) => bid.orderId),
+            ["opponent-12"],
+        );
+        const own = repository.listCollectionBidBook({
+            ...params,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenPage: { offset: 0, limit: 1 },
+        });
+        assert.equal(own.tokenGroups?.totalOffers, 2);
+        assert.equal(own.bids.length, 1);
+        assert.equal(own.bids[0]?.isOwn, true);
+        db.prepare(
+            "UPDATE trading_jobs SET status=? WHERE job_id='job-11'",
+        ).run(TRADING_JOB_STATUS.Paused);
+        const next = repository.listCollectionBidBook({
+            ...params,
+            tokenPage: {
+                offset: 1,
+                limit: 1,
+                version: page.tokenGroups.version,
+            },
+        });
+        assert.equal(next.tokenGroups?.offset, 0);
+    });
+
+    it("reads the shared offer on each proven token and keeps it after purging its first collection", () => {
+        const second = Number(
+            db
+                .prepare(
+                    "INSERT INTO collections(chain_id,slug,address,standard,status,token_scope_kind) VALUES(1,'second',?,'erc721','live','contract_all_tokens')",
+                )
+                .run(COLLECTION_ADDRESS).lastInsertRowid,
+        );
+        const feed = Number(
+            db
+                .prepare(
+                    "INSERT INTO orderbook_feeds(chain_id,venue,market,contract,view) VALUES(1,'opensea','fixture',?,'public')",
+                )
+                .run(COLLECTION_ADDRESS).lastInsertRowid,
+        );
+        for (const id of [collectionId, second])
+            db.prepare("INSERT INTO orderbook_bindings VALUES(?,?)").run(
+                feed,
+                id,
+            );
+        db.prepare(
+            "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,'signed','[]','settled',1,1,1,1,1,'fixture',?)",
+        ).run(feed, collectionId);
+        for (const [id, token] of [
+            [collectionId, "1"],
+            [second, "700"],
+        ] as const) {
+            db.prepare(
+                "INSERT INTO token_sets(chain_id,collection_id,id,schema_hash,schema_json,contract_address) VALUES(1,?,?,?,'{}',?)",
+            ).run(id, token, token, COLLECTION_ADDRESS);
+            db.prepare(
+                "INSERT INTO token_sets_tokens(chain_id,collection_id,token_set_id,token_set_schema_hash,contract_address,token_id) VALUES(1,?,?,?,?,?)",
+            ).run(id, token, token, COLLECTION_ADDRESS, token);
+            db.prepare(
+                "INSERT INTO orderbook_offer_scopes VALUES(?,'signed',?,?,?)",
+            ).run(feed, id, token, token);
+        }
+        db.prepare(
+            `INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,source_scope_kind,source_status,fillability_status,price,seller_proceeds,order_hash,winning_feed_id,local_token_set_status,token_set_id,token_set_schema_hash)
+            VALUES('settled',1,?,'seaport','buy','opensea','maker',?,'collection','active','fillable','100','95','signed',?,'resolved','1','1')`,
+        ).run(collectionId, COLLECTION_ADDRESS, feed);
+        const repo = new SqliteBiddingBidBookRepository();
+        const book = (id: number, tokenId: string) =>
+            repo
+                .listTokenBidBook({
+                    chainId: 1,
+                    collectionId: id,
+                    tokenId,
+                    tokenTraits: [],
+                    includeOwnJobContext: false,
+                })
+                .bids.map((row) => row.orderId);
+        assert.deepEqual(book(collectionId, "1"), ["signed"]);
+        assert.deepEqual(book(second, "700"), ["signed"]);
+        assert.deepEqual(book(second, "1"), []);
+        new SqliteCollectionPurgeRepository().purgeCollectionData({
+            chainId: 1,
+            collectionId,
+        });
+        assert.deepEqual(book(second, "700"), ["signed"]);
+        assert.deepEqual(
+            db
+                .prepare("SELECT collection_id FROM orders WHERE id='settled'")
+                .get(),
+            { collection_id: second },
+        );
     });
 
     it("reads tier attribution for stopped-bot intent and preserves collection-wide ids under filters", () => {
@@ -1268,6 +1425,82 @@ describe("SqliteBiddingBidBookRepository", () => {
                 "opponent-collection",
                 "own-collection",
             ],
+        );
+    });
+
+    it("ranks OpenSea bot bids by gross amount and keeps a fresh empty snapshot authoritative", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        insertProjectedState(collectionId, Date.now());
+        const grossA = "1000000000000000000";
+        const grossB = "980000000000000000";
+        for (const [orderId, priceWei] of [
+            ["B", grossB],
+            ["A", grossA],
+        ] as const) {
+            insertProjectedBid({
+                collectionId,
+                orderId,
+                priceWei,
+                scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                scopeLabel: "#5",
+                tokenId: "5",
+            });
+        }
+        insertIndexedOrder({
+            collectionId,
+            id: "indexed-token",
+            scopeKind: "token",
+            tokenId: "5",
+            updatedAt: INDEXED_ORDER_PLACED_AT,
+        });
+        const read = () =>
+            repository.listTokenBidBook({
+                chainId: 1,
+                collectionId,
+                tokenId: "5",
+                tokenTraits: [],
+                includeOwnJobContext: false,
+            });
+        const fresh = read();
+        assert.equal(
+            fresh.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+        assert.deepEqual(
+            fresh.bids
+                .filter((bid) => bid.orderId === "A" || bid.orderId === "B")
+                .map((bid) => [bid.orderId, bid.price]),
+            [
+                ["A", exactBidBookRowPrice(grossA)],
+                ["B", exactBidBookRowPrice(grossB)],
+            ],
+        );
+        db.prepare(
+            "DELETE FROM trading_bidding_bid_book_rows WHERE collection_id=?",
+        ).run(collectionId);
+        db.prepare(
+            "UPDATE trading_bidding_collection_bid_book_state SET row_count=0 WHERE collection_id=?",
+        ).run(collectionId);
+        const empty = read();
+        assert.equal(
+            empty.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+        assert.deepEqual(empty.bids, []);
+        const stale =
+            Date.now() - TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS - 1;
+        db.prepare(
+            "UPDATE trading_bidding_collection_bid_book_state SET snapshot_refreshed_at_ms=? WHERE collection_id=?",
+        ).run(stale, collectionId);
+        const fallback = read();
+        assert.equal(
+            fallback.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        assert.deepEqual(
+            fallback.bids.map((bid) => bid.orderId),
+            ["indexed-token"],
         );
     });
 

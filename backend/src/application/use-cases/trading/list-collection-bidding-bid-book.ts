@@ -290,6 +290,14 @@ export class ListCollectionBiddingBidBookUseCase {
                       traitContext!.catalog,
                   )
                 : { traits: ordinaryTraits, traitRanges: input.traitRanges };
+        // Inventory includes archived tiers, without resolving or changing their prices.
+        const inventory = input.includeOwnJobContext
+            ? this.priceTiersReadPort.listCollectionPriceTiers({
+                  chainId: chain.publicChainId,
+                  collectionId: collection.collectionId,
+                  includeArchived: true,
+              })
+            : [];
         // Read the source-selected bid book: bot snapshot for enabled jobs, canonical orders otherwise.
         const persistedBidBook = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.bid_book",
@@ -306,15 +314,16 @@ export class ListCollectionBiddingBidBookUseCase {
                     selectedTraitRanges: nativeSelection.traitRanges,
                     ...(input.scopeFilter ===
                         COLLECTION_BIDDING_BID_SCOPE_FILTER.Token &&
-                    !traitContext &&
-                    !input.ownStateFilter &&
-                    !input.priceTierFilter
+                    !traitContext
                         ? {
                               tokenPage: {
                                   ...decodeTokenOfferCursor(
                                       input.cursor ?? null,
                                   ),
                                   limit: input.limit,
+                                  ownStateFilter: input.ownStateFilter,
+                                  priceTierFilter: input.priceTierFilter,
+                                  priceTiers: inventory,
                               },
                           }
                         : {}),
@@ -342,14 +351,6 @@ export class ListCollectionBiddingBidBookUseCase {
                       collectionBids: collectionFloorBidBook.bids,
                   })
                 : persistedBidBook.bids;
-        // Inventory includes archived tiers, without resolving or changing their prices.
-        const inventory = input.includeOwnJobContext
-            ? this.priceTiersReadPort.listCollectionPriceTiers({
-                  chainId: chain.publicChainId,
-                  collectionId: collection.collectionId,
-                  includeArchived: true,
-              })
-            : [];
         if (
             input.priceTierFilter &&
             input.priceTierFilter !==
@@ -588,8 +589,20 @@ export class ListCollectionBiddingBidBookUseCase {
         if (groups) {
             const { offset, version, totalItems, totalOffers, tokenIds } =
                 groups;
+            const counts =
+                groups.ownCounts ??
+                countBiddingBidBookOwnFilters([], params, params.priceTiers);
+            const visibleTiers = new Set(
+                params.priceTiers.map((tier) => tier.tierId),
+            );
             return {
-                ...countBiddingBidBookOwnFilters([], params, params.priceTiers),
+                ownBidStateCounts: counts.ownBidStateCounts,
+                ownPriceTierCounts: {
+                    ...counts.ownPriceTierCounts,
+                    tiers: counts.ownPriceTierCounts.tiers.filter((tier) =>
+                        visibleTiers.has(tier.tierId),
+                    ),
+                },
                 page: {
                     items: this.hydrateTokenOfferCards({
                         ...params,

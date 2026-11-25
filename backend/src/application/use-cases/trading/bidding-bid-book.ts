@@ -2,6 +2,7 @@ import type {
     TraitReadContext,
     ViewOfferApplicability,
 } from "@artgod/shared/types/trait-catalog";
+import type { BiddingBidBookOwnFilters } from "@artgod/shared/trading/bid-book-own-state";
 import { formatEther } from "viem";
 import type {
     ChainRecord,
@@ -18,6 +19,7 @@ import type {
     TradingBiddingBidBookOwnStateCounts,
     TradingBiddingBidBookOwnJob,
     TradingBiddingBidBookPriceTierCounts,
+    TradingBiddingBidBookPriceTier,
     TradingBiddingAuthorization,
     TradingBiddingBidScopeKind,
     TradingBiddingJobRuntimeBidPosition,
@@ -46,6 +48,7 @@ export type {
 
 type PersistedBiddingBidBookRowBase = {
     viewApplicability?: ViewOfferApplicability;
+    lastSeenMs?: number;
     venue?: import("@artgod/shared/market-data/orders").OrderbookVenue;
     orderId: string;
     source: TradingBiddingBidBookSource;
@@ -156,12 +159,17 @@ export type BiddingBidBookOwnStatus = {
     } | null;
 };
 
-export type IndexedTokenPageRequest = {
+export type IndexedTokenPageRequest = BiddingBidBookOwnFilters & {
+    priceTiers?: TradingBiddingBidBookPriceTier[];
     offset: number;
     version?: string;
     limit: number;
 };
 export type IndexedTokenGroupPage = {
+    ownCounts?: {
+        ownBidStateCounts: TradingBiddingBidBookOwnStateCounts;
+        ownPriceTierCounts: TradingBiddingBidBookPriceTierCounts;
+    };
     tokenIds: string[];
     offset: number;
     version: string;
@@ -207,6 +215,7 @@ export interface BiddingBidBookRepositoryPort {
 }
 
 type BiddingBidBookRowViewBase = {
+    lastSeenMs?: number;
     venue?: import("@artgod/shared/market-data/orders").OrderbookVenue;
     orderId: string;
     source: TradingBiddingBidBookSource;
@@ -344,6 +353,7 @@ function mapPersistedBidRowToView(
     const row = {
         orderId: bid.orderId,
         ...(bid.venue ? { venue: bid.venue } : {}),
+        ...(bid.lastSeenMs == null ? {} : { lastSeenMs: bid.lastSeenMs }),
         source: bid.source,
         scope: {
             ...(bid.viewApplicability

@@ -2509,6 +2509,7 @@ describe("backend api routes", () => {
                     );
                     expect(bids[0]).toMatchObject({
                         orderId: "route-fixture-" + buyer,
+                        ...(lastSeen === null ? {} : { lastSeenMs: lastSeen }),
                         price: { wei: proceeds },
                     });
                 }

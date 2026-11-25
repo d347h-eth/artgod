@@ -1425,9 +1425,10 @@ function createSchema(): void {
             updated_at TEXT,
             PRIMARY KEY (chain_id, collection_id, token_id)
         );
+        CREATE TABLE orderbook_offer_scopes (feed_id INTEGER, native_id TEXT, collection_id INTEGER);
         CREATE TABLE orderbook_bindings (feed_id INTEGER, collection_id INTEGER);
         CREATE TABLE orderbook_feeds (feed_id INTEGER PRIMARY KEY, last_error TEXT);
-        CREATE TABLE orderbook_members (feed_id INTEGER, settlement_id TEXT, present INTEGER, observed_ms INTEGER);
+        CREATE TABLE orderbook_members (feed_id INTEGER, native_id TEXT, settlement_id TEXT, present INTEGER, observed_ms INTEGER);
         CREATE TABLE orders (
             id TEXT PRIMARY KEY,
             source TEXT,
