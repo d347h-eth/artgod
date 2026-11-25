@@ -1119,8 +1119,10 @@
 		makerFilterHref={makerFilterHref}
 		onSelectTraitDemandBid={onBidBookTraitDemandBid}
 		onFilterTraitDemandGroup={onBidBookTraitDemandFilter}
-		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
-		showRowActions={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ||
+			bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
+			? null
+			: onBidBookSelectBid}
 		{TraitDemandGroupPreview}
 	/>
 {/snippet}
