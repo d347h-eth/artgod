@@ -12,6 +12,14 @@ import {
     stopFixtureChild,
     waitForFixture,
 } from "../tests/helpers/isolated-nats.js";
+import {
+    BOOTSTRAP_ENUMERATION_MODE,
+    BOOTSTRAP_METADATA_MODE,
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+} from "@artgod/shared/bootstrap/pipeline";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { VVV_MARKET } from "../src/infra/offchain/vvv-orderbook.js";
 import { BOOK_VIEW, VVV_READ_INTERVAL_MS } from "../src/domain/orderbook.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
@@ -42,11 +50,17 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
     const feed = { ...VVV_MARKET, view: BOOK_VIEW.Public };
     const requests = dir + "/requests";
     await writeFile(requests, "");
+    await writeFile(dir + "/opensea-mode", "ok");
     await writeFile(dir + "/mode", "ok");
     await writeFile(dir + "/state.json", JSON.stringify(captured));
     async function launch(enabled: boolean, scheduler = false) {
-        const role = scheduler ? "orderbook-reconcile-scheduler-worker" : "orderbook-reconcile-worker";
-        const log = await open(dir + (scheduler ? "/scheduler.log" : "/worker.log"), "a");
+        const role = scheduler
+            ? "orderbook-reconcile-scheduler-worker"
+            : "orderbook-reconcile-worker";
+        const log = await open(
+            dir + (scheduler ? "/scheduler.log" : "/worker.log"),
+            "a",
+        );
         const child = spawn(
             process.execPath,
             [
@@ -55,10 +69,7 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                     root,
                     "indexer/integration/orderbook-fetch-fixture.mjs",
                 ),
-                path.join(
-                    root,
-                    "indexer/dist-desktop/" + role + ".mjs",
-                ),
+                path.join(root, "indexer/dist-desktop/" + role + ".mjs"),
             ],
             {
                 cwd: root,
@@ -75,7 +86,9 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                     OPENSEA_INTEGRATION_MODE: enabled ? "enabled" : "disabled",
                     OPENSEA_API_KEY: enabled ? "fixture" : "",
                     ORDERBOOK_FIXTURE_DIR: dir,
-                    ORDERBOOK_FIXTURE_SCHEDULER: scheduler ? String(VVV_READ_INTERVAL_MS) : "",
+                    ORDERBOOK_FIXTURE_SCHEDULER: scheduler
+                        ? String(VVV_READ_INTERVAL_MS)
+                        : "",
                     ...(process.env.PLAYWRIGHT_BROWSERS_PATH
                         ? {
                               PLAYWRIGHT_BROWSERS_PATH:
@@ -140,6 +153,74 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         });
         await waitForFixture(() => count() > previous, "OpenSea " + jobId);
     }
+    async function retryInitialOpenSeaRead() {
+        const runId = Number(
+            db
+                .prepare(
+                    "INSERT INTO bootstrap_runs(chain_id,collection_id,request_slug,request_address,request_standard,metadata_mode,enumeration_mode,request_image_cache_mode,status) SELECT chain_id,collection_id,slug,address,standard,?,?,?,? FROM collections WHERE collection_id=99",
+                )
+                .run(
+                    BOOTSTRAP_METADATA_MODE.BestEffort,
+                    BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+                    IMAGE_CACHE_MODE.Off,
+                    BOOTSTRAP_RUN_STATUS.Queued,
+                ).lastInsertRowid,
+        );
+        const insert = db.prepare(
+            "INSERT INTO bootstrap_run_steps(run_id,step_key,status) VALUES(?,?,?)",
+        );
+        for (const key of [
+            BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            BOOTSTRAP_STEP_KEY.OpenSeaReady,
+            BOOTSTRAP_STEP_KEY.Metadata,
+        ])
+            insert.run(runId, key, BOOTSTRAP_STEP_STATUS.Pending);
+        const status = (key: string) =>
+            (
+                db
+                    .prepare(
+                        "SELECT status FROM bootstrap_run_steps WHERE run_id=? AND step_key=?",
+                    )
+                    .get(runId, key) as { status: string }
+            ).status;
+        await writeFile(dir + "/opensea-mode", "reject-offers");
+        await queue.publish(OPENSEA_QUEUE_NAME.Reconcile, {
+            jobId: "initial-with-retry",
+            queue: OPENSEA_QUEUE_NAME.Reconcile,
+            kind: OPENSEA_JOB_KIND.BootstrapCollection,
+            payload: { chainId: 1, collectionId: 99, bootstrap: { runId } },
+            chainId: 1,
+            collectionId: 99,
+            scheduledAt: Date.now(),
+            attempt: 1,
+        });
+        await waitForFixture(
+            () =>
+                status(BOOTSTRAP_STEP_KEY.OpenSeaSnapshot) ===
+                BOOTSTRAP_STEP_STATUS.FailedRetry,
+            "first read records its failed final page",
+        );
+        expect(status(BOOTSTRAP_STEP_KEY.OpenSeaIdentity)).toBe(
+            BOOTSTRAP_STEP_STATUS.Succeeded,
+        );
+        expect(status(BOOTSTRAP_STEP_KEY.OpenSeaReady)).toBe(
+            BOOTSTRAP_STEP_STATUS.Pending,
+        );
+        await writeFile(dir + "/opensea-mode", "ok");
+        await waitForFixture(
+            () =>
+                status(BOOTSTRAP_STEP_KEY.OpenSeaReady) ===
+                BOOTSTRAP_STEP_STATUS.Succeeded,
+            "reconciler retries the original bootstrap run",
+        );
+        expect(status(BOOTSTRAP_STEP_KEY.OpenSeaSnapshot)).toBe(
+            BOOTSTRAP_STEP_STATUS.Succeeded,
+        );
+        expect(status(BOOTSTRAP_STEP_KEY.Metadata)).toBe(
+            BOOTSTRAP_STEP_STATUS.Pending,
+        );
+    }
     try {
         await waitForFixture(
             async () =>
@@ -148,7 +229,13 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                 ),
             "keyless readiness",
         );
-        await waitForFixture(async () => (await readFile(dir + "/scheduler.log","utf8")).includes("scheduler worker ready"),"keyless scheduler readiness");
+        await waitForFixture(
+            async () =>
+                (await readFile(dir + "/scheduler.log", "utf8")).includes(
+                    "scheduler worker ready",
+                ),
+            "keyless scheduler readiness",
+        );
         expect(await readFile(requests, "utf8")).toBe("");
         await stopFixtureChild(scheduler);
         db.prepare(
@@ -156,17 +243,28 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         ).run(feed.contract);
         await stopFixtureChild(child);
         child = await launch(true);
-        scheduler = await launch(true,true);
-        await waitForFixture(() => !!db.prepare("SELECT 1 FROM opensea_orderbook_runs WHERE status='completed'").get(), "scheduled OpenSea-only refresh");
+        scheduler = await launch(true, true);
+        await waitForFixture(
+            () =>
+                !!db
+                    .prepare(
+                        "SELECT 1 FROM opensea_orderbook_runs WHERE status='completed'",
+                    )
+                    .get(),
+            "scheduled OpenSea-only refresh",
+        );
         expect(await readFile(requests, "utf8")).not.toContain("browser");
-        await stopFixtureChild(child);
         await stopFixtureChild(scheduler);
+        await retryInitialOpenSeaRead();
+        await stopFixtureChild(child);
         store.bind(feed, 99);
         child = await launch(false);
-        scheduler = await launch(false,true);
+        scheduler = await launch(false, true);
         await waitForFixture(() => state().generation === 1, "first VVV book");
         // Age the prior attempt so the next periodic scheduler tick is due.
-        db.prepare("UPDATE orderbook_feeds SET last_attempt_ms=? WHERE venue=?").run(Date.now()-VVV_READ_INTERVAL_MS,feed.venue);
+        db.prepare(
+            "UPDATE orderbook_feeds SET last_attempt_ms=? WHERE venue=?",
+        ).run(Date.now() - VVV_READ_INTERVAL_MS, feed.venue);
         await waitForFixture(
             () => state().generation === 2,
             "periodic VVV book",

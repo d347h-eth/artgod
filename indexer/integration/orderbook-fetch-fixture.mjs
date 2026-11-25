@@ -46,6 +46,16 @@ globalThis.fetch = async (request, options) => {
     );
     if (url.hostname.endsWith(".opensea.io")) {
         await appendFile(directory + "/requests", "opensea\n");
+        if (
+            url.pathname.includes("/offers/") &&
+            (await readFile(directory + "/opensea-mode", "utf8")) ===
+                "reject-offers"
+        ) {
+            return Response.json(
+                { errors: ["unavailable fixture page"] },
+                { status: 400 },
+            );
+        }
         return Response.json({ offers: [], listings: [], next: null });
     }
     if (url.hostname === "127.0.0.1") return original(request, options);
