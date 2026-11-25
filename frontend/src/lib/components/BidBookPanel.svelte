@@ -899,7 +899,7 @@
 				placeBidLabel: canSelectBidRow(bid) ? placeBidLabel(label) : null
 			};
 		}
-		if (showRowActions && shouldRenderScopeBidControl(bid)) {
+		if (shouldRenderScopeBidControl(bid)) {
 			return {
 				kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.PlainAction,
 				label: formatScope(bid),
