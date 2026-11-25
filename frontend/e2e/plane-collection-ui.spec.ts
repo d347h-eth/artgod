@@ -21,6 +21,9 @@ import {
 } from '@artgod/shared/types';
 import { biddingTraitScopeMatchesFilters } from '@artgod/shared/trading/offer-trait-criteria';
 import { parseEther } from 'viem';
+import { PRICE_HISTORY_BUCKET, PRICE_HISTORY_RANGE } from '@artgod/shared/types/price-history';
+import { PRICE_CHART_QUERY } from '../src/lib/price-chart/model';
+import { priceHistoryFlatFixture } from './price-history-fixtures';
 import type { ApiBiddingMarketBidBookRow, TokenPreviewApiResponse } from '../src/lib/api-types';
 import {
 	BID_SCOPE_QUERY_PARAM,
@@ -1121,6 +1124,53 @@ test('jumps across blocks and restores a bookmarked token in its current block',
 	);
 	await back.click();
 	await expect(block).toHaveValue(film.id);
+});
+
+test('returns from a sale to the same scoped chart and chart settings', async ({ page }, info) => {
+	const { path, chain, collection } = await installPlaneFixture(page);
+	const token = tokens[0];
+	const query = new URLSearchParams({
+		[PRICE_CHART_QUERY.Range]: PRICE_HISTORY_RANGE.Year,
+		[PRICE_CHART_QUERY.Bucket]: PRICE_HISTORY_BUCKET.FourHours
+	});
+	const chartPath = path + '/chart';
+	const chart = selectCollectionViewHref(chartPath, query, plane);
+	const history = priceHistoryFlatFixture('1000000000000000000', 1);
+	await page.route('**/chart-context*', (route) =>
+		route.fulfill({
+			json: {
+				chain,
+				collection,
+				media,
+				traits: { facets: [], selected: [], selectedRanges: [] }
+			}
+		})
+	);
+	await page.route('**/price-history?*', (route) =>
+		route.fulfill({
+			json: { ...history, sales: history.sales.map((sale) => ({ ...sale, tokenId: token.id })) }
+		})
+	);
+	await page.route('**/' + token.id + '/card?*', (route) =>
+		route.fulfill({
+			json: {
+				token: { tokenId: token.id, image: token.image, name: '#' + token.id, attributes: [] }
+			}
+		})
+	);
+	await enter(page, chart);
+	const thumbnail = page.getByRole('link', { name: 'Token #' + token.id, exact: true });
+	await thumbnail.focus();
+	const link = page.locator('.sale-card-preview .token-grid-id');
+	await expect(link).toHaveAttribute('href', (await thumbnail.getAttribute('href'))!);
+	const chartUrl = page.url();
+	await thumbnail.press('Enter');
+	const back = page.getByRole('link', { name: 'back to chart', exact: true });
+	await expect(back).toHaveAttribute('href', new URL(chartUrl).pathname + new URL(chartUrl).search);
+	await back.click();
+	await expect(page).toHaveURL(chartUrl);
+	await expect(thumbnail).toBeVisible();
+	await page.screenshot({ path: info.outputPath('chart-sale-return.png') });
 });
 
 test('opens numeric trait offers from a token in its current block', async ({ page }, info) => {
