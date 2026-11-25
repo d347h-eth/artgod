@@ -3,8 +3,9 @@
 **Proposed design.** Collection and token pages show one local book of
 currency-priced listings and offers from all matching marketplaces. If VVV
 withdraws a 0.8 ETH listing and OpenSea still offers the token for 1 ETH, the
-card shows 1 ETH as soon as ArtGod publishes that refresh. The bidding bot and
-its selected bid-book snapshot use OpenSea.
+card shows 1 ETH as soon as ArtGod publishes that refresh. The core orderbook
+projection ranks offers by what the seller receives after required fees. The
+bidding bot and its selected bid-book snapshot use gross OpenSea bids.
 
 At the alpha cutover, ArtGod rebuilds the passive orderbook for the collections
 already tracked in the existing database.
@@ -12,7 +13,7 @@ already tracked in the existing database.
 ```mermaid
 flowchart LR
     OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
-    VVV[VVV public book] --> Browser[Browser in a local indexer worker]
+    VVV[VVV public book] --> Browser[Browser owned by the orderbook reconciler]
     Browser --> Sync
     Sync --> Orders[Order domain evaluates quotes]
     Orders --> Local[(Local listings and offers)]
@@ -67,26 +68,73 @@ backend serves the local projection, including offline. The frontend reads
 the existing collection and token routes. [Worker ownership](00-overview.md) ·
 [Order processing](07-domain-orders.md)
 
-For VVV, use the browser-based fetch from the standalone probe. A local
-indexer worker opens an anonymous browser session and fetches the public book
-from inside a VVV page. An existing market worker or a dedicated VVV worker
-can own the browser. In either arrangement the existing scheduler requests one
-refresh per market, and the reader passes the result to the shared orderbook
-reconciliation. This runs while the backend is active, including when every
-collection and token page is closed.
+## Run two shared orderbook workers
+
+Rename `opensea-reconcile-scheduler-worker` to
+`orderbook-reconcile-scheduler-worker` and `opensea-reconcile-worker` to
+`orderbook-reconcile-worker`. Start both with the rest of the indexer in
+desktop, development and Compose. The scheduler queues due markets. The
+reconciler runs the selected venue adapter for initial reads, refreshes and
+retries. The VVV adapter opens its anonymous browser inside the reconciler
+when there is a VVV book to read. OpenSea’s stream worker starts its
+subscriptions only when its own integration is enabled. Both sources feed the
+existing order domain.
+[Current scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts) ·
+[Current reconciler](../../indexer/src/runtime/opensea-reconcile-worker.ts) ·
 [VVV browser reader](22-vvv-orderbook-adapter.md#fetch-the-book-from-a-browser-in-a-local-worker)
+
+**What happens at startup.** With the default OpenSea settings, an empty API
+key and no active VVV market binding, the two workers reach ready and wait.
+They issue zero marketplace requests and launch zero browsers. Read OpenSea’s
+mode and key when the composition starts. Adding a key takes effect on the
+next composition restart. OpenSea’s explicit `disabled` mode and its
+configuration error for explicitly requiring OpenSea without a key still apply.
+An already associated VVV market can be read with OpenSea off. If its last
+association is removed, stop its refreshes and release the unused browser.
+The shared workers stay up.
+[OpenSea configuration](../../shared/config/opensea-integration.ts)
+
+**Dedicated follow-up.** Automatically discovering or activating a market
+when a user newly tracks or bootstraps a collection, including VVV for 111K,
+is separate work. This includes any changes to the 111K embedded extension.
+
+**Move the existing responsibilities with the names.** The desktop supervisor
+currently skips these processes when OpenSea is off, and both entrypoints load
+a config that requires its key. Remove the OpenSea launch gate from the shared
+pair and load provider configuration only for eligible adapters. Move the
+existing OpenSea first-read handler into the reconciler, including its
+identity, snapshot and ready steps, their retry and terminal outcomes, and the
+action that starts sync for an already live collection. Preserve the bootstrap
+run that requested each result. Once both publishers use the shared reader,
+retire the old OpenSea snapshot worker. The collection bootstrap worker keeps
+its metadata and ownership responsibilities.
+[Desktop launch rules](../../src-tauri/src/runtime/supervisor.rs) ·
+[OpenSea bootstrap worker](../../indexer/src/runtime/opensea-bootstrap-worker.ts) ·
+[Start sync for a live collection](../../backend/src/application/use-cases/collections/start-opensea-collection-sync.ts)
+
+Carry the rename through the shared queue contracts, publishers, consumers,
+runtime builds, launchers, Compose, settings, logs and metrics. Preserve the
+reconciler’s delivery lease during a long read. Use bounded, independent
+consumers in the same process so a VVV timeout or retry leaves OpenSea able to
+refresh. Serialize overlapping reads of the same feed and check its binding
+again when consuming a job. The sync worker already hosts multiple queue
+consumers in one process. If a supported installation cannot run the VVV
+browser in this reconciler or keep OpenSea progressing during a VVV failure,
+record the failing case and block VVV enablement there. A separate service
+would require a new design decision.
+[Worker composition](../../indexer/src/runtime/sync-worker.ts) ·
+[Delivery lease](../../indexer/src/config/opensea-reconcile-worker.ts) ·
+[Runtime registry and verification](../desktop/02-runtime-registry-maintenance.md)
 
 ## Map a market to tracked assets
 
-- Register each venue once in the indexer composition root. When a collection is
-  added or its scope changes, ask each enabled adapter for markets covering its
-  chain and contract. Use the venue’s catalog or a verified configured
-  reference. If the venue is temporarily unavailable, retry its lookup
-  independently. Its adapter verifies each match against the public chain and
-  NFT contract it serves. OpenSea can use its existing slug probe. VVV can start
-  with the verified market entry in its adapter. A display name or ArtGod
-  collection slug alone cannot identify a remote book. Record a verified binding
-  and its revision independently of the outcome of the last refresh.
+- Register each venue once in the indexer composition root. To resolve a market
+  for an existing tracked scope, use the venue’s catalog entry or a configured
+  market reference. The adapter verifies the public chain and NFT contract.
+  OpenSea can use its existing slug probe. VVV starts with the verified market
+  entry in its adapter. A display name or ArtGod collection slug alone cannot
+  identify a remote book. Persist the verified association (the binding) and
+  its revision independently of the outcome of a refresh.
   [OpenSea slug probe](../../backend/src/application/use-cases/bootstrap/probe-opensea-collection-slug.ts)
   ·
   [VVV market evidence](22-vvv-orderbook-adapter.md#find-and-read-a-vvv-market)
@@ -105,16 +153,15 @@ collection and token page is closed.
   contract, a venue collection on part of that contract and a signed criteria
   root each cover different assets. Removing a binding or purging one collection
   drops its local association and rejects delayed work for that association.
-  Another collection using that market keeps its association. When a new local
-  scope joins an already indexed market, match the current publications to it as
-  part of setup. Stop polling when the last enabled association is removed.
+  Another collection using that market keeps its association. Match current
+  publications against the scopes of all active bindings. Stop polling when
+  the last enabled association is removed.
   [Token-set materialization](07-domain-orders.md#token-set-materialization)
-- Have the bootstrap planner schedule the first read for each verified market.
-  The periodic scheduler then uses each market’s last successful run to decide
-  when it is due. Today both paths select OpenSea by collection slug. Generalize
-  that selection and the worker configuration so a VVV-only collection can sync
-  with OpenSea disabled and without a collection extension. OpenSea still owns
-  its API key, slug and stream toggle.
+- For each enabled, bound market, the first read and periodic reads use the
+  same reconciler. The scheduler uses the last successful market run to decide
+  when another read is due. Bootstrap requests for an existing OpenSea market
+  retain their collection progress even when several requests share a read.
+  OpenSea owns its API key, slug and stream toggle.
   [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
   ·
   [Reconcile scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts)
@@ -310,9 +357,10 @@ full **0.98 WETH**.
    snapshot shows A first.
 2. **Rank by what the seller receives after fees (net).** Compare 0.95 WETH
    from A with 0.98 WETH from B. B ranks first at **0.98 WETH** and pays the
-   seller **0.03 WETH more**. Collection and token pages use this rule when
-   showing the combined OpenSea and VVV book. If B withdraws, A becomes the
-   best offer and those pages show **0.95 WETH**.
+   seller **0.03 WETH more**. The core projection selects B and publishes
+   **0.98 WETH** as the best offer for every indexed reader. Collection and
+   token pages read that result. If B withdraws, the core selects A and
+   publishes **0.95 WETH**.
 
 On either venue, ArtGod checks that buyer A has **1.00 WETH** and has authorized
 the protocol to spend that much. The buyer must fund both the seller’s payment
@@ -392,9 +440,17 @@ same maker or signed order remains independent.
 
 ## Acceptance before enabling additional feeds
 
-- Exercise the VVV browser reader early in a packaged ArtGod worker. With
-  collection and token pages closed, run the initial read and several scheduled
-  refreshes. Restart the worker and verify it opens a new browser session.
+- Start the composition without an OpenSea key or an active VVV binding. Check
+  that the shared pair is ready, makes no marketplace requests and launches no
+  browser. Repeat with OpenSea alone, with an existing VVV binding alone, and
+  with both. For OpenSea, set the key and restart the composition. With both
+  venues active, interrupt a VVV read and verify OpenSea can still complete a
+  refresh. Check the existing OpenSea initial-sync and retry paths. Run
+  `yarn check:runtime-registry` after the rename.
+- Exercise the VVV browser reader early in the packaged shared reconciler.
+  Start with a bound VVV market and collection and token pages closed. Run the
+  initial read and several scheduled refreshes. Restart the reconciler and
+  verify it opens a new browser session when the next read is due.
   Interrupt a read and check that ArtGod keeps the previous book and its last
   successful read time. Restore access and check the next successful refresh
   applies every addition, change and removal.
@@ -423,8 +479,9 @@ same maker or signed order remains independent.
   Check total quantity after a partial fill, cancellation and reorg.
 - Check that the captured VVV listing costs the buyer 0.130585 ETH and the
   captured VVV offer pays the seller 0.0905905 WETH. In the two-buyer example,
-  verify the combined book shows B at 0.98 WETH and switches to A at 0.95 WETH
-  when B withdraws. With both bids on OpenSea, the bot ranks A at 1.00 WETH.
+  verify the core projection selects B at 0.98 WETH and switches to A at
+  0.95 WETH when B withdraws. Check the same results through the collection
+  and token reads. With both bids on OpenSea, the bot ranks A at 1.00 WETH.
   Check that the 0.95 WETH ask wins over 1 ETH with the correct currency and
   link.
 - An otherwise eligible open bid must rank the same for #42 on either venue

@@ -6,13 +6,16 @@ multi-orderbook design. The code reference is local `main` at `938ece5c`.
 ## Requirements recorded on 25 November 2026
 
 - Collection and token pages show one combined book of currency-priced listings
-  and offers. Keep the source of each price so a later hint on a focused token
-  card can explain differences between marketplaces.
+  and offers. The core projection ranks and publishes offers by what the seller
+  receives after required fees. Keep the source of each price for later hints
+  on a focused token card.
 - VVV is an independent orderbook. Any tracked collection may match a market
   served by a venue. A collection extension does not select the venue.
-- Use a browser running in a local backend worker to read VVV as the standalone
-  probe did. Either an existing market worker or a dedicated worker can own the
-  browser. Scheduled reads run independently of which pages the user has open.
+- The two shared orderbook workers start with the indexer. They stay idle in
+  an installation with no usable OpenSea key and no bound VVV market. The
+  reconciler starts the browser only for VVV reads. OpenSea configuration
+  changes take effect on composition restart.
+  [Worker decisions and scope](21-multiple-orderbooks.md#run-two-shared-orderbook-workers)
 - A previously seen order missing from the next successful read of the same book
   is a removal. Record that individual change and apply it to the projection.
   The same rule applies to OpenSea and VVV.
@@ -92,14 +95,22 @@ collection purge, and rollback if refreshing the price fails.
 
 ## Other callers affected by adding a second venue
 
-- A bootstrap run currently schedules three OpenSea steps only when OpenSea is
-  enabled and a slug exists. The reconcile scheduler loads OpenSea configuration
-  and asks the collection registry for OpenSea candidates. General market
-  discovery belongs alongside those bootstrap and scheduler owners. OpenSea
-  stream controls and optional collection-extension steps have their own scope.
+- Both OpenSea reconcile entrypoints load the OpenSea config and require a key.
+  The desktop supervisor also checks OpenSea enablement before spawning them.
+  Renaming files alone would leave a keyless installation unable to read VVV.
+  Development and Compose list the workers explicitly. The runtime registry
+  documents how to keep launchers, built artifacts and observability in sync.
+  [OpenSea config](../../indexer/src/config/opensea.ts) ·
+  [Desktop supervisor](../../src-tauri/src/runtime/supervisor.rs) ·
+  [Runtime registry](../desktop/02-runtime-registry-maintenance.md)
+- The existing OpenSea bootstrap worker and reconciler call the same reader.
+  Bootstrap also records identity, snapshot and readiness for the requesting
+  run. The live-collection action can request a first read independently. The
+  generic reconciler can take over both entry points. The existing sync worker
+  demonstrates multiple bounded consumers in one Node process.
   [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
-  ·
-  [Reconcile scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts)
+  · [OpenSea bootstrap worker](../../indexer/src/runtime/opensea-bootstrap-worker.ts)
+  · [Sync worker](../../indexer/src/runtime/sync-worker.ts)
 - Raw queue envelopes require a local collection ID. Dispatch builds the order
   upsert job ID from chain, order ID and receipt time. Two venues can publish
   the same hash in the same millisecond, and one remote book can cover two local

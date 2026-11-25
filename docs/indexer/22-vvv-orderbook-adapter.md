@@ -29,26 +29,27 @@ previous book.
 
 ### Fetch the book from a browser in a local worker
 
-Use a worker-owned browser session for the initial read and each scheduled
-refresh. The standalone probe used Playwright to open a VVV page in headless
-Chromium and fetch the public book from inside that page. On 16 November the
+Use the shared orderbook reconciler’s browser session for the initial read of
+a bound VVV market and each scheduled refresh. The standalone probe used
+Playwright to open a VVV page in headless Chromium and fetch the public book
+from inside that page. On 16 November the
 in-page request received the book as JSON with HTTP 200. Playwright’s direct
 HTTP client and curl both received HTTP 429 for the same URL. A second browser
 read succeeded on 24 November.
 [Capture records](23-orderbook-discovery.md#checks-completed-on-25-november)
 
-The VVV adapter can run in an existing market worker or a dedicated local
-indexer worker. The worker owns the anonymous browser session, reopens it if
-the browser exits, and closes it on shutdown. Both arrangements use the same
-bootstrap and refresh jobs, the same per-market schedule, and the same path for
-validating each complete response and publishing order changes. Users can open
-the collection later and read the book that ArtGod has already indexed.
+The shared reconciler starts the browser on the first eligible VVV job. An idle
+installation and an OpenSea-only installation both leave the browser closed.
+The adapter reopens the session on a later read if the browser exits, and
+releases it when the last VVV market is removed or the reconciler shuts down.
+The scheduler and order domain use the same paths for both venues. Users can
+open a collection page later and read the book ArtGod has already indexed.
+[Shared worker lifecycle](21-multiple-orderbooks.md#run-two-shared-orderbook-workers)
 
 The probe used the frontend workspace’s development copy of Playwright. Make
-the browser and its driver available to the installed backend wherever VVV is
-enabled. If using a dedicated worker, register it with the existing runtime
-build and supervisor. Apply the market worker’s timeout and retry policy to each
-read. A browser error, HTTP 429, or invalid response records a failed attempt.
+the browser and its driver available to the installed reconciler wherever VVV
+is enabled. Apply the adapter’s timeout and retry policy to each read. A
+browser error, HTTP 429, or invalid response records a failed attempt.
 The last accepted VVV book retains its observation time, and normal expiry and
 chain updates still apply. The next valid read reconciles against that book.
 [Frontend dependencies](../../frontend/package.json) ·
@@ -155,12 +156,13 @@ listings whose availability changed.
    the last run. Insert a challenge or malformed response between two successful
    reads. Assert the per-order changes and the price visible on the next local
    read. Repeat with an OpenSea publication for the same order.
-3. Bind this adapter to a second verified or fixture market on another contract,
-   with OpenSea disabled and no collection extension installed. Check that a
-   collection with no matching VVV market keeps its own book and that two local
-   collections sharing the same remote market cause one fetch.
-4. Start the packaged worker with no collection page open. Verify that its
-   browser reads the initial book and subsequent scheduled refreshes. Restart
+3. Use a second verified or fixture market on another contract, with an existing
+   binding and OpenSea disabled. Check that an unrelated collection keeps its
+   own book and that two local collections bound to one remote market cause one
+   fetch.
+4. Start the packaged shared reconciler with a bound VVV market and no
+   collection page open. Verify that its browser reads the initial book and
+   subsequent scheduled refreshes. Restart
    the worker and verify it can open a fresh session. Interrupt a browser read,
    confirm the previous book and last successful read time are still visible,
    then let the next read succeed and check the resulting order changes. Record
