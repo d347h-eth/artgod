@@ -27,16 +27,32 @@ structure and end of the read before accepting a new book. A response over the
 reader’s configured limit fails the read. A partial array cannot replace the
 previous book.
 
-An anonymous browser received HTTP 200 and JSON on 16 and 24 November. Ordinary
-HTTP clients received HTTP 429 on 16 November. These are saved results for this
-exact URL. They establish that an automated browser could read the public book
-on those dates. Whether the shipped ArtGod worker can keep reading it at its
-configured interval, including after a restart, still needs a test with the
-actual worker. Keep transport in the adapter and use the existing scheduler,
-timeout and retry handling. A challenge or failed request records a failed run.
-The app keeps serving the last applied book subject to normal order expiry and
-chain changes.
+### Fetch the book from a browser in a local worker
+
+Use a worker-owned browser session for the initial read and each scheduled
+refresh. The standalone probe used Playwright to open a VVV page in headless
+Chromium and fetch the public book from inside that page. On 16 November the
+in-page request received the book as JSON with HTTP 200. Playwright’s direct
+HTTP client and curl both received HTTP 429 for the same URL. A second browser
+read succeeded on 24 November.
 [Capture records](23-orderbook-discovery.md#checks-completed-on-25-november)
+
+The VVV adapter can run in an existing market worker or a dedicated local
+indexer worker. The worker owns the anonymous browser session, reopens it if
+the browser exits, and closes it on shutdown. Both arrangements use the same
+bootstrap and refresh jobs, the same per-market schedule, and the same path for
+validating each complete response and publishing order changes. Users can open
+the collection later and read the book that ArtGod has already indexed.
+
+The probe used the frontend workspace’s development copy of Playwright. Make
+the browser and its driver available to the installed backend wherever VVV is
+enabled. If using a dedicated worker, register it with the existing runtime
+build and supervisor. Apply the market worker’s timeout and retry policy to each
+read. A browser error, HTTP 429, or invalid response records a failed attempt.
+The last accepted VVV book retains its observation time, and normal expiry and
+chain updates still apply. The next valid read reconciles against that book.
+[Frontend dependencies](../../frontend/package.json) ·
+[Runtime registry](../desktop/02-runtime-registry-maintenance.md)
 
 ## Read the signed terms
 
@@ -143,8 +159,10 @@ listings whose availability changed.
    with OpenSea disabled and no collection extension installed. Check that a
    collection with no matching VVV market keeps its own book and that two local
    collections sharing the same remote market cause one fetch.
-4. In the packaged worker, exercise repeated anonymous reads, a normal restart
-   and a failed request followed by recovery. Check request rate and memory on a
-   response the size of the saved one. The working transport and observed
-   refresh results belong in the run record. The existing UI continues to read
-   its local projection throughout.
+4. Start the packaged worker with no collection page open. Verify that its
+   browser reads the initial book and subsequent scheduled refreshes. Restart
+   the worker and verify it can open a fresh session. Interrupt a browser read,
+   confirm the previous book and last successful read time are still visible,
+   then let the next read succeed and check the resulting order changes. Record
+   the request rate and the peak memory used by the worker and its browser for
+   a response the size of the saved book.

@@ -10,6 +10,9 @@ multi-orderbook design. The code reference is local `main` at `938ece5c`.
   card can explain differences between marketplaces.
 - VVV is an independent orderbook. Any tracked collection may match a market
   served by a venue. A collection extension does not select the venue.
+- Use a browser running in a local backend worker to read VVV as the standalone
+  probe did. Either an existing market worker or a dedicated worker can own the
+  browser. Scheduled reads run independently of which pages the user has open.
 - A previously seen order missing from the next successful read of the same book
   is a removal. Record that individual change and apply it to the projection.
   The same rule applies to OpenSea and VVV.
@@ -191,12 +194,16 @@ another collection’s book.
   computed hash matched each of the 3,196 distinct published hashes. Signature
   recovery matched the signed maker and the venue’s maker on all 3,196,
   including 2,452 bulk signatures. Recomputed the two fee examples from the
-  signed amounts.
+  signed amounts. Current onchain fillability still needs runtime validation.
   [Seaport verification](../../indexer/src/application/offchain/seaport-protocol.ts)
-- The saved network results show an anonymous browser received JSON with HTTP
-  200 on 16 and 24 November. On 16 November, ordinary HTTP clients received
-  HTTP 429. The captures exercise the read. Repeated refreshes by a packaged
-  ArtGod worker and current onchain fillability still need runtime tests.
+- In the reference worktree, `tmp/vvv-orderbook-20261115/browser/transport-probe.cjs`
+  made the same public orderbook request from a Chromium page, Playwright’s HTTP
+  client and curl. The page received JSON with HTTP 200. Both direct clients
+  received HTTP 429. The saved comparison is
+  `tmp/vvv-orderbook-20261115/browser/transport-2026-11-16T00-01-49.893Z/results.json`.
+  A second successful browser read is recorded in
+  `tmp/vvv-orderbook-20261124/results.json`. The packaged worker still needs
+  to demonstrate scheduled browser reads and recovery after a restart or outage.
 - Replayed the saved IDs through **the same SQLite source-state store OpenSea
   calls** on a disposable migrated database. Seeded the 5,047 earlier cash
   orders as source members with observation times outside the OpenSea stream

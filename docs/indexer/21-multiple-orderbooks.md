@@ -12,7 +12,8 @@ already tracked in the existing database.
 ```mermaid
 flowchart LR
     OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
-    VVV[VVV public book] --> Sync
+    VVV[VVV public book] --> Browser[Browser in a local indexer worker]
+    Browser --> Sync
     Sync --> Orders[Order domain evaluates quotes]
     Orders --> Local[(Local listings and offers)]
     Local --> Listings[Token cards and listing prices]
@@ -62,9 +63,18 @@ orders domain. Change the point at which a completed book becomes visible.
 Each venue adapter finds markets, declares what its feeds cover, and translates
 their records. The indexer gathers that evidence. The order domain evaluates it,
 applies settlement facts and publishes the combined projection in SQLite. The
-backend serves the local projection, including offline. The browser uses the
-existing collection and token routes. [Worker ownership](00-overview.md) ·
+backend serves the local projection, including offline. The frontend reads
+the existing collection and token routes. [Worker ownership](00-overview.md) ·
 [Order processing](07-domain-orders.md)
+
+For VVV, use the browser-based fetch from the standalone probe. A local
+indexer worker opens an anonymous browser session and fetches the public book
+from inside a VVV page. An existing market worker or a dedicated VVV worker
+can own the browser. In either arrangement the existing scheduler requests one
+refresh per market, and the reader passes the result to the shared orderbook
+reconciliation. This runs while the backend is active, including when every
+collection and token page is closed.
+[VVV browser reader](22-vvv-orderbook-adapter.md#fetch-the-book-from-a-browser-in-a-local-worker)
 
 ## Map a market to tracked assets
 
@@ -382,6 +392,13 @@ same maker or signed order remains independent.
 
 ## Acceptance before enabling additional feeds
 
+- Exercise the VVV browser reader early in a packaged ArtGod worker. With
+  collection and token pages closed, run the initial read and several scheduled
+  refreshes. Restart the worker and verify it opens a new browser session.
+  Interrupt a read and check that ArtGod keeps the previous book and its last
+  successful read time. Restore access and check the next successful refresh
+  applies every addition, change and removal.
+  [Browser acceptance](22-vvv-orderbook-adapter.md#adapter-acceptance)
 - Start with a populated database and outstanding order and metadata jobs. Reset
   only the passive book and its work. Verify an old order delivery cannot
   recreate a quote, unrelated jobs still complete, and chain history, daily
@@ -417,9 +434,7 @@ same maker or signed order remains independent.
 - On a deep book, add many duplicate publications and check that pages have the
   same groups, counts and floor with no repeated or skipped group. Inspect query
   plans and measure peak memory to verify a page read does not materialize the
-  whole book. Verify a packaged ArtGod worker can read VVV repeatedly, restart,
-  recover after an outage and report the age of the last successful read
-  throughout. The saved responses and existing OpenSea tests cover the
-  comparison and price inputs. These multi-feed and packaged-worker cases
-  require implementation evidence.
+  whole book. The saved responses and existing OpenSea tests cover the
+  comparison and price inputs. The multi-feed reads and the packaged browser
+  worker need these checks during implementation.
   [Discovery and verification notes](23-orderbook-discovery.md#checks-completed-on-25-november)
