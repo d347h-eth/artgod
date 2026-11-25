@@ -1,3 +1,4 @@
+import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -17,8 +18,10 @@ import {
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	buildBiddingAutomationDraftFromBid,
-	buildBiddingAutomationDraftFromSelection
+	buildBiddingAutomationDraftFromSelection,
+	buildBiddingAutomationTokenFilterSnapshot
 } from '$lib/bidding-automation';
+import { createBiddingAutomationController } from '$lib/bidding-automation-controller';
 import { BIDDING_SELECTION_JOB_ACTION } from '$lib/bidding-selection-actions';
 import {
 	applyBiddingSelectionJobAction,
@@ -57,6 +60,77 @@ describe('bidding automation panel actions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
+
+	it.each([{ tokenIds: ['1'] }, { tokenIds: ['1', '2'] }])(
+		'preserves the catalog scope for page picks $tokenIds',
+		async ({ tokenIds }) => {
+			const catalogScope = { id: 'block-a', generation: 3 };
+			const controller = createBiddingAutomationController();
+			controller.selectFilteredTokens({
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+				tokenCount: 3,
+				filter: {
+					...buildBiddingAutomationTokenFilterSnapshot({
+						source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+						selectedTraits: [],
+						selectedTraitRanges: [],
+						traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+					}),
+					catalogScope
+				}
+			});
+			controller.selectExplicitTokens(tokenIds);
+			const draft = buildBiddingAutomationDraftFromSelection(get(controller.state).selection!);
+			const chain = testChain();
+			const collection = testCollection();
+			const selection = {
+				type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+				tokenIds,
+				catalogScope
+			};
+			backendApiMocks.lookupBatchTokenBiddingJobs.mockResolvedValueOnce({
+				jobs: [],
+				targetCount: tokenIds.length
+			});
+			if (tokenIds.length === 1) {
+				await lookupBiddingAutomationDraftTargetJob({
+					fetchFn: testFetch,
+					chain,
+					collection,
+					draft
+				});
+			} else {
+				await lookupBiddingSelectionJobs({
+					fetchFn: testFetch,
+					chainRef: chain.slug,
+					collectionRef: collection.slug,
+					draft
+				});
+			}
+			expect(backendApiMocks.lookupBatchTokenBiddingJobs).toHaveBeenCalledWith(
+				testFetch,
+				chain.slug,
+				collection.slug,
+				{ selection }
+			);
+			backendApiMocks.upsertBatchTokenBiddingJobs.mockResolvedValueOnce({ jobs: [] });
+			await saveBiddingAutomationDraftJobs({
+				fetchFn: testFetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				draft,
+				targetTokenId: null,
+				nextStatus: TRADING_JOB_STATUS.Paused,
+				pricing: { floorEth: '0.1', ceilingEth: '0.2', deltaEth: '0.01', priceTierId: null }
+			});
+			expect(backendApiMocks.upsertBatchTokenBiddingJobs).toHaveBeenCalledWith(
+				testFetch,
+				chain.slug,
+				collection.slug,
+				expect.objectContaining({ selection })
+			);
+		}
+	);
 
 	it('saves a single-NFT trait job when the selected opponent bid requests multiple NFTs', async () => {
 		const job = testTraitJob();

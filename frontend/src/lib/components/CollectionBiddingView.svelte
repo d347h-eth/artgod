@@ -222,7 +222,9 @@
 
 	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
-	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomation = createBiddingAutomationController(() =>
+		selectedCollectionScope(collectionViewPage())
+	);
 	const biddingAutomationState = biddingAutomation.state;
 	let biddingJobsChangeSignal = $state(0);
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();

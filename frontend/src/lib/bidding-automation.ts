@@ -205,6 +205,7 @@ export type BiddingAutomationFilteredTokenSelection = {
 export type BiddingAutomationExplicitTokenSelection = {
 	type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens;
 	tokenIds: string[];
+	catalogScope?: CatalogScope;
 };
 
 // Represents a bid-book row selected as the template for a bidding draft.
@@ -218,6 +219,17 @@ export type BiddingAutomationSelection =
 	| BiddingAutomationFilteredTokenSelection
 	| BiddingAutomationExplicitTokenSelection
 	| BiddingAutomationSelectedBidSelection;
+
+// The originating browse scope fences token selection, independently of native job identity.
+export function biddingSelectionCatalogScope(
+	selection: BiddingAutomationSelection
+): CatalogScope | undefined {
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens)
+		return selection.filter.catalogScope;
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens)
+		return selection.catalogScope;
+	return undefined;
+}
 
 // Describes the durable job target that a UI selection is currently drafting.
 export type BiddingAutomationDraftTarget =

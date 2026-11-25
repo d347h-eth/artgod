@@ -117,7 +117,9 @@
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
-	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomation = createBiddingAutomationController(() =>
+		selectedCollectionScope(collectionViewPage())
+	);
 	const biddingAutomationState = biddingAutomation.state;
 	const tokenPanelBidBook = createTokenBiddingPanelBidBookController();
 	const tokenPanelBidBookState = tokenPanelBidBook.state;
