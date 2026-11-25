@@ -954,9 +954,8 @@ yarn workspace @artgod/indexer run dev:bootstrap-worker
 yarn workspace @artgod/indexer run dev:collection-extension-worker
 yarn workspace @artgod/indexer run dev:offchain-ingest-worker
 yarn workspace @artgod/indexer run dev:opensea-stream-worker
-yarn workspace @artgod/indexer run dev:opensea-bootstrap-worker
-yarn workspace @artgod/indexer run dev:opensea-reconcile-worker
-yarn workspace @artgod/indexer run dev:opensea-reconcile-scheduler-worker
+yarn workspace @artgod/indexer run dev:orderbook-reconcile-worker
+yarn workspace @artgod/indexer run dev:orderbook-reconcile-scheduler-worker
 yarn workspace @artgod/indexer run dev:dead-letter-worker
 ```
 

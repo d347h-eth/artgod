@@ -10,8 +10,7 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `events-sync-backfill`
 - `collection-bootstrap`
 - `collection-bootstrap-image-cache`
-- `opensea-bootstrap`
-- `opensea-reconcile`
+- `orderbook-opensea`
 - `offchain-orders-raw`
 - `orders-domain`
 - `orders-upsert`
@@ -406,10 +405,10 @@ OpenSea job production/consumption:
 
 - `opensea.collection.bootstrap`
     - produced by `bootstrap-worker`
-    - consumed by `opensea-bootstrap-worker`
+    - consumed by `orderbook-reconcile-worker`
 - `opensea.collection.reconcile`
-    - produced by `opensea-reconcile-scheduler-worker`
-    - consumed by `opensea-reconcile-worker`
+    - produced by `orderbook-reconcile-scheduler-worker`
+    - consumed by `orderbook-reconcile-worker`
 
 Collection extension job production/consumption:
 

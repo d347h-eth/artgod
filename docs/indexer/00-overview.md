@@ -77,18 +77,13 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
     - Publishes raw OpenSea stream events into the offchain queue.
     - Tracks collection-level stream health timestamps.
 
-- OpenSea bootstrap runtime (`indexer/src/runtime/opensea-bootstrap-worker.ts`)
-    - Uses the persisted OpenSea slug from the collection row.
-    - Starts initial full orderbook snapshot for a collection.
-    - Marks OpenSea offchain readiness when the first snapshot run succeeds.
+- Orderbook reconciler (`indexer/src/runtime/orderbook-reconcile-worker.ts`)
+    - Executes initial and periodic reads. OpenSea first reads report identity,
+      snapshot, readiness and retries to the requesting bootstrap run.
+    - The shared process starts even when OpenSea is disabled.
 
-- OpenSea reconcile runtime (`indexer/src/runtime/opensea-reconcile-worker.ts`)
-    - Runs full orderbook reconciliation passes for tracked collections.
-    - Applies authoritative source-active/inactive updates at the source-status layer.
-
-- OpenSea reconcile scheduler runtime (`indexer/src/runtime/opensea-reconcile-scheduler-worker.ts`)
-    - Schedules periodic reconcile jobs.
-    - Schedules immediate reconcile on startup for stale collections.
+- Orderbook scheduler (`indexer/src/runtime/orderbook-reconcile-scheduler-worker.ts`)
+    - Schedules stale markets at startup and queues periodic refreshes.
 
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
     - Consumes dead-letter jobs and logs terminal failures.

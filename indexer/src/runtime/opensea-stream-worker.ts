@@ -1,7 +1,7 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { loadOpenSeaConfig } from "../config/opensea.js";
+import { loadOrderbookConfig } from "../config/opensea.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import {
     OFFCHAIN_OBSERVATION_CHANNEL,
@@ -31,7 +31,9 @@ type SubscriptionRecord = {
 
 async function main() {
     try {
-        const config = loadOpenSeaConfig();
+        const config = loadOrderbookConfig();
+        const provider = config.opensea;
+        if (!provider) return;
         setDbPath(config.dbPath);
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
@@ -56,7 +58,7 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const collections = new SqliteCollectionRegistry();
-        const stream = new OpenSeaStreamAdapter(config.opensea.apiKey);
+        const stream = new OpenSeaStreamAdapter(provider.apiKey);
 
         const subscriptions = new Map<string, SubscriptionRecord>();
         let routedCollections = new Map<string, CollectionRecord[]>();
@@ -130,7 +132,7 @@ async function main() {
                     error: String(error),
                 });
             });
-        }, config.opensea.subscriptionPollMs);
+        }, provider.subscriptionPollMs);
 
         logger.info("OpenSea stream worker ready", {
             component: "OpenSeaStreamWorker",

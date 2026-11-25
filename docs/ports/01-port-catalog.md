@@ -94,9 +94,9 @@ profile exporters use the configured Tempo and Pyroscope URLs.
 | `42746` | opensea-stream-worker                   | `config/settings.manifest.toml` |
 | `42747` | bootstrap-worker                        | `config/settings.manifest.toml` |
 | `42748` | dead-letter-worker                      | `config/settings.manifest.toml` |
-| `42749` | opensea-bootstrap-worker                | `config/settings.manifest.toml` |
-| `42750` | opensea-reconcile-worker                | `config/settings.manifest.toml` |
-| `42751` | opensea-reconcile-scheduler-worker      | `config/settings.manifest.toml` |
+| `42749` | orderbook-reconcile-worker                | `config/settings.manifest.toml` |
+| `42750` | orderbook-reconcile-worker                | `config/settings.manifest.toml` |
+| `42751` | orderbook-reconcile-scheduler-worker      | `config/settings.manifest.toml` |
 | `42752` | collection-extension-worker             | `config/settings.manifest.toml` |
 | `42753` | bidding-bot (optional desktop loopback) | `config/settings.manifest.toml` |
 

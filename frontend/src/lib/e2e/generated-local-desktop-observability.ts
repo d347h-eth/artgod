@@ -285,32 +285,22 @@ export const LOCAL_DESKTOP_OBSERVABILITY_SCHEMA = {
           "validation": null
         },
         {
-          "key": "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-          "label": "indexer metrics port opensea bootstrap worker",
+          "key": "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER",
+          "label": "indexer metrics port orderbook reconcile worker",
           "inputKind": "text",
           "secret": false,
           "options": [],
-          "help": "Prometheus metrics port for the OpenSea bootstrap worker.",
+          "help": "Prometheus metrics port for the orderbook reconcile worker.",
           "requiredForLaunch": false,
           "validation": null
         },
         {
-          "key": "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-          "label": "indexer metrics port opensea reconcile worker",
+          "key": "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER",
+          "label": "indexer metrics port orderbook reconcile scheduler worker",
           "inputKind": "text",
           "secret": false,
           "options": [],
-          "help": "Prometheus metrics port for the OpenSea reconcile worker.",
-          "requiredForLaunch": false,
-          "validation": null
-        },
-        {
-          "key": "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-          "label": "indexer metrics port opensea reconcile scheduler worker",
-          "inputKind": "text",
-          "secret": false,
-          "options": [],
-          "help": "Prometheus metrics port for the OpenSea reconcile scheduler worker.",
+          "help": "Prometheus metrics port for the orderbook reconcile scheduler worker.",
           "requiredForLaunch": false,
           "validation": null
         },
@@ -355,9 +345,8 @@ export const LOCAL_DESKTOP_OBSERVABILITY_SCHEMA = {
     "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER": "42746",
     "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER": "42747",
     "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER": "42748",
-    "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER": "42749",
-    "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER": "42750",
-    "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER": "42751",
+    "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER": "42750",
+    "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER": "42751",
     "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER": "42752"
   }
 } as const;

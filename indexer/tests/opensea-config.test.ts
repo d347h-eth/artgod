@@ -3,7 +3,10 @@ import {
     getSettingDefault,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
-import { loadOpenSeaConfig } from "../src/config/opensea.js";
+import {
+    loadOpenSeaConfig,
+    loadOrderbookConfig,
+} from "../src/config/opensea.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
@@ -83,7 +86,7 @@ describe("OpenSea config", () => {
             OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
             OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
             INDEXER_METRICS_ENABLED: "true",
-            INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER: "42791",
+            INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER: "42791",
         });
 
         expect(config.apm.enabled).toBe(true);
@@ -104,5 +107,32 @@ describe("OpenSea config", () => {
         ).toThrow(
             "OpenSea integration disabled because OPENSEA_API_KEY is not configured",
         );
+    });
+});
+
+describe("orderbook runtime provider selection", () => {
+    it("starts without provider credentials and honors explicit disablement", () => {
+        expect(
+            loadOrderbookConfig({ ...REQUIRED_ENV, OPENSEA_API_KEY: "" })
+                .opensea,
+        ).toBeNull();
+        expect(
+            loadOrderbookConfig({
+                ...REQUIRED_ENV,
+                OPENSEA_INTEGRATION_MODE: "disabled",
+            }).opensea,
+        ).toBeNull();
+        expect(loadOrderbookConfig(REQUIRED_ENV).opensea?.apiKey).toBe(
+            REQUIRED_ENV.OPENSEA_API_KEY,
+        );
+    });
+    it("rejects explicitly enabled OpenSea without a key", () => {
+        expect(() =>
+            loadOrderbookConfig({
+                ...REQUIRED_ENV,
+                OPENSEA_API_KEY: "",
+                OPENSEA_INTEGRATION_MODE: "enabled",
+            }),
+        ).toThrow("OPENSEA_API_KEY");
     });
 });

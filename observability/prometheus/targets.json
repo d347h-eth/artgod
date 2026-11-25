@@ -34,24 +34,17 @@
         }
     },
     {
-        "targets": ["127.0.0.1:42749"],
-        "labels": {
-            "job": "artgod-indexer",
-            "runtime": "opensea-bootstrap-worker"
-        }
-    },
-    {
         "targets": ["127.0.0.1:42750"],
         "labels": {
             "job": "artgod-indexer",
-            "runtime": "opensea-reconcile-worker"
+            "runtime": "orderbook-reconcile-worker"
         }
     },
     {
         "targets": ["127.0.0.1:42751"],
         "labels": {
             "job": "artgod-indexer",
-            "runtime": "opensea-reconcile-scheduler-worker"
+            "runtime": "orderbook-reconcile-scheduler-worker"
         }
     },
     {

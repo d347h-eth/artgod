@@ -819,28 +819,20 @@ default = "42748"
 help = "Prometheus metrics port for the dead-letter worker."
 
 [[settings]]
-key = "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER"
+key = "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER"
 group = "indexer-observability"
 targets = ["local", "deploy"]
-label = "indexer metrics port opensea bootstrap worker"
-default = "42749"
-help = "Prometheus metrics port for the OpenSea bootstrap worker."
-
-[[settings]]
-key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER"
-group = "indexer-observability"
-targets = ["local", "deploy"]
-label = "indexer metrics port opensea reconcile worker"
+label = "indexer metrics port orderbook reconcile worker"
 default = "42750"
-help = "Prometheus metrics port for the OpenSea reconcile worker."
+help = "Prometheus metrics port for the orderbook reconcile worker."
 
 [[settings]]
-key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER"
+key = "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER"
 group = "indexer-observability"
 targets = ["local", "deploy"]
-label = "indexer metrics port opensea reconcile scheduler worker"
+label = "indexer metrics port orderbook reconcile scheduler worker"
 default = "42751"
-help = "Prometheus metrics port for the OpenSea reconcile scheduler worker."
+help = "Prometheus metrics port for the orderbook reconcile scheduler worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER"

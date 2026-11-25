@@ -48,16 +48,12 @@ pub(crate) const INDEXER_WORKERS: &[(&str, &str)] = &[
         "indexer/dist-desktop/opensea-stream-worker.mjs",
     ),
     (
-        "indexer-opensea-bootstrap-worker",
-        "indexer/dist-desktop/opensea-bootstrap-worker.mjs",
+        "indexer-orderbook-reconcile-worker",
+        "indexer/dist-desktop/orderbook-reconcile-worker.mjs",
     ),
     (
-        "indexer-opensea-reconcile-worker",
-        "indexer/dist-desktop/opensea-reconcile-worker.mjs",
-    ),
-    (
-        "indexer-opensea-reconcile-scheduler-worker",
-        "indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs",
+        "indexer-orderbook-reconcile-scheduler-worker",
+        "indexer/dist-desktop/orderbook-reconcile-scheduler-worker.mjs",
     ),
     (
         "indexer-bootstrap-worker",

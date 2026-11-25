@@ -40,15 +40,12 @@ scrape_configs:
           - targets: ["indexer-dead-letter-worker:42748"]
             labels:
                 runtime: "dead-letter-worker"
-          - targets: ["indexer-opensea-bootstrap-worker:42749"]
+          - targets: ["indexer-orderbook-reconcile-worker:42750"]
             labels:
-                runtime: "opensea-bootstrap-worker"
-          - targets: ["indexer-opensea-reconcile-worker:42750"]
+                runtime: "orderbook-reconcile-worker"
+          - targets: ["indexer-orderbook-reconcile-scheduler-worker:42751"]
             labels:
-                runtime: "opensea-reconcile-worker"
-          - targets: ["indexer-opensea-reconcile-scheduler-worker:42751"]
-            labels:
-                runtime: "opensea-reconcile-scheduler-worker"
+                runtime: "orderbook-reconcile-scheduler-worker"
           - targets: ["indexer-collection-extension-worker:42752"]
             labels:
                 runtime: "collection-extension-worker"

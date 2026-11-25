@@ -109,7 +109,7 @@ collection purge, and rollback if refreshing the price fails.
   generic reconciler can take over both entry points. The existing sync worker
   demonstrates multiple bounded consumers in one Node process.
   [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
-  · [OpenSea bootstrap worker](../../indexer/src/runtime/opensea-bootstrap-worker.ts)
+  · [OpenSea bootstrap worker](../../indexer/src/application/offchain/opensea-first-read.ts)
   · [Sync worker](../../indexer/src/runtime/sync-worker.ts)
 - Raw queue envelopes require a local collection ID. Dispatch builds the order
   upsert job ID from chain, order ID and receipt time. Two venues can publish

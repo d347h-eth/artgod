@@ -1,12 +1,10 @@
-import { createMigrationRunner } from "@artgod/shared/migrations";
-import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { BOOTSTRAP_STEP_KEY } from "@artgod/shared/bootstrap/pipeline";
-import { zeroAddress } from "viem";
-import { loadOpenSeaConfig } from "../config/opensea.js";
-import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
-import { runWorker } from "../application/worker-runner.js";
-import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-sync.js";
+import type { OpenSeaOrderbookSync } from "./opensea-orderbook-sync.js";
+import type { BootstrapStepsPort } from "../../ports/bootstrap-steps.js";
+import type { CollectionRegistryPort } from "../../ports/collections.js";
+import type { OpenSeaOrderbookRunsPort } from "../../ports/opensea-orderbook-runs.js";
+import type { QueuePort } from "../../ports/queue.js";
 import {
     areOpenSeaBootstrapStepsTerminal,
     markOpenSeaBootstrapStepRetry,
@@ -14,133 +12,24 @@ import {
     markOpenSeaBootstrapStepSucceeded,
     markOpenSeaBootstrapTerminalFailure,
     type OpenSeaBootstrapStepKey,
-} from "../application/bootstrap-opensea-steps.js";
-import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
+} from "../bootstrap-opensea-steps.js";
+import { getRetryDelayMs, type RetryPolicy } from "../../domain/retry.js";
 import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
-import type { JobEnvelope } from "../domain/jobs.js";
+import type { JobEnvelope } from "../../domain/jobs.js";
 import {
     OPENSEA_BOOTSTRAP_FAILURE_MESSAGE,
     OPENSEA_JOB_ID_SCOPE,
     OPENSEA_JOB_KIND,
     type OpenSeaBootstrapCollectionPayload,
-} from "../domain/opensea-jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
-import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import { SqliteOpenSeaOrderbookRuns } from "../infra/offchain/sqlite-orderbook-runs.js";
-import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
-import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
-import { OpenSeaApiAdapter } from "../infra/offchain/opensea-api.js";
-import { NatsJetStreamQueue } from "../infra/queue/nats.js";
-import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
-import { initRuntimeApm } from "@artgod/shared/observability/apm";
-import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
+} from "../../domain/opensea-jobs.js";
+import { QUEUE_NAMES } from "../../domain/queues.js";
 
-async function main() {
-    try {
-        const config = loadOpenSeaConfig();
-        setDbPath(config.dbPath);
-        const runtimeApm = await initRuntimeApm({
-            enabled: config.apm.enabled,
-            serviceNamespace: config.apm.serviceNamespace,
-            spanProfiles: config.apm.spanProfiles,
-            worker: "opensea-bootstrap-worker",
-            chainId: config.chainId,
-            traces: config.apm.traces,
-            profiles: config.apm.profiles,
-        });
-        const runtimeMetrics = await initRuntimeMetrics({
-            enabled: config.metrics.enabled,
-            host: config.metrics.host,
-            port: config.metrics.ports.bootstrapWorker,
-            worker: "opensea-bootstrap-worker",
-            chainId: config.chainId,
-        });
-        const migrations = createMigrationRunner();
-        await migrations.runMigrations();
-        const queue = await NatsJetStreamQueue.connect({
-            natsUrl: config.queue.natsUrl,
-            streamPrefix: config.queue.streamPrefix,
-        });
-        const collections = new SqliteCollectionRegistry();
-        const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
-        const sourceState = new SqliteOrderSourceStateStore(
-            new SqliteDailyListingPrices(db, [
-                zeroAddress,
-                config.tokens.wethAddress,
-            ]),
-        );
-        const bootstrapSteps = new SqliteBootstrapSteps();
-        const api = new OpenSeaApiAdapter({
-            apiKey: config.opensea.apiKey,
-            snapshotPageSize: config.opensea.snapshotPageSize,
-            retryPolicy: config.opensea.retryPolicy,
-            rateLimiter: config.opensea.rateLimiter,
-        });
-        const sync = new OpenSeaOrderbookSync(api, queue, sourceState);
-
-        const stopWorker = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.OpenSeaBootstrap,
-                consumerName: `opensea-bootstrap-${config.chainId}`,
-                maxInFlight: 1,
-            },
-            async (job: JobEnvelope<OpenSeaBootstrapCollectionPayload>) => {
-                if (job.kind !== OPENSEA_JOB_KIND.BootstrapCollection) return;
-                await handleBootstrapJob(
-                    queue,
-                    collections,
-                    bootstrapSteps,
-                    orderbookRuns,
-                    sync,
-                    config.opensea.retryPolicy,
-                    config.opensea.staleStartThresholdMs,
-                    job,
-                );
-            },
-            {
-                apm: runtimeApm.apm,
-                spanName: "worker.openseaBootstrap.consume",
-            },
-        );
-
-        logger.info("OpenSea bootstrap worker ready", {
-            component: "OpenSeaBootstrapWorker",
-            action: "main",
-        });
-
-        const shutdown = async () => {
-            logger.info("OpenSea bootstrap worker shutting down", {
-                component: "OpenSeaBootstrapWorker",
-                action: "shutdown",
-            });
-            await stopWorker();
-            await runtimeApm.stop();
-            await runtimeMetrics.stop();
-            await queue.close();
-            process.exit(0);
-        };
-
-        process.on("SIGINT", shutdown);
-        process.on("SIGTERM", shutdown);
-    } catch (error) {
-        logger.error("OpenSea bootstrap worker failed", {
-            component: "OpenSeaBootstrapWorker",
-            action: "main",
-            error: String(error),
-        });
-        process.exit(1);
-    }
-}
-
-main();
-
-async function handleBootstrapJob(
-    queue: NatsJetStreamQueue,
-    collections: SqliteCollectionRegistry,
+export async function handleOpenSeaFirstRead(
+    queue: Pick<QueuePort, "publish">,
+    collections: CollectionRegistryPort,
     bootstrapSteps: BootstrapStepsPort,
-    orderbookRuns: SqliteOpenSeaOrderbookRuns,
-    sync: OpenSeaOrderbookSync,
+    orderbookRuns: OpenSeaOrderbookRunsPort,
+    sync: Pick<OpenSeaOrderbookSync, "syncCollection">,
     retryPolicy: RetryPolicy,
     delegatedHealthCheckMs: number,
     job: JobEnvelope<OpenSeaBootstrapCollectionPayload>,
@@ -149,7 +38,7 @@ async function handleBootstrapJob(
         logger.debug(
             "OpenSea bootstrap skipped; bootstrap steps are terminal",
             {
-                component: "OpenSeaBootstrapWorker",
+                component: "OpenSeaFirstRead",
                 action: "handleBootstrapJob",
                 chainId: job.payload.chainId,
                 collectionId: job.payload.collectionId,
@@ -172,7 +61,7 @@ async function handleBootstrapJob(
             error: OPENSEA_BOOTSTRAP_FAILURE_MESSAGE.CollectionMissing,
         });
         logger.warn("OpenSea bootstrap skipped; collection missing", {
-            component: "OpenSeaBootstrapWorker",
+            component: "OpenSeaFirstRead",
             action: "handleBootstrapJob",
             chainId: job.payload.chainId,
             collectionId: job.payload.collectionId,
@@ -277,7 +166,7 @@ async function handleBootstrapJob(
                 error: message,
             });
             logger.warn("OpenSea bootstrap failed terminally", {
-                component: "OpenSeaBootstrapWorker",
+                component: "OpenSeaFirstRead",
                 action: "handleBootstrapJob",
                 chainId: collection.chainId,
                 collectionId: collection.id,
@@ -299,7 +188,7 @@ async function handleBootstrapJob(
         });
         await scheduleBootstrapRetry(queue, job, attempts + 1, delayMs);
         logger.warn("OpenSea bootstrap retry scheduled", {
-            component: "OpenSeaBootstrapWorker",
+            component: "OpenSeaFirstRead",
             action: "handleBootstrapJob",
             chainId: collection.chainId,
             collectionId: collection.id,
@@ -311,7 +200,7 @@ async function handleBootstrapJob(
 }
 
 async function scheduleBootstrapRetry(
-    queue: NatsJetStreamQueue,
+    queue: Pick<QueuePort, "publish">,
     job: JobEnvelope<OpenSeaBootstrapCollectionPayload>,
     nextAttempt: number,
     delayMs: number,
@@ -328,7 +217,7 @@ async function scheduleBootstrapRetry(
             scheduledAt,
         ].join(":"),
         kind: OPENSEA_JOB_KIND.BootstrapCollection,
-        queue: QUEUE_NAMES.OpenSeaBootstrap,
+        queue: QUEUE_NAMES.OpenSeaReconcile,
         payload,
         attempt: nextAttempt,
         scheduledAt,
@@ -336,5 +225,5 @@ async function scheduleBootstrapRetry(
         collectionId: payload.collectionId,
         traceId: job.traceId,
     };
-    await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, retryJob);
+    await queue.publish(QUEUE_NAMES.OpenSeaReconcile, retryJob);
 }

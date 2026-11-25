@@ -2962,14 +2962,14 @@ async function scheduleOpenSeaBootstrap(
             payload.collectionId,
         ].join(":"),
         kind: OPENSEA_JOB_KIND.BootstrapCollection,
-        queue: QUEUE_NAMES.OpenSeaBootstrap,
+        queue: QUEUE_NAMES.OpenSeaReconcile,
         payload,
         attempt: 0,
         scheduledAt: Date.now(),
         chainId: payload.chainId,
         collectionId: payload.collectionId,
     };
-    await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, job);
+    await queue.publish(QUEUE_NAMES.OpenSeaReconcile, job);
 }
 
 async function mapWithConcurrency<T>(

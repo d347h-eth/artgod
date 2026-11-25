@@ -631,7 +631,7 @@ with positive canonical local ownership and uses that exact contract/token in
 the NFT lookup. It never uses the first/last range boundaries. If no owned token
 is locally available, resolution reports that ownership sync must complete.
 Starting sync repeats single-sample verification before storing the slug,
-marking OpenSea state `pending`, and enqueueing an `opensea-bootstrap` job
+marking OpenSea state `pending`, and enqueueing an `orderbook-opensea` job
 without a bootstrap-run context. No historical bootstrap run is rewritten.
 
 This modal depends on the loaded backend OpenSea integration capability, not
@@ -773,8 +773,7 @@ Queues:
 - `events-sync-backfill`
 - `token-image-cache`
 - `collection-extension-artifacts`
-- `opensea-bootstrap`
-- `opensea-reconcile`
+- `orderbook-opensea`
 - `offchain-orders-raw`
 
 Workers:
@@ -782,10 +781,10 @@ Workers:
 - `bootstrap-worker`
 - `sync-worker`
 - `collection-extension-worker`
-- `opensea-bootstrap-worker`
+- `orderbook-reconcile-worker`
 - `opensea-stream-worker`
-- `opensea-reconcile-worker`
-- `opensea-reconcile-scheduler-worker`
+- `orderbook-reconcile-worker`
+- `orderbook-reconcile-scheduler-worker`
 - `offchain-ingest-worker`
 - `domain-worker`
 

@@ -43,14 +43,12 @@ const DEFAULT_INDEXER_METRICS_PORTS: IndexerMetricsPortsConfig = {
     openseaStreamWorker: getSettingDefaultNumber(
         "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
     ),
-    openseaBootstrapWorker: getSettingDefaultNumber(
-        "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
+
+    orderbookReconcileWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER",
     ),
-    openseaReconcileWorker: getSettingDefaultNumber(
-        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-    ),
-    openseaReconcileSchedulerWorker: getSettingDefaultNumber(
-        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
+    orderbookReconcileSchedulerWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER",
     ),
     bootstrapWorker: getSettingDefaultNumber(
         "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER",
@@ -95,9 +93,8 @@ export type IndexerMetricsPortsConfig = {
     domainWorker: number;
     offchainIngestWorker: number;
     openseaStreamWorker: number;
-    openseaBootstrapWorker: number;
-    openseaReconcileWorker: number;
-    openseaReconcileSchedulerWorker: number;
+    orderbookReconcileWorker: number;
+    orderbookReconcileSchedulerWorker: number;
     bootstrapWorker: number;
     collectionExtensionWorker: number;
     deadLetterWorker: number;
@@ -110,9 +107,8 @@ export type OpenSeaMetricsConfig = {
     ports: Pick<
         IndexerMetricsPortsConfig,
         | "openseaStreamWorker"
-        | "openseaBootstrapWorker"
-        | "openseaReconcileWorker"
-        | "openseaReconcileSchedulerWorker"
+        | "orderbookReconcileWorker"
+        | "orderbookReconcileSchedulerWorker"
     >;
 };
 
@@ -202,20 +198,16 @@ export function parseIndexerMetricsConfig(
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
                 DEFAULT_INDEXER_METRICS_PORTS.openseaStreamWorker,
             ),
-            openseaBootstrapWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaBootstrapWorker,
+
+            orderbookReconcileWorker: parseNumber(
+                env.INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER,
+                "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER",
+                DEFAULT_INDEXER_METRICS_PORTS.orderbookReconcileWorker,
             ),
-            openseaReconcileWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileWorker,
-            ),
-            openseaReconcileSchedulerWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileSchedulerWorker,
+            orderbookReconcileSchedulerWorker: parseNumber(
+                env.INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER,
+                "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER",
+                DEFAULT_INDEXER_METRICS_PORTS.orderbookReconcileSchedulerWorker,
             ),
             bootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_BOOTSTRAP_WORKER,
@@ -248,20 +240,16 @@ export function parseOpenSeaMetricsConfig(
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
                 DEFAULT_INDEXER_METRICS_PORTS.openseaStreamWorker,
             ),
-            openseaBootstrapWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaBootstrapWorker,
+
+            orderbookReconcileWorker: parseNumber(
+                env.INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER,
+                "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_WORKER",
+                DEFAULT_INDEXER_METRICS_PORTS.orderbookReconcileWorker,
             ),
-            openseaReconcileWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileWorker,
-            ),
-            openseaReconcileSchedulerWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
-                "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileSchedulerWorker,
+            orderbookReconcileSchedulerWorker: parseNumber(
+                env.INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER,
+                "INDEXER_METRICS_PORT_ORDERBOOK_RECONCILE_SCHEDULER_WORKER",
+                DEFAULT_INDEXER_METRICS_PORTS.orderbookReconcileSchedulerWorker,
             ),
         },
     };

@@ -2548,13 +2548,7 @@ fn spawn_runtime_processes(
 }
 
 fn is_opensea_worker(process_name: &str) -> bool {
-    matches!(
-        process_name,
-        "indexer-opensea-stream-worker"
-            | "indexer-opensea-bootstrap-worker"
-            | "indexer-opensea-reconcile-worker"
-            | "indexer-opensea-reconcile-scheduler-worker"
-    )
+    process_name == "indexer-opensea-stream-worker"
 }
 
 fn sleep_with_stop(stop_rx: &Receiver<()>, stop_signal: &AtomicBool, duration: Duration) -> bool {

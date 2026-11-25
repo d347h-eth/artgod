@@ -1,7 +1,6 @@
 // OpenSea queue names shared by publishers and workers.
 export const OPENSEA_QUEUE_NAME = {
-    Bootstrap: "opensea-bootstrap",
-    Reconcile: "opensea-reconcile",
+    Reconcile: "orderbook-opensea",
 } as const;
 
 export const OPENSEA_JOB_KIND = {

@@ -40,7 +40,7 @@ export class NatsOpenSeaCommandQueue {
             bootstrap: null,
         };
         await this.publishJob(
-            OPENSEA_QUEUE_NAME.Bootstrap,
+            OPENSEA_QUEUE_NAME.Reconcile,
             payload,
             OPENSEA_JOB_KIND.BootstrapCollection,
             [

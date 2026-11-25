@@ -709,9 +709,8 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/collection-extension-worker.mjs`
 - `indexer/dist-desktop/offchain-ingest-worker.mjs`
 - `indexer/dist-desktop/opensea-stream-worker.mjs`
-- `indexer/dist-desktop/opensea-bootstrap-worker.mjs`
-- `indexer/dist-desktop/opensea-reconcile-worker.mjs`
-- `indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs`
+- `indexer/dist-desktop/orderbook-reconcile-worker.mjs`
+- `indexer/dist-desktop/orderbook-reconcile-scheduler-worker.mjs`
 - `indexer/dist-desktop/dead-letter-worker.mjs`
 - `trading/dist-desktop/bidding-bot-runtime.mjs`
 - `trading/dist-desktop/sniping-bot-runtime.mjs`

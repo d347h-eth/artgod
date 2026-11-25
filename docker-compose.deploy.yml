@@ -182,34 +182,24 @@ services:
                 "indexer/dist-desktop/opensea-stream-worker.mjs",
             ]
 
-    indexer-opensea-bootstrap-worker:
+    indexer-orderbook-reconcile-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
             [
                 "./scripts/deploy/run-node-runtime.sh",
-                "indexer/dist-desktop/opensea-bootstrap-worker.mjs",
+                "indexer/dist-desktop/orderbook-reconcile-worker.mjs",
             ]
 
-    indexer-opensea-reconcile-worker:
+    indexer-orderbook-reconcile-scheduler-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
             [
                 "./scripts/deploy/run-node-runtime.sh",
-                "indexer/dist-desktop/opensea-reconcile-worker.mjs",
-            ]
-
-    indexer-opensea-reconcile-scheduler-worker:
-        <<: *artgod-service
-        depends_on:
-            - nats
-        command:
-            [
-                "./scripts/deploy/run-node-runtime.sh",
-                "indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs",
+                "indexer/dist-desktop/orderbook-reconcile-scheduler-worker.mjs",
             ]
 
     indexer-dead-letter-worker:

@@ -18,7 +18,7 @@ runs, scheduler entry points, or processes.
 - Bootstrap worker: `indexer/src/runtime/bootstrap-worker.ts`
 - Collection-extension worker: `indexer/src/runtime/collection-extension-worker.ts`
 - Sync worker: `indexer/src/runtime/sync-worker.ts`
-- OpenSea bootstrap worker: `indexer/src/runtime/opensea-bootstrap-worker.ts`
+- OpenSea bootstrap worker: `indexer/src/application/offchain/opensea-first-read.ts`
 - Queue runtime: `indexer/src/application/worker-runner.ts`, `indexer/src/infra/queue/nats.ts`
 - Bootstrap step scheduler: `indexer/src/application/bootstrap-step-scheduler.ts`, `indexer/src/application/bootstrap-step-orchestrator.ts`
 - Bootstrap step planner: `backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts`

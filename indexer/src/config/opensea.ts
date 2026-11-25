@@ -5,7 +5,11 @@ import {
     parseNumber,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
-import { requireOpenSeaIntegrationEnabled } from "@artgod/shared/config/opensea-integration";
+import {
+    assertOpenSeaIntegrationModeSatisfied,
+    resolveOpenSeaIntegrationStatus,
+    requireOpenSeaIntegrationEnabled,
+} from "@artgod/shared/config/opensea-integration";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import { resolveNatsRuntimeConfig } from "@artgod/shared/config/nats";
 import {
@@ -46,7 +50,6 @@ export type OpenSeaRuntimeConfig = {
 type OpenSeaRuntimeMetricsConfig = Omit<OpenSeaMetricsConfig, "ports"> & {
     ports: {
         streamWorker: number;
-        bootstrapWorker: number;
         reconcileWorker: number;
         reconcileSchedulerWorker: number;
     };
@@ -64,16 +67,57 @@ const DEFAULT_OPENSEA_STALE_START_THRESHOLD_MS = getSettingDefaultNumber(
 const DEFAULT_OPENSEA_STREAM_SUBSCRIPTION_POLL_MS = getSettingDefaultNumber(
     "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS",
 );
+type RuntimeEnv = Record<string, string | undefined>;
+
 export function loadOpenSeaConfig(
-    env: Record<string, string | undefined> = process.env,
+    env: RuntimeEnv = process.env,
 ): OpenSeaRuntimeConfig {
+    requireOpenSeaIntegrationEnabled(env);
+    return { ...loadOrderbookRuntime(env), opensea: loadOpenSeaProvider(env) };
+}
+
+export function loadOrderbookConfig(env: RuntimeEnv = process.env) {
+    const status = resolveOpenSeaIntegrationStatus(env);
+    assertOpenSeaIntegrationModeSatisfied(status);
+    return {
+        ...loadOrderbookRuntime(env),
+        opensea: status.enabled ? loadOpenSeaProvider(env) : null,
+    };
+}
+
+function loadOpenSeaProvider(env: RuntimeEnv) {
+    const httpConfig = parseOpenSeaHttpConfig(env);
+    return {
+        apiKey: parseRequiredString(env.OPENSEA_API_KEY, "OPENSEA_API_KEY"),
+        snapshotPageSize: parseNumber(
+            env.OPENSEA_SNAPSHOT_PAGE_SIZE,
+            "OPENSEA_SNAPSHOT_PAGE_SIZE",
+            getSettingDefaultNumber("OPENSEA_SNAPSHOT_PAGE_SIZE"),
+        ),
+        reconcileIntervalMs: parseNumber(
+            env.OPENSEA_RECONCILE_INTERVAL_MS,
+            "OPENSEA_RECONCILE_INTERVAL_MS",
+            DEFAULT_OPENSEA_RECONCILE_INTERVAL_MS,
+        ),
+        staleStartThresholdMs: parseNumber(
+            env.OPENSEA_STALE_START_THRESHOLD_MS,
+            "OPENSEA_STALE_START_THRESHOLD_MS",
+            DEFAULT_OPENSEA_STALE_START_THRESHOLD_MS,
+        ),
+        subscriptionPollMs: parseNumber(
+            env.OPENSEA_STREAM_SUBSCRIPTION_POLL_MS,
+            "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS",
+            DEFAULT_OPENSEA_STREAM_SUBSCRIPTION_POLL_MS,
+        ),
+        retryPolicy: httpConfig.retryPolicy,
+        rateLimiter: httpConfig.rateLimiter,
+    };
+}
+
+function loadOrderbookRuntime(env: RuntimeEnv) {
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", DEFAULT_CHAIN_ID);
-    requireOpenSeaIntegrationEnabled(env);
-    const apiKey = parseRequiredString(env.OPENSEA_API_KEY, "OPENSEA_API_KEY");
-    const httpConfig = parseOpenSeaHttpConfig(env);
     const queue = resolveNatsRuntimeConfig(env);
-
     return {
         dbPath,
         chainId,
@@ -81,31 +125,6 @@ export function loadOpenSeaConfig(
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),
         },
         queue,
-        opensea: {
-            apiKey,
-            snapshotPageSize: parseNumber(
-                env.OPENSEA_SNAPSHOT_PAGE_SIZE,
-                "OPENSEA_SNAPSHOT_PAGE_SIZE",
-                getSettingDefaultNumber("OPENSEA_SNAPSHOT_PAGE_SIZE"),
-            ),
-            reconcileIntervalMs: parseNumber(
-                env.OPENSEA_RECONCILE_INTERVAL_MS,
-                "OPENSEA_RECONCILE_INTERVAL_MS",
-                DEFAULT_OPENSEA_RECONCILE_INTERVAL_MS,
-            ),
-            staleStartThresholdMs: parseNumber(
-                env.OPENSEA_STALE_START_THRESHOLD_MS,
-                "OPENSEA_STALE_START_THRESHOLD_MS",
-                DEFAULT_OPENSEA_STALE_START_THRESHOLD_MS,
-            ),
-            subscriptionPollMs: parseNumber(
-                env.OPENSEA_STREAM_SUBSCRIPTION_POLL_MS,
-                "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS",
-                DEFAULT_OPENSEA_STREAM_SUBSCRIPTION_POLL_MS,
-            ),
-            retryPolicy: httpConfig.retryPolicy,
-            rateLimiter: httpConfig.rateLimiter,
-        },
         apm: parseIndexerApmConfig(env),
         metrics: parseOpenSeaRuntimeMetricsConfig(env),
     };
@@ -120,10 +139,9 @@ function parseOpenSeaRuntimeMetricsConfig(
         host: metrics.host,
         ports: {
             streamWorker: metrics.ports.openseaStreamWorker,
-            bootstrapWorker: metrics.ports.openseaBootstrapWorker,
-            reconcileWorker: metrics.ports.openseaReconcileWorker,
+            reconcileWorker: metrics.ports.orderbookReconcileWorker,
             reconcileSchedulerWorker:
-                metrics.ports.openseaReconcileSchedulerWorker,
+                metrics.ports.orderbookReconcileSchedulerWorker,
         },
     };
 }

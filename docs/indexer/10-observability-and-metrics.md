@@ -328,9 +328,8 @@ and heights stay in JSON fields rather than indexed labels.
     - `42746` opensea-stream-worker
     - `42747` bootstrap-worker
     - `42748` dead-letter-worker
-    - `42749` opensea-bootstrap-worker
-    - `42750` opensea-reconcile-worker
-    - `42751` opensea-reconcile-scheduler-worker
+    - `42750` orderbook-reconcile-worker
+    - `42751` orderbook-reconcile-scheduler-worker
     - `42752` collection-extension-worker
     - `42753` bidding-bot
 - Runtime metrics bootstrap:

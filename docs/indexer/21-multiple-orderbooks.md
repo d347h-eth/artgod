@@ -79,8 +79,8 @@ retries. The VVV adapter opens its anonymous browser inside the reconciler
 when there is a VVV book to read. OpenSea’s stream worker starts its
 subscriptions only when its own integration is enabled. Both sources feed the
 existing order domain.
-[Current scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts) ·
-[Current reconciler](../../indexer/src/runtime/opensea-reconcile-worker.ts) ·
+[Current scheduler](../../indexer/src/runtime/orderbook-reconcile-scheduler-worker.ts) ·
+[Current reconciler](../../indexer/src/runtime/orderbook-reconcile-worker.ts) ·
 [VVV browser reader](22-vvv-orderbook-adapter.md#fetch-the-book-from-a-browser-in-a-local-worker)
 
 **What happens at startup.** With the default OpenSea settings, an empty API
@@ -109,7 +109,7 @@ run that requested each result. Once both publishers use the shared reader,
 retire the old OpenSea snapshot worker. The collection bootstrap worker keeps
 its metadata and ownership responsibilities.
 [Desktop launch rules](../../src-tauri/src/runtime/supervisor.rs) ·
-[OpenSea bootstrap worker](../../indexer/src/runtime/opensea-bootstrap-worker.ts) ·
+[OpenSea bootstrap worker](../../indexer/src/application/offchain/opensea-first-read.ts) ·
 [Start sync for a live collection](../../backend/src/application/use-cases/collections/start-opensea-collection-sync.ts)
 
 Carry the rename through the shared queue contracts, publishers, consumers,
@@ -123,7 +123,7 @@ browser in this reconciler or keep OpenSea progressing during a VVV failure,
 record the failing case and block VVV enablement there. A separate service
 would require a new design decision.
 [Worker composition](../../indexer/src/runtime/sync-worker.ts) ·
-[Delivery lease](../../indexer/src/config/opensea-reconcile-worker.ts) ·
+[Delivery lease](../../indexer/src/config/orderbook-reconcile-worker.ts) ·
 [Runtime registry and verification](../desktop/02-runtime-registry-maintenance.md)
 
 ## Map a market to tracked assets
@@ -164,7 +164,7 @@ would require a new design decision.
   OpenSea owns its API key, slug and stream toggle.
   [Bootstrap planner](../../backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts)
   ·
-  [Reconcile scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts)
+  [Reconcile scheduler](../../indexer/src/runtime/orderbook-reconcile-scheduler-worker.ts)
 
 ## Identify the feed, placement, signed order and quote
 

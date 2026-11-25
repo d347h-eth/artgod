@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { resolveNatsConsumerConfigUpdate } from "../src/infra/queue/nats.js";
-import { OPENSEA_RECONCILE_WORKER_POLICY } from "../src/config/opensea-reconcile-worker.js";
+import { ORDERBOOK_RECONCILE_WORKER_POLICY } from "../src/config/orderbook-reconcile-worker.js";
 
 describe("NATS consumer config reconciliation", () => {
     it("applies the reconciliation policy to an existing durable consumer", () => {
         const { maxInFlight, ackWaitMs, extendLeaseMs } =
-            OPENSEA_RECONCILE_WORKER_POLICY;
+            ORDERBOOK_RECONCILE_WORKER_POLICY;
         expect(extendLeaseMs).toBeLessThan(ackWaitMs);
         expect(
             resolveNatsConsumerConfigUpdate(

@@ -32,7 +32,7 @@ import { runWorker } from "../src/application/worker-runner.js";
 import { handleReconcileJob } from "../src/application/offchain/opensea-reconcile.js";
 import { OpenSeaOrderbookSync } from "../src/application/offchain/opensea-orderbook-sync.js";
 import { OpenSeaReconcilePolicy } from "../src/domain/opensea-reconcile-policy.js";
-import { OPENSEA_RECONCILE_WORKER_POLICY } from "../src/config/opensea-reconcile-worker.js";
+import { ORDERBOOK_RECONCILE_WORKER_POLICY } from "../src/config/orderbook-reconcile-worker.js";
 import {
     OPENSEA_JOB_KIND,
     OPENSEA_JOB_ID_SCOPE,
@@ -65,10 +65,10 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
     const artifacts = await mkdtemp(path.join(artifactRoot, "run-"));
     const store = path.join(artifacts, "store");
     const policy = {
-        ...OPENSEA_RECONCILE_WORKER_POLICY,
-        ackWaitMs: OPENSEA_RECONCILE_WORKER_POLICY.ackWaitMs / 60,
+        ...ORDERBOOK_RECONCILE_WORKER_POLICY,
+        ackWaitMs: ORDERBOOK_RECONCILE_WORKER_POLICY.ackWaitMs / 60,
         extendLeaseMs: Math.floor(
-            OPENSEA_RECONCILE_WORKER_POLICY.extendLeaseMs / 60,
+            ORDERBOOK_RECONCILE_WORKER_POLICY.extendLeaseMs / 60,
         ),
     };
     const scanMs = policy.ackWaitMs * 4 + 100;

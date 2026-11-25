@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runWorker } from "../src/application/worker-runner.js";
 import { JobDeferred } from "../src/domain/job-deferred.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import { OPENSEA_RECONCILE_WORKER_POLICY as POLICY } from "../src/config/opensea-reconcile-worker.js";
+import { ORDERBOOK_RECONCILE_WORKER_POLICY as POLICY } from "../src/config/orderbook-reconcile-worker.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
 import {
     OPENSEA_JOB_KIND,
