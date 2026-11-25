@@ -471,6 +471,24 @@ describe("permanent daily listings and current asks", () => {
         },
     );
 
+    it("reaches the last affected seller across a full batch of prices for one token", async () => {
+        const { feed, books, listing } = sellerBook();
+        const sellerCount = POLICY.maintenanceBatchRows + 1;
+        const maker = (index: number) =>
+            "0x" + index.toString(16).padStart(40, "0");
+        await event("last-seller", now, maker(sellerCount), "1", ETH, "99");
+        const book = books.begin(feed);
+        for (let i = 1; i <= sellerCount; i++) {
+            const record = listing("listing-" + i, "20");
+            record.order!.maker = maker(i);
+            book.record(record);
+        }
+        expect(book.publish().activeOrders).toBe(sellerCount);
+        expect(list().items).toMatchObject([
+            { maker: maker(sellerCount), price: "20" },
+        ]);
+    });
+
     it("rolls back the whole publication if a second ask expires during the price retry", async () => {
         const { feed, books, listing } = sellerBook();
         const prior = books.begin(feed);

@@ -669,18 +669,33 @@ export class SqliteOrderSourceStateStore {
     private refreshDailyPrices(run: string) {
         // The writer lock freezes competing publications and chain updates. Time
         // can still cross midnight or the validity boundary of a competing ask.
+        // Page the affected sellers by their temporary primary key. Each seller
+        // looks up its own daily row, including for a single stream observation.
+        const sellers = db.raw.prepare(
+            `SELECT chain_id,collection_id,token_id,maker FROM book_sellers WHERE run=@run
+             AND (chain_id,collection_id,token_id,maker)>(@chain_id,@collection_id,@token_id,@maker)
+             ORDER BY chain_id,collection_id,token_id,maker LIMIT @limit`,
+        );
         const writeDailyPrices = db.writeTransaction(() => {
             const start = Math.floor(this.clock() / 1000);
             const day = Math.floor(start / POLICY.utcDaySeconds);
-            eachPage<Scope & { id: number }>(
-                `SELECT a.id,s.chain_id,s.collection_id,s.token_id,s.maker
-                 FROM activities a JOIN book_sellers s USING(chain_id,collection_id,token_id,maker)
-                 WHERE s.run=? AND a.listing_day=? AND a.id>? ORDER BY a.id LIMIT ?`,
-                [run, day],
-                "id",
-                (seller) => this.history.refreshSeller(seller, start),
-                0,
-            );
+            let after: Scope = {
+                chain_id: -1,
+                collection_id: -1,
+                token_id: "",
+                maker: "",
+            };
+            for (;;) {
+                const page = sellers.all({
+                    run,
+                    limit: BATCH,
+                    ...after,
+                }) as Scope[];
+                if (!page.length) break;
+                for (const seller of page)
+                    this.history.refreshSeller(seller, start);
+                after = page[page.length - 1]!;
+            }
             const end = Math.floor(this.clock() / 1000);
             if (
                 end !== start &&
@@ -838,10 +853,9 @@ function eachPage<T>(
     args: (string | number)[],
     key: keyof T,
     visit: (row: T) => void,
-    start: string | number = "",
 ) {
     const select = db.raw.prepare(sql);
-    let after = start;
+    let after = "";
     for (;;) {
         const rows = select.all(...args, after, BATCH) as T[];
         if (!rows.length) return;
