@@ -9,12 +9,26 @@ its selected bid-book snapshot use OpenSea.
 At the alpha cutover, ArtGod rebuilds the passive orderbook for the collections
 already tracked in the existing database.
 
-**What gets reset.** Start the new book with empty orders, publication and
-observation state. Clear the old market run history and refresh positions, order
-retirement markers, and pending validation and maker scans for those orders.
-Reset the market sync status on each collection while keeping its registration,
-declared token scope, venue settings and enablement. Bootstrap each enabled
-market from its current book.
+```mermaid
+flowchart LR
+    OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
+    VVV[VVV public book] --> Sync
+    Sync --> Orders[Order domain evaluates quotes]
+    Orders --> Local[(Local listings and offers)]
+    Local --> Listings[Token cards and listing prices]
+    Local --> Select{Bid-book selection}
+    Bot[OpenSea bot snapshot] --> Select
+    Select --> Offers[Collection and token offers]
+```
+
+## Alpha cutover
+
+Start with empty order and observation tables for the passive book. Clear the
+old market run history and refresh positions, order retirement markers, and
+pending validation and maker scans for those orders. Reset the market sync
+status on each collection while keeping its registration, declared token scope,
+venue settings and enablement. Bootstrap each enabled market from its current
+book.
 [Order storage and retention](07-domain-orders.md#current-state-retention-and-replay)
 
 Pause market producers. Let the raw offchain worker dispatch the activity and
@@ -32,18 +46,6 @@ even after its order leaves the live book. The bot’s OpenSea snapshot has its
 own writer. These storage boundaries allow a market-only reset.
 [Storage ownership](../development/03-sqlite-storage-and-recovery.md) ·
 [Daily listings](09-domain-activities.md#permanent-daily-listings)
-
-```mermaid
-flowchart LR
-    OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
-    VVV[VVV public book] --> Sync
-    Sync --> Orders[Order domain evaluates quotes]
-    Orders --> Local[(Local listings and offers)]
-    Local --> Listings[Token cards and listing prices]
-    Local --> Select{Bid-book selection}
-    Bot[OpenSea bot snapshot] --> Select
-    Select --> Offers[Collection and token offers]
-```
 
 ## Build on the OpenSea path
 
@@ -187,14 +189,19 @@ evidence.
 [VVV capture comparison](23-orderbook-discovery.md#two-saved-vvv-books)
 
 A timeout, HTTP challenge, missing `orders` array, wrong market, unreadable
-identity or failed page leaves the last accepted book in place. An identified
-row with invalid signed terms can be recorded as present and ineligible. Record
-the failure separately from the last successful read. Retain last-seen data for
-offline browsing and expose the age of the evidence behind each price. A new
-search dates only the records it returned. A new snapshot dates the membership
-it actually covers. Signed expiry, chain changes and the freshness policy still
-govern which routes may supply a current price. One venue’s success cannot make
-another venue’s quote recent.
+identity or failed page leaves the last accepted book in place. If VVV last
+showed a 0.8 ETH ask at noon and later reads fail, the card still shows **0.8
+ETH · last seen at noon**, even if OpenSea has since confirmed 1 ETH. Missed
+refreshes alone do not remove or demote the quote. A later successful VVV book
+without the order withdraws it immediately. Expiry, fill, cancellation or a loss
+of fillability can also remove it.
+
+Keep the last successful observation time separate from failed attempts. A
+search dates only the records it returned, and a snapshot dates its declared
+membership. Losing a feed or going offline leaves that time intact. A known ID
+with invalid signed terms can be recorded as present and ineligible. Apply the
+existing order retention rules to orders with unknown expiry.
+[Order retention](07-domain-orders.md#current-state-retention-and-replay)
 
 ## Publish one complete refresh
 
@@ -218,8 +225,9 @@ permanent history as well as for the current price.
    difference remains recorded.
 3. Derive today’s price **once per affected seller, token and collection** from
    the final eligible set. If this seller has another comparable ask, update the
-   existing daily activity row to the lowest surviving buyer cost in that
-   currency and quantity. Otherwise keep its last published price and currency.
+   existing daily activity row to the lowest surviving buyer cost for the same
+   quantity, using the same ETH/WETH comparison as the card. Store the actual
+   payment currency. Otherwise keep the row’s last published price and currency.
    The token becomes unlisted when no seller has an eligible ask left. A
    withdrawal creates no activity row. The audit exercised the current
    daily-price writer with 0.8 and 1 ETH asks removed in different batch orders.
@@ -256,12 +264,21 @@ permanent history as well as for the current price.
 **Prices.** Rank listings by the total the buyer must pay on an eligible route.
 Rank indexed seller-facing offers by what the seller receives after all required
 fees. Keep gross amount, required fees and net proceeds in exact currency units.
-Compare like currency and fill quantity, with a stable order and route
+Calculate each route’s cost and proceeds in its settlement currency. Compare
+offers for the same fill quantity and currency, with a stable order and route
 tie-break. For each verified order, choose the eligible route with the lowest
 buyer cost or the highest seller proceeds for the requested quantity before
 ranking orders. Keep its price, fees and destination together when selecting or
 linking the winner. If fees, eligibility or remaining quantity cannot be
 established, retain the observation without advertising an executable price.
+
+For the single asking price on the grid, compare native ETH and the chain’s
+supported WETH at **1:1** for the same NFT quantity, after including required
+fees. A 1 ETH listing and a 0.95 WETH listing produce **0.95 WETH** on the card.
+Keep the winning listing’s payment currency and link. The shared ask selector
+uses the same comparison for listed sorting, the floor and each seller’s daily
+price. Other currencies keep their own comparison groups.
+[Current asks](../../shared/database/current-asks.ts)
 
 A VVV listing displayed as 0.13 ETH requires **0.130585 ETH** across all
 recipients. That is the buyer’s cost. One captured VVV bid offers **0.0914095
@@ -275,15 +292,31 @@ listings and offers. NFT-for-NFT and NFT-plus-currency trades are deferred.
 [Captured signed terms](22-vvv-orderbook-adapter.md#read-the-signed-terms) ·
 [Bot bid-price calculation](../../shared/trading/open-sea-bidding-offers.ts)
 
-**Audience.** The collection page groups public offers and a token page includes
-those applicable to that NFT. A token bid or an offer directed to a specific
-seller cannot set a best bid advertised to every holder. Require proven
-membership for trait or criteria offers. A reported VVV counterparty is venue
-evidence. Use signed restrictions, route rules and ownership evidence when
-claiming who can accept a bid. Retain the public observation for its known
-target while eligibility for a particular seller is unresolved.
-[Token sets](07-domain-orders.md#token-set-materialization) ·
-[Bid-book repository](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
+**Which bids appear on a token.** Apply the same passive bid-book rule to both
+venues. On OpenSea the read selects active, fillable buy orders within their
+validity window and matches the token ID or applicable criteria. ArtGod admits
+orders optimistically and validates them asynchronously. For a WETH bid it
+checks the order hash, signature when supplied, protocol status, maker counter,
+and the bidder’s WETH balance and spending allowance. Use the gross WETH the
+bidder promises for those funding checks. The token page does not require the
+viewer’s wallet or the seller’s NFT transfer approval to display a bid.
+[Order admission](07-domain-orders.md#upsert-flow) ·
+[Seaport validator](../../indexer/src/application/offchain/seaport-validate.ts)
+·
+[Token bid-book read](../../backend/src/application/use-cases/trading/get-token-bidding-bid-book.ts)
+
+All 122 captured VVV cash bids were full, open Seaport orders with a zero zone.
+Each signed for one exact NFT to be delivered to the bidder. VVV’s
+`counterparty` address sits outside those signed terms. A different address from
+the current owner gives no basis for hiding the bid or discounting its price. An
+otherwise eligible offer for #42 appears normally on #42 and competes for its
+best offer. Apply VVV’s own `fillable` flag to its placement, and honor actual
+signed or verified venue restrictions for either marketplace. Token and
+restricted bids stay within their real scope. Trait or criteria bids need proven
+token membership to contribute to that token’s price.
+[VVV offer terms](22-vvv-orderbook-adapter.md#read-the-signed-terms) ·
+[Seaport order types](https://docs.opensea.io/docs/seaport-enums) ·
+[Bid-book selection](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
 
 **Rows, counts and floor.** The collection view, token cards and listed sorting
 use the same price selection. Read rows, order and token counts, and the floor
@@ -298,8 +331,9 @@ changes. [Current asks](../../shared/database/current-asks.ts) ·
 
 **Refresh and navigation.** Preserve the existing public single-collection scope
 and private-context rules. Check the collection revision on each cache hit and
-prevent an older refresh from overwriting a newer result. Expire price caches at
-the next relevant start, expiry or freshness deadline. Changes to attribution,
+prevent an older refresh from overwriting a newer result. Recheck prices at
+order start and expiry. Refresh the winning feed’s last-seen label on failure or
+recovery, even when its orders and prices stay the same. Changes to attribution,
 audience, validation and ownership can invalidate a result even when the amount
 stays the same. Link a displayed price to its eligible route when the
 destination is verified, otherwise use local token detail. Users browse all
@@ -323,22 +357,6 @@ applies only to the exact placement the job controls. A VVV placement for the
 same maker or signed order remains independent.
 [Display selection and trading authority](../trading/03-market-data-and-scaling.md#bid-book-display-selection)
 
-## Open product decisions
-
-- **How old may a quote be and still set a current price?** Set the allowed age
-  for each feed, including during an outage or sequence gap. Last-seen data and
-  its age remain available offline. Once the limit is crossed it leaves current
-  rankings even if the order has time left.
-- **How should a seller see a public offer whose audience is uncertain?** Decide
-  whether the focused token card shows that observed offer separately or shows
-  only offers known to apply to that seller. Only offers with proven eligibility
-  can set a price advertised as available to that audience.
-- **Which currency should a single-price card show when several qualify?** The
-  current ask reader accepts both ETH and WETH. Calculate a floor for each
-  currency and fill quantity. Choose a display preference for a card with room
-  for one amount. It must show the chosen currency and keep the price and route
-  together.
-
 ## Acceptance before enabling additional feeds
 
 - Start with a populated database and outstanding order and metadata jobs. Reset
@@ -352,7 +370,9 @@ same maker or signed order remains independent.
   changed availability, a failed read followed by a valid empty read, removal
   then reappearance, and a delayed upsert. Exercise a bounded window, search
   omissions, overlapping feeds and a sequenced gap through replay or a fresh
-  baseline. Check each individual change, its authority and the resulting price.
+  baseline. While VVV is unreachable, assert its 0.8 ETH ask keeps its last
+  successful timestamp and still beats 1 ETH. Then return a valid empty VVV book
+  and assert the card switches to 1 ETH.
 - Interrupt staging, fail the publication transaction, then restart before and
   after its commit. Read concurrently during a multi-batch replacement. Check
   rows, counts, floor and existing daily history against one version, including
@@ -361,8 +381,12 @@ same maker or signed order remains independent.
 - Exercise a relayed order, two independent placements, two otherwise identical
   orders with different salts, and identical hashes on different deployments.
   Check total quantity after a partial fill, cancellation and reorg. Verify both
-  fee examples, audience restrictions, route links, and the bot’s fresh, empty
-  and fallback views with an own cancellation on one placement.
+  fee examples, and that the 0.95 WETH ask wins over 1 ETH with the correct
+  currency and link. An otherwise eligible open bid must rank the same for #42
+  on either venue even if VVV names a different counterparty. Exercise a genuine
+  restriction, an unresolved criterion and an underfunded bidder. Check the
+  bot’s fresh, empty and fallback views with an own cancellation on one
+  placement.
 - On a deep book, add many duplicate publications and check that pages have the
   same groups, counts and floor with no repeated or skipped group. Inspect query
   plans and measure peak memory to verify a page read does not materialize the
