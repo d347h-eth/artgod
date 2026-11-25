@@ -1,3 +1,4 @@
+import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     renderTraitSummaryTemplate,
@@ -27,6 +28,19 @@ export type PersistedTokenOfferCard = {
     token: TokenCard;
     persistedOffers: PersistedBiddingBidBookRow[];
 };
+
+// A whole book can exceed SQLite's bound parameter limit. Preserve offer order across reads.
+export function* tokenCardIdBatches(
+    tokenIds: readonly string[],
+): Generator<string[]> {
+    for (
+        let offset = 0;
+        offset < tokenIds.length;
+        offset += DEFAULT_PAGE_LIMIT
+    ) {
+        yield tokenIds.slice(offset, offset + DEFAULT_PAGE_LIMIT);
+    }
+}
 
 // Groups token-scoped offers after applying the same low-signal floor used by the offers UI.
 export function buildTokenOfferGroups(params: {

@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
@@ -395,6 +396,18 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
     it("resolves a token-offer selection across all offer pages and keeps token trait filters server-side", () => {
         const commands = buildCommands(["7", "8"]);
         const persistedInputs: { tokenId: string }[] = [];
+        const middleOffers = Array.from(
+            { length: DEFAULT_PAGE_LIMIT },
+            (_, i) => {
+                const id = String(100 + i);
+                return bidBookRow({
+                    orderId: `order-${id}`,
+                    tokenId: id,
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                    wei: "450000000000000000",
+                });
+            },
+        );
         const useCase = new UpsertBatchTokenBiddingJobsUseCase(
             1,
             {
@@ -403,16 +416,29 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
             {
                 resolveCollectionRef: () => COLLECTION,
                 listCollectionTokens: () => tokenPage([], null),
-                listCollectionTokenCardsByIds: ({ tokenIds }) =>
-                    tokenIds.map((tokenId) =>
+                listCollectionTokenCardsByIds: ({ tokenIds }) => {
+                    assert.ok(
+                        tokenIds.length <= DEFAULT_PAGE_LIMIT,
+                        "card reads must be bounded",
+                    );
+                    return tokenIds.map((tokenId) =>
                         tokenCard(
                             tokenId,
                             tokenId === "8"
                                 ? [{ key: "Chroma", value: "Plague" }]
-                                : [{ key: "Mode", value: "Terrain" }],
+                                : [
+                                      {
+                                          key: "Mode",
+                                          value:
+                                              Number(tokenId) >= 100
+                                                  ? "Other"
+                                                  : "Terrain",
+                                      },
+                                  ],
                             tokenId !== "unminted-tile-921",
                         ),
-                    ),
+                    );
+                },
             },
             {
                 listCollectionBidBook: ({ scopeFilter }) =>
@@ -428,6 +454,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                               }),
                           ])
                         : bidBook([
+                              ...middleOffers,
                               bidBookRow({
                                   orderId: "synthetic-token",
                                   scopeKind:
