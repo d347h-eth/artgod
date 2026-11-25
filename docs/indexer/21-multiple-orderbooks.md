@@ -1,22 +1,20 @@
 # Multiple orderbooks in ArtGod
 
 **Proposed design.** Collection and token pages show one local book of
-currency-priced listings and offers from every matching marketplace. If a token
-is listed for 1 ETH on OpenSea and 0.8 ETH on VVV, its card shows 0.8 ETH. When
-that listing disappears from VVV, ArtGod records its removal and the card shows
-1 ETH. If VVV publishes it again and it is still fillable, the card returns to
-0.8 ETH. The user stays on the same page throughout.
+currency-priced listings and offers from all matching marketplaces. If VVV
+withdraws a 0.8 ETH listing and OpenSea still offers the token for 1 ETH, the
+card shows 1 ETH as soon as ArtGod publishes that refresh. The bidding bot and
+its selected bid-book snapshot use OpenSea.
 
-Marketplace identity belongs to each quote. That lets a later update explain
-price differences on a focused token card. Collection and token browsing always
-use the combined projection when showing indexed orders. The bidding bot has its
-own OpenSea feed. NFT-for-NFT and NFT-plus-currency trades are deferred.
+The alpha cutover resets SQLite and the queues, then rebuilds the book with a
+fresh bootstrap.
 
 ```mermaid
 flowchart LR
     OS[OpenSea public book and stream] --> Sync[Indexer reconciliation]
     VVV[VVV public book] --> Sync
-    Sync --> Local[(Local listings and offers)]
+    Sync --> Orders[Order domain evaluates quotes]
+    Orders --> Local[(Local listings and offers)]
     Local --> Listings[Token cards and listing prices]
     Local --> Select{Bid-book selection}
     Bot[OpenSea bot snapshot] --> Select
@@ -25,29 +23,22 @@ flowchart LR
 
 ## Build on the OpenSea path
 
-OpenSea bootstrap and periodic reconciliation already use the same reader. It
-walks both sides of the book, records the order IDs it saw, and sends orders
-through the offchain queue. After the last page succeeds, SQLite compares the
-seen IDs with active local orders for that source. For each eligible missing
-order it changes the source status, advances the order revision and refreshes
-the affected seller’s existing daily price in the same transaction. A newer
-stream observation can take precedence over a crawl that started earlier.
+OpenSea bootstrap and periodic reconciliation already share a reader. It records
+the IDs returned across listings and offers, compares them with active local
+orders after the last page, and protects newer stream observations. Today it
+applies missing orders in batches visible to readers and refreshes a seller’s
+existing daily price inside each batch. Keep the reader, set comparison and
+orders domain. Change the point at which a completed book becomes visible.
 [OpenSea reader](../../indexer/src/application/offchain/opensea-orderbook-sync.ts)
 ·
 [SQLite comparison](../../indexer/src/infra/offchain/sqlite-order-source-state.ts)
-· [Order processing](07-domain-orders.md)
 
-Extend that reader’s observation and reconciliation contract to accept a market
-from any registered venue. The venue adapter finds the market, reads its pages
-or stream, recognizes its IDs, and decodes the venue’s fields. The existing
-indexer owns comparison, order admission, validation, projection and recovery
-for every venue. The backend and frontend continue to read locally. Two
-independent projectors would have to agree on fills, duplicates, price, and what
-to do when one venue withdraws an order. Fetching venues when a page opens would
-also make the same token show different prices depending on which request
-finished. One local projection resolves both problems.
-[Worker and queue ownership](00-overview.md) ·
-[Ports and adapters](12-ports-and-adapters.md)
+Each venue adapter finds markets, declares what its feeds cover, and translates
+their records. The indexer gathers that evidence. The order domain evaluates it,
+applies settlement facts and publishes the combined projection in SQLite. The
+backend serves the local projection, including offline. The browser uses the
+existing collection and token routes. [Worker ownership](00-overview.md) ·
+[Order processing](07-domain-orders.md)
 
 ## Map a market to tracked assets
 
@@ -92,224 +83,264 @@ finished. One local projection resolves both problems.
   ·
   [Reconcile scheduler](../../indexer/src/runtime/opensea-reconcile-scheduler-worker.ts)
 
-## Identify the order and each place that publishes it
+## Identify the feed, placement, signed order and quote
 
-Today `orders.id` is the primary key. The upsert writes a single source, local
-collection and source status. If two venues submit the same hash, one can
-overwrite the other’s evidence. Giving each venue a copy of the whole order
-would make chain validation, fills and rollbacks apply twice. Preserve these
-facts separately in the existing order domain.
-[Orders schema](../../database/migrations/003_orders_schema.sql) ·
-[Order writer](../../indexer/src/infra/domain/orders.ts) ·
-[Validation demand](../../database/migrations/058_order_validation_demand.sql)
+- **Feed.** Record who supplied the evidence, its chain, market, view or
+  partition, and its run or event position. Two feeds can report the same
+  listing. Keep the observation time and the feed’s authority with each report.
+- **Venue placement.** Identify the publication by publishing venue, chain,
+  remote market and venue-native order ID. Store its presence, venue status,
+  reported fillability, audience and revision. A feed relaying a VVV listing can
+  corroborate that placement. It creates a separate placement only if there is
+  evidence another venue actually published the order there.
+- **Protocol order.** For Seaport, verify the signed components against the
+  public chain ID, verifying contract and order hash. Namespace that identity by
+  protocol. One verified order owns its maker, signed criteria, validity,
+  settlement state and remaining quantity. It has one validation demand across
+  all placements. Keep an identifiable record with incomplete signing evidence
+  attached to its feed and placement until it can be verified. Matching maker,
+  token, price or a bare hash is insufficient to merge orders.
+  [Seaport verification](../../indexer/src/application/offchain/seaport-protocol.ts)
+  ·
+  [Validation ownership](07-domain-orders.md#processing-ownership-and-retained-state)
+- **Quote and route.** A route identifies where and on what terms a buyer or
+  seller can use a placement. Bind the price to its settlement order, placement,
+  currency, fill quantity, fees, audience and verified destination. A route may
+  narrow the signed criteria or the quantity it offers. Relaying the order
+  cannot add units or broaden its token criteria. Several eligible routes can
+  offer the same units. Count that order and its available quantity once.
 
-| Fact                     | Identity and owner                                                                                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| What was signed          | One internal order ID. For Seaport, identify it by public chain ID, protocol family, verifying contract and verified order hash. It owns maker, target, currency, quantity, validity and settlement state. One order has one validation demand.                                                                          |
-| Where the order was seen | A publication identified by venue, chain, remote market and native order ID. It refers to the signed order once verified. It owns presence, reported availability, any venue-specific audience, and its last applied revision. The same signed order can have several publications.                                      |
-| Which book was read      | A run belongs to the public market and the side or partition the adapter actually read. Store its order in that series, outcome and last successful read. A wallet’s private view or another market is a different series.                                                                                               |
-| What changed             | Record each added, changed or removed publication under its run and native ID, including the previous and new source state or their revisions. Replaying an accepted run produces the same changes once. Keep change records and removal revisions through the existing queue recovery and market-data retention window. |
-
-Different salts can identify two genuine orders for the same seller, token and
-price. Two valid signatures for the same order can identify one quote.
-Conflicting terms under a native ID need a diagnostic and cannot overwrite a
-verified order. Use the original protocol hash and verifying contract on
-chain-facing calls. Existing validation decides balances, approvals, counters,
-fills and cancellations. A confirmed protocol cancellation or full fill applies
-to every publication of that order. For a partial fill, a quote for the
-remaining units needs evidence of the quantity still available. On rollback,
-invalidate the affected chain evidence and revalidate against the canonical
-chain. An explicit OpenSea offchain cancellation keeps the OpenSea publication
-closed under its existing rules. An ordinary disappearance is reversible and
-affects only that publication.
-[Seaport verification](../../indexer/src/application/offchain/seaport-protocol.ts)
-· [Reorg handling](06-reorg-handling.md)
-
-Keep a legacy order with incomplete protocol evidence under its source's own
-identity. Preserve OpenSea’s current admission and optimistic fillability rules.
-Only merge two publications once their protocol identities agree. If stronger
-evidence arrives later, link the publications and their existing references in
-one transaction so the user never sees a duplicate. A second publication for an
-already validated order can reuse the existing validation result while it is
-current.
-[Order admission and validation](07-domain-orders.md#processing-ownership-and-retained-state)
+A VVV withdrawal ends the VVV placement’s contribution. A relay that later
+repeats the old listing cannot revive it. An independent OpenSea placement for
+the same signed order can still supply a quote. An offchain cancellation applies
+to its exact placement. Confirmed protocol cancellation or full fill closes the
+order across all placements. For a partial fill, every route draws from the same
+proven remaining quantity. On a chain reorganization, revalidate the affected
+settlement facts and keep independent venue evidence.
+[Order lifecycle](07-domain-orders.md) · [Reorg handling](06-reorg-handling.md)
 
 ## Apply each book change
 
-Compare IDs from successive successful reads of the same book. For VVV the
-public `orders` array is that book. For OpenSea the read finishes after its
-listings and offers traversal succeeds. Compare membership even for supported
-orders still awaiting validation or currently reported unfillable.
+The adapter declares what a successful read can establish before the indexer
+uses a missing ID as evidence.
 
-| Previous read | Next read                | Change to record and apply                                                                                                                                                                                                           |
-| ------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Absent        | Present                  | Add the publication, normalize its terms and admit it for the existing order checks. An order that disappeared and returned gets a new addition. Existing explicit cancellation or full-fill evidence still governs its eligibility. |
-| Present       | Present, different state | Record an update. For example, changing `fillable` to false removes that venue’s quote from the current price while keeping the publication present.                                                                                 |
-| Present       | Missing                  | Record a removal for that native ID and withdraw its contribution immediately. The next eligible price takes its place. If another venue publishes the same eligible order, keep the quote once with its remaining source.           |
-| Present       | Present, same state      | Record a successful observation. The quote and its change history stay the same.                                                                                                                                                     |
+- **Complete snapshot.** Replace the membership of the declared book. OpenSea
+  completes its public listings and offers traversal after the final page
+  succeeds. VVV’s public `orders` array is the returned book for its verified
+  market. Compare every successful VVV read with its predecessor, even if it is
+  shorter, the same size with different IDs, or empty. An empty array removes
+  every prior member of that returned book. Whether VVV also hosts orders
+  outside this view does not delay those removals.
+- **Bounded window.** Identify the window by its actual boundary, such as a
+  fixed top-N query for one side of a market. Replace membership within that
+  view. An order leaving the window loses the contribution that came from it. A
+  separate current observation can still support the order elsewhere. A page of
+  an unfinished snapshot cannot replace a window or a book.
+- **Sequenced feed.** Persist the last consecutive event position. Ignore
+  duplicates. If a position is missing, hold later events for replay within the
+  feed’s recovery limits. Freeze the feed’s accepted position and freshness
+  until replay fills the gap, or establish a new snapshot with a known position
+  and resume from there. For sources without a sequence, use the ordering the
+  adapter can substantiate. In particular, preserve OpenSea’s guard for stream
+  observations newer than an overlapping REST crawl.
+- **Search or individual sighting.** Add or update the identified records. A
+  subsequent search can return different matches without withdrawing the earlier
+  placements. A wallet-specific view has its own scope. When feeds overlap,
+  apply explicit withdrawals from the publishing venue to that placement and
+  keep independently supported placements eligible.
 
-A shorter book, two equally sized books with different IDs, and a valid empty
-book all follow these rules. Empty removes every previous member of that scope.
-A timeout, an HTTP challenge, a missing array, an unreadable order identity, a
-wrong market or a failed page supplies no comparison set. Keep the previous
-accepted membership and retry. An identified row with invalid price or signature
-still has a known ID. Record its presence and the validation failure, and
-exclude that publication from eligible quotes. A skipped barter row contributes
-no cash order. Regular expiry, chain updates and independent markets continue
-while a fetch is failing.
+For each accepted replacement record every **addition, change and removal** by
+scoped native ID and run. Compare membership even for an order that is
+unfillable or still queued. Compare the normalized fields that affect the quote,
+including status, `fillable`, fees and audience. A change to `fillable = false`
+withdraws that placement’s quote while its ID stays present. If the ID later
+disappears, record a separate removal. In the two saved VVV books, all 44
+surviving listings whose `fillable` flag changed had identical source
+`updatedAt` values across the two reads. An identical repeated observation
+advances last-seen time without duplicating a change. A withdrawn order that
+later reappears gets a new addition, subject to any terminal settlement
+evidence.
+[VVV capture comparison](23-orderbook-discovery.md#two-saved-vvv-books)
 
-### Ordering, retries and restart
+A timeout, HTTP challenge, missing `orders` array, wrong market, unreadable
+identity or failed page leaves the last accepted book in place. An identified
+row with invalid signed terms can be recorded as present and ineligible. Record
+the failure separately from the last successful read. Retain last-seen data for
+offline browsing and expose the age of the evidence behind each price. A new
+search dates only the records it returned. A new snapshot dates the membership
+it actually covers. Signed expiry, chain changes and the freshness policy still
+govern which routes may supply a current price. One venue’s success cannot make
+another venue’s quote recent.
 
-1. Run one read at a time per public book. Give each read an increasing run
-   number and the version of the **remote market definition** it read. Stage the
-   IDs and required terms in bounded SQLite batches as the pages arrive. An
-   interrupted read can be discarded. A change to the remote definition
-   invalidates work for that version. A change to one **local collection
-   binding** only requires checking that collection’s attribution again.
-2. After the read succeeds, use the existing SQLite set comparison against the
-   last accepted source membership. Include IDs still awaiting an order upsert
-   or validation. Prepare the per-order changes in bounded batches under the run
-   ID. One commit marks the set ready to apply. A crash before that commit
-   leaves the previous book intact. A crash afterwards leaves the changes to
-   finish. Finish this run before applying the next read of the same book.
-3. Apply the changes in the existing source-state completion step. For each
-   batch, one transaction records the transitions, writes publication status,
-   refreshes affected existing daily seller prices and advances the affected
-   collections’ market revisions. Persist the progress cursor in that write. The
-   next local read sees the updated quotes. If writing a seller price fails, the
-   corresponding removal rolls back and is retried. The last batch marks the
-   refresh complete. A removal takes effect even with an order upsert queue
-   backlog. It never waits for a second miss or for expiry.
-4. For changes that need normalization or order admission, use the existing
-   SQLite queue outbox to commit the follow-up with the publication. Its
-   publisher delivers the work to the existing order pipeline. Include venue,
-   market, native order ID and run or stream event in the job identity. Check
-   the current publication revision at the write. Yesterday’s queued upsert
-   cannot recreate a withdrawn quote. A restart or a lost acknowledgement cannot
-   repeat a transition. Admission still commits the signed order and any
-   validation demand together under the existing domain contract.
-   [Offchain dispatch](../../indexer/src/application/offchain/dispatch.ts) ·
-   [Transactional queue outbox](05-storage-and-schema.md#metadata-refresh-follow-ups-and-queue-outbox)
-   · [Queue recovery](18-order-queue-recovery.md)
-5. Keep OpenSea’s existing treatment of stream orders. Include active orders
-   first seen on the stream in the missing-ID sweep. Recheck at each write for
-   stream evidence newer than the start of the crawl, allowing for the way
-   unchanged stream timestamps are grouped today. Retain the difference between
-   the two returned books even if a newer stream event determines the current
-   quote. Compare event time and local receipt separately. For two VVV reads
-   seconds apart the later set wins immediately.
-   [Source-state comparison](../../indexer/src/infra/offchain/sqlite-order-source-state.ts)
-   · [Current completion semantics](00-overview.md#eventual-consistency-notes)
+## Publish one complete refresh
 
-A successful identical read advances that book’s observation time. Existing
-expiry and periodic revalidation rules still apply to its present orders. One
-market’s success cannot refresh a missing publication or another market that
-failed. Record each market’s last successful read, any failure and the counts
-added, changed and removed on its run. Compact applied changes under the
-existing retention policy only after outstanding work can no longer reverse
-their result.
+A generation is one accepted version of a feed’s book. SQLite readers must see
+either the preceding generation or its complete replacement. This matters for
+permanent history as well as for the current price.
+
+1. Read one replacement at a time per feed scope. Stage IDs, normalized terms
+   and changes privately in bounded SQLite batches, tagged with the run number
+   and remote market definition. Compare against accepted feed membership,
+   including IDs whose order upsert is pending. Carry source event time and
+   local receipt time separately. Preserve each distinct change even when
+   another placement keeps the aggregate price the same.
+2. Prepare the final eligible routes and the affected collection prices against
+   this candidate generation **and all other active feeds**. Reuse current order
+   validation where available. A new order awaiting required evidence can be
+   present while validation is pending. Its eventual result is a separate
+   change. Compare the candidate against newer stream events at publication,
+   including orders first seen on the OpenSea stream. A stream sighting can
+   supersede an older snapshot difference for the current quote while the
+   difference remains recorded.
+3. Derive today’s price **once per affected seller, token and collection** from
+   the final eligible set. If this seller has another comparable ask, update the
+   existing daily activity row to the lowest surviving buyer cost in that
+   currency and quantity. Otherwise keep its last published price and currency.
+   The token becomes unlisted when no seller has an eligible ask left. A
+   withdrawal creates no activity row. The audit exercised the current
+   daily-price writer with 0.8 and 1 ETH asks removed in different batch orders.
+   Both ended unlisted, but permanent history could retain either amount. Under
+   this design, if both disappear in one refresh and the previous daily price
+   was 0.8 ETH, it stays 0.8 ETH. If only the cheaper ask disappears, the
+   published price becomes 1 ETH.
+   [Daily-price writer](../../indexer/src/infra/storage/sqlite-daily-listing-prices.ts)
+   · [Listing history contract](09-domain-activities.md)
+4. Publish in **one SQLite transaction**. Check that the preceding generation,
+   relevant feed and binding revisions, chain evidence and price validity
+   windows still match the staged calculation, including its UTC day. If
+   anything moved, abandon the commit and recompute the affected results before
+   retrying. Otherwise switch the active generation, publish its per-order
+   changes, apply the prepared daily-price writes, advance affected collection
+   revisions and release required follow-up work through the outbox. Mark the
+   refresh successful at that commit. A failed daily-price write rolls the whole
+   publication back. Staging can span batches and a restart. Neither users nor
+   history see an intermediate batch.
+   [SQLite write policy](../development/02-sqlite-write-contention.md) ·
+   [Transactional outbox](05-storage-and-schema.md#metadata-refresh-follow-ups-and-queue-outbox)
+5. Resume or discard unpublished work using its run ID and market definition.
+   Retry after commit by recognizing the already published generation. Key
+   queued work by feed, placement and observation revision. Recheck the current
+   placement at the order writer so a delayed upsert cannot resurrect a removal.
+   A missing order drops out in the publication transaction even if the queue is
+   backed up. Keep the applied change and removal revision for the existing
+   retention and replay window.
+   [Dispatch](../../indexer/src/application/offchain/dispatch.ts) ·
+   [Order queue recovery](18-order-queue-recovery.md)
 
 ## Read one combined book
 
-- **Listings.** Extend the shared current-ask selector once. An eligible order
-  needs a present publication that offers it to this audience, supported
-  currency and scope, and the order domain’s existing time and fillability
-  checks. Keep price, currency and quantity together. Compare exact integer
-  prices per unit within the existing supported currencies. Keep the existing
-  stable tie-break for equal prices and retain the winning order and eligible
-  sources. Cards, listed sorting and collection counts use that price. On
-  removal, refresh today's existing seller activity row to the next ask. If the
-  last ask disappears, the next read shows the token as unlisted. The historical
-  activity row keeps the seller’s last observed price, as it does today. A
-  refresh never creates a listing activity for a disappearance.
-  [Current asks](../../shared/database/current-asks.ts) ·
-  [Daily seller prices](../../indexer/src/infra/storage/sqlite-daily-listing-prices.ts)
-  · [Collection reads](../../shared/read-models/collections.ts)
-- **Offers.** The indexed branch of the existing bid-book repository reads the
-  same eligible orders, deduplicates by verified order before counting and
-  paging, and keeps the established currency, token, trait and collection scope
-  rules. Place an eligible public cash offer in its target token’s book and
-  collection even when the viewer has no wallet connected. A token-specific or
-  directed offer must not set a floor bid available to every holder. Use known
-  target and ownership evidence for prices advertised as available to a seller.
-  A venue’s intended recipient and a restriction enforced by the signed order
-  are different facts.
-  [Bid-book repository](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
-  · [VVV offer terms](22-vvv-orderbook-adapter.md#read-the-signed-terms)
-- **Refresh and navigation.** Use the current collection and token routes,
-  including their public single-collection scope and private-context rules. Keep
-  the API’s display source (bot or indexed) separate from the marketplaces
-  publishing a quote. The passive feed label must describe the combined book.
-  Read each price-bearing response and the local collection market revision from
-  the same SQLite snapshot. Check the revision on a cache hit and refuse to
-  install an older background refresh over a newer result. Use the revision in
-  the frontend’s refresh signal. This catches a removal even when the latest
-  surviving order timestamp stays the same or the result becomes empty.
-  Validation, ownership and chain changes that affect a quote advance the same
-  revision. Bound a cached result by the next relevant order start or expiry
-  time so a price cannot outlive its signed window. A non-winning publication
-  can also disappear while the best price holds. Retain that change and its
-  attribution. Apply the same link rule on collection cards, token cards and
-  sale previews. A price link must identify a verified destination for its
-  source, or use the local token detail. Future hints on a focused card can use
-  the saved attribution.
-  [Collection detail cache](../../backend/src/application/use-cases/collections/cached-get-collection-detail.ts)
-  ·
-  [Bidding view](../../frontend/src/lib/components/CollectionBiddingView.svelte)
-  · [Price cell](../../frontend/src/lib/components/BidBookPriceCell.svelte)
+**Prices.** Rank listings by the total the buyer must pay on an eligible route.
+Rank indexed seller-facing offers by what the seller receives after all required
+fees. Keep gross amount, required fees and net proceeds in exact currency units.
+Compare like currency and fill quantity, with a stable order and route
+tie-break. For each verified order, choose the eligible route with the lowest
+buyer cost or the highest seller proceeds for the requested quantity before
+ranking orders. Keep its price, fees and destination together when selecting or
+linking the winner. If fees, eligibility or remaining quantity cannot be
+established, retain the observation without advertising an executable price.
 
-In SQLite, test whether at least one eligible publication exists for an order
-before counting, sorting or paging. Index that lookup by order and active
-publication, and the reconciliation comparison by market and native ID. Fetch
-the winning price’s sources after selecting the order. Verify the query plans
-with books the size of the captures. This avoids sorting a second copy of each
-order every time another marketplace publishes it.
+A VVV listing displayed as 0.13 ETH requires **0.130585 ETH** across all
+recipients. That is the buyer’s cost. One captured VVV bid offers **0.0914095
+WETH** and requires **0.000819 WETH** in seller-paid fees. It pays **0.0905905
+WETH**. A fee-free **0.091 WETH** bid therefore ranks higher for the seller of
+the same NFT. The adapter notes describe the gross bid on the existing
+competition scale. For the combined indexed book, the seller-proceeds rule here
+supersedes that proposed gross ranking for both venues. The bot continues to
+compare gross OpenSea bids. Start VVV with fixed-price, single-unit cash
+listings and offers. NFT-for-NFT and NFT-plus-currency trades are deferred.
+[Captured signed terms](22-vvv-orderbook-adapter.md#read-the-signed-terms) ·
+[Bot bid-price calculation](../../shared/trading/open-sea-bidding-offers.ts)
+
+**Audience.** The collection page groups public offers and a token page includes
+those applicable to that NFT. A token bid or an offer directed to a specific
+seller cannot set a best bid advertised to every holder. Require proven
+membership for trait or criteria offers. A reported VVV counterparty is venue
+evidence. Use signed restrictions, route rules and ownership evidence when
+claiming who can accept a bid. Retain the public observation for its known
+target while eligibility for a particular seller is unresolved.
+[Token sets](07-domain-orders.md#token-set-materialization) ·
+[Bid-book repository](../../backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts)
+
+**Rows, counts and floor.** The collection view, token cards and listed sorting
+use the same price selection. Read rows, order and token counts, and the floor
+from one SQLite snapshot at one collection revision and evaluation time.
+Deduplicate settlement orders and choose their eligible routes **before**
+grouping and paging. Page groups in stable order in SQLite, then fetch route
+details for the returned orders. Index both settlement-order lookups and feed
+membership. A continuation cursor identifies its view version and sort position.
+Restart the page sequence when that version or a time-based eligibility boundary
+changes. [Current asks](../../shared/database/current-asks.ts) ·
+[Collection reads](../../shared/read-models/collections.ts)
+
+**Refresh and navigation.** Preserve the existing public single-collection scope
+and private-context rules. Check the collection revision on each cache hit and
+prevent an older refresh from overwriting a newer result. Expire price caches at
+the next relevant start, expiry or freshness deadline. Changes to attribution,
+audience, validation and ownership can invalidate a result even when the amount
+stays the same. Link a displayed price to its eligible route when the
+destination is verified, otherwise use local token detail. Users browse all
+eligible indexed marketplaces together on the existing pages. Attribution is
+available for later hints on a focused token card.
+[Collection detail cache](../../backend/src/application/use-cases/collections/cached-get-collection-detail.ts)
+·
+[Public read scope](../backend/02-http-security-and-deployment-modes.md#public-single-collection-mode)
 
 ### Bot snapshot selection
 
-The existing collection and token bid-book routes select the bot snapshot when
-the collection has an enabled bidding job, the running heartbeat is fresh and
-the snapshot is fresh. A valid empty bot snapshot displays zero offers. When the
-selector falls back to indexed orders, the user sees the combined offers.
-Listings always use the local projection. The bot’s inputs, bids, cancellations
-and snapshot writer continue to use OpenSea. A maker address can mark an own
-offer from either venue. Attach an OpenSea job, cancellation or action only when
-its OpenSea identity matches.
+Both bid-book routes select the OpenSea bot snapshot when the collection has an
+enabled bidding job, its running heartbeat is fresh and the snapshot is fresh. A
+fresh empty snapshot displays zero offers. On fallback the user sees the
+combined indexed offers. Listings always read the local projection. Identify the
+selected feed and its price basis. Bid placement, repricing and competition
+indicators use the bot’s OpenSea competition data. A higher seller-facing offer
+on VVV changes the indexed book only. A matching maker can identify an own
+offer. An own-order action, pending cancellation or completed cancellation
+applies only to the exact placement the job controls. A VVV placement for the
+same maker or signed order remains independent.
 [Display selection and trading authority](../trading/03-market-data-and-scaling.md#bid-book-display-selection)
 
-## Migration and acceptance
+## Open product decisions
 
-1. Introduce the identities, binding and run records with OpenSea as the sole
-   writer. Import its known slug, stream gate and sync state. Reuse its probe
-   where coverage needs verification. Backfill legacy orders, known provenance,
-   validation demand and retirement markers in resumable batches. Preserve an ID
-   mapping for queued work and existing reads. Keep unknown provenance explicit.
-   Use the existing supervised migration and recovery facilities.
-   [Market-data lifecycle](../../database/migrations/055_market_data_storage_lifecycle.sql)
-   · [Order queue recovery](18-order-queue-recovery.md)
-2. Move snapshot and stream ingestion, source-status updates, purge, cleanup,
-   validation, onchain fills and reorgs to their respective keys. Match chain
-   events by deployment and hash, retain local bootstrap anchor checks, and keep
-   an inactive publication’s replay marker separate from a protocol-terminal
-   marker. Translate older queue envelopes at admission. Coordinate
-   producer/consumer versions before enabling the second writer. Verify stopping
-   and resuming with pending work and a restore using matching database, queues
-   and binaries. Compare old and new readers on an OpenSea-only database,
-   including prices, counts, sorting, criteria, daily rows and the bot selector.
-3. Enable the VVV adapter through the same scheduler and order worker. Replay
-   smaller, equal-sized and empty books, a failed read followed by a successful
-   empty one, a changed availability flag, duplicate delivery and withdrawal
-   followed by reappearance. Delay the first upsert until after the second read.
-   Interrupt a comparison and an apply batch. In each case assert individual
-   changes, final membership, projection, and daily price. Test a newer OpenSea
-   stream sighting during a crawl and two VVV reads a second apart.
-4. Verify with two unrelated collections, two ranges on one contract, and one
-   market bound to both ranges. Exercise one venue alone, both publishing one
-   signed order, identical hashes on different chains or deployments,
-   independently signed orders on one token, a last-publication removal and a
-   shared onchain cancellation and reorg. Check source attribution, exact
-   fee-inclusive prices, directed offers, a warm cached page becoming empty, and
-   a trade contributing zero bids. Exercise both bid-book routes through
-   indexed, fresh bot, empty bot and back to indexed, with an OpenSea
-   cancellation overlay present.
-   [Capture evidence and existing test coverage](23-orderbook-discovery.md)
+- **How old may a quote be and still set a current price?** Set the allowed age
+  for each feed, including during an outage or sequence gap. Last-seen data and
+  its age remain available offline. Once the limit is crossed it leaves current
+  rankings even if the order has time left.
+- **How should a seller see a public offer whose audience is uncertain?** Decide
+  whether the focused token card shows that observed offer separately or shows
+  only offers known to apply to that seller. Only offers with proven eligibility
+  can set a price advertised as available to that audience.
+- **Which currency should a single-price card show when several qualify?** The
+  current ask reader accepts both ETH and WETH. Calculate a floor for each
+  currency and fill quantity. Choose a display preference for a card with room
+  for one amount. It must show the chosen currency and keep the price and route
+  together.
+
+## Acceptance before enabling additional feeds
+
+- Bootstrap clean SQLite and empty queues. Test two unrelated collections, two
+  local ranges on one contract, one shared market fetched once, a scope change
+  or purge during a read, and a VVV-only collection with OpenSea disabled.
+- Replay smaller, equal-sized and empty VVV books, unchanged timestamps with
+  changed availability, a failed read followed by a valid empty read, removal
+  then reappearance, and a delayed upsert. Exercise a bounded window, search
+  omissions, overlapping feeds and a sequenced gap through replay or a fresh
+  baseline. Check each individual change, its authority and the resulting price.
+- Interrupt staging, fail the publication transaction, then restart before and
+  after its commit. Read concurrently during a multi-batch replacement. Check
+  rows, counts, floor and existing daily history against one version, including
+  both orderings of the two-ask removal. Repeat while another venue or the chain
+  changes an affected quote.
+- Exercise a relayed order, two independent placements, two otherwise identical
+  orders with different salts, and identical hashes on different deployments.
+  Check total quantity after a partial fill, cancellation and reorg. Verify both
+  fee examples, audience restrictions, route links, and the bot’s fresh, empty
+  and fallback views with an own cancellation on one placement.
+- On a deep book, add many duplicate publications and check that pages have the
+  same groups, counts and floor with no repeated or skipped group. Inspect query
+  plans and measure peak memory to verify a page read does not materialize the
+  whole book. Verify a packaged ArtGod worker can read VVV repeatedly, restart,
+  recover after an outage and report the age of the last successful read
+  throughout. The saved responses and existing OpenSea tests cover the
+  comparison and price inputs. These multi-feed and packaged-worker cases
+  require implementation evidence.
+  [Discovery and verification notes](23-orderbook-discovery.md#checks-completed-on-25-november)
