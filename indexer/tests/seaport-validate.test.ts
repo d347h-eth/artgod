@@ -1,6 +1,22 @@
 import fs from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
+import { db, setDbPath } from "@artgod/shared/database";
+import { createMigrationRunner } from "@artgod/shared/migrations";
+import { getSettingDefault } from "@artgod/shared/config/generated-settings-defaults";
+import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import {
+    consumeVvvBook,
+    VVV_MARKET,
+} from "../src/infra/offchain/vvv-orderbook.js";
+import { BOOK_VIEW } from "../src/domain/orderbook.js";
+import {
+    ORDER_JOB_KIND,
+    type OrderUpdateByIdPayload,
+} from "../src/domain/order-jobs.js";
+import { createTempDbPath } from "./helpers/test-helpers.js";
+import captured from "./fixtures/vvv-cash-book.json" with { type: "json" };
 import {
     computeSeaportOrderHash,
     resolveSeaportProtocolVersion,
@@ -36,6 +52,90 @@ const ACTIVE_ORDER_END_TIME = "2524608000";
 const ORDER_ID = computeSeaportOrderHash(buildSeaportData());
 
 describe("validateSeaportOrder", () => {
+    it("validates captured VVV orders from the publication outbox at the full signed price", async () => {
+        setDbPath(await createTempDbPath());
+        const instant =
+            Number(captured.orders[0]!.order.parameters.startTime) * 1000 +
+            1000;
+        const clock = vi.spyOn(Date, "now").mockReturnValue(instant);
+        try {
+            await createMigrationRunner().runMigrations();
+            const weth = getSettingDefault("WETH_ADDRESS");
+            const feed = { ...VVV_MARKET, view: BOOK_VIEW.Public };
+            const collection = db.prepare(
+                "INSERT INTO collections(chain_id,slug,address,standard,status,token_scope_kind) VALUES(1,'fixture',?,'erc721','live','contract_all_tokens')",
+            ).run(feed.contract);
+            const store = new SqliteOrderSourceStateStore(weth);
+            store.bind(feed, Number(collection.lastInsertRowid));
+            const book = store.begin(feed, { kind: "snapshot" }, instant);
+            try {
+                await consumeVvvBook(feed, captured, (row) => book.record(row));
+                book.publish();
+            } finally {
+                book.close();
+            }
+            const jobs = db
+                .prepare<[string], { job_json: string }>(
+                    "SELECT job_json FROM queue_outbox WHERE job_kind=?",
+                )
+                .all(ORDER_JOB_KIND.UpdateById)
+                .map(
+                    (row) =>
+                        JSON.parse(row.job_json)
+                            .payload as OrderUpdateByIdPayload,
+                );
+            expect(jobs).toHaveLength(2);
+            const gross = 91409500000000000n;
+            const funds: MockRpcOptions = {
+                maker: captured.orders[0]!.order.parameters.offerer,
+                allowance: gross,
+                balance: gross - 1n,
+            };
+            const rpc = new MockRpc(funds);
+            const domain = new SqliteOrdersDomain(weth, (order) =>
+                validateSeaportOrder(
+                    rpc,
+                    new MemoryConduitRegistry(),
+                    {
+                        conduitController: getSettingDefault(
+                            "SEAPORT_CONDUIT_CONTROLLER",
+                        ),
+                    },
+                    order,
+                ),
+            );
+            const quote = db.prepare<[string]>(
+                "SELECT price,seller_proceeds,fillability_status FROM orders WHERE order_hash=?",
+            );
+            const [ask, bid] = captured.orders;
+            for (const job of jobs) await domain.handleOrderUpdateById(job);
+            expect(quote.get(ask!.hash)).toMatchObject({
+                price: "130585000000000000",
+                fillability_status: ORDER_STATUS.Fillable,
+            });
+            expect(quote.get(bid!.hash)).toEqual({
+                price: String(gross),
+                seller_proceeds: "90590500000000000",
+                fillability_status: ORDER_STATUS.NoBalance,
+            });
+            const bidJob = jobs.find((job) => job.orderId.endsWith(bid!.hash))!;
+            funds.balance = gross;
+            funds.allowance = gross - 1n;
+            await domain.handleOrderUpdateById(bidJob);
+            expect(quote.get(bid!.hash)).toMatchObject({
+                fillability_status: ORDER_STATUS.NoApproval,
+            });
+            funds.allowance = gross;
+            await domain.handleOrderUpdateById(bidJob);
+            expect(quote.get(bid!.hash)).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+            });
+        } finally {
+            clock.mockRestore();
+            db.raw.close();
+        }
+    });
+
     it("resolves the supported Seaport protocol address to version 1.6", () => {
         expect(resolveSeaportProtocolVersion(SEAPORT)).toBe("1.6");
     });
@@ -352,6 +452,7 @@ describe("validateSeaportOrder", () => {
 });
 
 type MockRpcOptions = {
+    allowance?: bigint;
     balance?: bigint;
     filled?: bigint;
     total?: bigint;
@@ -428,7 +529,7 @@ class MockRpc implements RpcProviderPort {
             case "getApproved":
                 return (this.options.conduitAddress ?? SEAPORT) as T;
             case "allowance":
-                return (10n ** 19n) as T;
+                return (this.options.allowance ?? 10n ** 19n) as T;
             case "balanceOf":
                 return (this.options.balance ?? 10n ** 19n) as T;
             default:

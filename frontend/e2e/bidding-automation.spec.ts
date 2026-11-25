@@ -119,10 +119,10 @@ test.describe('bidding automation fixture harness', () => {
 			page,
 			COLLECTION_PATH + '?' + scenario + BIDDING_E2E_SCENARIO.VvvWithdrawn
 		);
-		await expect(page.getByRole('link', { name: '0.95 WETH', exact: true })).toHaveAttribute(
-			'href',
-			/https:\/\/opensea\.io\/item\/.*\/101/
-		);
+		const survivingAsk = page.getByRole('link', { name: '0.95 WETH', exact: true });
+		await expect(survivingAsk).toHaveAttribute('href', /https:\/\/opensea\.io\/item\/.*\/101/);
+		await survivingAsk.scrollIntoViewIfNeeded();
+		await expect(survivingAsk).toBeInViewport();
 		await page.screenshot({ path: testInfo.outputPath('surviving-ask.png') });
 	});
 
