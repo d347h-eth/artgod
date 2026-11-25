@@ -29,19 +29,20 @@ export function createSeaportStatusReader(input: {
         ORDER_VALIDATION_BATCH_POLICY.maxOrders,
     )) {
         const protocol = order.seaportData?.protocolAddress;
+        const hash = order.protocolOrderHash ?? order.id;
         if (
             order.chainId !== input.chainId ||
             order.kind !== "seaport" ||
             !protocol ||
             !/^0x[0-9a-f]{40}$/i.test(protocol) ||
-            !/^0x[0-9a-f]{64}$/i.test(order.id)
+            !/^0x[0-9a-f]{64}$/i.test(hash)
         )
             continue;
         const contract: RpcContractRead = {
             address: protocol as Hex,
             abi: SEAPORT_VALIDATION_ABI,
             functionName: "getOrderStatus",
-            args: [order.id],
+            args: [hash],
         };
         pending.set(statusKey(contract), contract);
     }

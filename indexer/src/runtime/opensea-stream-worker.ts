@@ -198,6 +198,7 @@ async function handleOpenSeaEvent(
             chainId: collection.chainId,
             collectionId: collection.id,
             receivedAt,
+            market: slug,
             channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
             dedupeKey: getOpenSeaStreamDedupeKey(rawEvent, receivedAt),
             eventType,

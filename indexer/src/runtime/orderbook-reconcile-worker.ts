@@ -1,12 +1,14 @@
+import { ORDERBOOK_VENUE } from "@artgod/shared/market-data/orders";
+import { VVV_READ_JOB, type BoundMarketJob } from "../domain/orderbook.js";
+import { VvvBrowserBookReader } from "../infra/offchain/vvv-browser.js";
+import { reconcileVvvBook } from "../application/offchain/vvv-reconcile.js";
 import { handleOpenSeaFirstRead } from "../application/offchain/opensea-first-read.js";
 import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { db, setDbPath } from "@artgod/shared/database";
+import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { zeroAddress } from "viem";
 import { loadOrderbookConfig } from "../config/opensea.js";
 import { ORDERBOOK_RECONCILE_WORKER_POLICY } from "../config/orderbook-reconcile-worker.js";
-import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { runWorker } from "../application/worker-runner.js";
 import { handleReconcileJob } from "../application/offchain/opensea-reconcile.js";
 import { OpenSeaReconcilePolicy } from "../domain/opensea-reconcile-policy.js";
@@ -52,6 +54,48 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const sourceState = new SqliteOrderSourceStateStore(
+            config.tokens.wethAddress,
+        );
+        const reader = new VvvBrowserBookReader();
+        const stopVvv = await runWorker<BoundMarketJob>(
+            queue,
+            {
+                queue: QUEUE_NAMES.VvvReconcile,
+                consumerName: QUEUE_NAMES.VvvReconcile + "-" + config.chainId,
+                ...ORDERBOOK_RECONCILE_WORKER_POLICY,
+            },
+            async (job) => {
+                if (job.kind !== VVV_READ_JOB || job.chainId !== config.chainId)
+                    return;
+                try {
+                    await reconcileVvvBook(
+                        sourceState,
+                        reader,
+                        config.chainId,
+                        job.payload,
+                    );
+                } catch (error) {
+                    // The scheduler retries a failed public read at its normal cadence.
+                    logger.warn("VVV book read failed", {
+                        component: "OrderbookReconcileWorker",
+                        feedId: job.payload.feedId,
+                        error: String(error),
+                    });
+                }
+            },
+            { apm: runtimeApm.apm, spanName: "worker.orderbook.vvv.consume" },
+        );
+        const releaseUnusedBrowser = setInterval(() => {
+            if (!sourceState.hasBindings(ORDERBOOK_VENUE.Vvv, config.chainId))
+                void reader
+                    .close()
+                    .catch((error) =>
+                        logger.warn("VVV browser close failed", {
+                            error: String(error),
+                        }),
+                    );
+        }, 30_000);
         const provider = config.opensea;
         const stopWorker = provider
             ? await startOpenSeaConsumer(provider)
@@ -63,19 +107,17 @@ async function main() {
             const steps = new SqliteBootstrapSteps();
             const collections = new SqliteCollectionRegistry();
             const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
-            const sourceState = new SqliteOrderSourceStateStore(
-                new SqliteDailyListingPrices(db, [
-                    zeroAddress,
-                    config.tokens.wethAddress,
-                ]),
-            );
             const api = new OpenSeaApiAdapter({
                 apiKey: provider.apiKey,
                 snapshotPageSize: provider.snapshotPageSize,
                 retryPolicy: provider.retryPolicy,
                 rateLimiter: provider.rateLimiter,
             });
-            const sync = new OpenSeaOrderbookSync(api, queue, sourceState);
+            const sync = new OpenSeaOrderbookSync(
+                api,
+                sourceState,
+                (collection) => collections.listOpenSeaMarketScopes(collection),
+            );
             const freshness = new OpenSeaReconcilePolicy(provider);
 
             return runWorker(
@@ -132,7 +174,9 @@ async function main() {
                 component: "OrderbookReconcileWorker",
                 action: "shutdown",
             });
-            await stopWorker?.();
+            clearInterval(releaseUnusedBrowser);
+            await reader.close();
+            await Promise.all([stopWorker?.(), stopVvv()]);
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();

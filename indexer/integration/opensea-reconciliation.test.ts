@@ -1,3 +1,4 @@
+import { getSettingDefault } from "@artgod/shared/config/generated-settings-defaults";
 // Real-broker regression using disposable stores under this worktree's tmp/.
 // Uses an already provisioned project NATS binary; never connects to the live broker.
 import assert from "node:assert/strict";
@@ -253,7 +254,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 );
         }
         const calls: number[] = [];
-        const rawPublished: string[] = [];
+
         type Api = ConstructorParameters<typeof OpenSeaOrderbookSync>[0];
         const api: Api = {
             async forEachListing(slug, _address, receive) {
@@ -279,13 +280,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
         };
         const sync = new OpenSeaOrderbookSync(
             api,
-            {
-                async publish(destination, envelope) {
-                    rawPublished.push(envelope.jobId);
-                    await queue.publish(destination, envelope);
-                },
-            },
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(getSettingDefault("WETH_ADDRESS")),
         );
         const collections = new SqliteCollectionRegistry();
         const runs = new SqliteOpenSeaOrderbookRuns();
@@ -321,7 +316,12 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
             assert.deepEqual(calls, [101, 102, 103, 104, 105, 106, 107, 108]);
             assert.equal(deliveries, 541);
             assert.equal(state.delivered.consumer_seq, 541);
-            assert.equal(rawPublished.length, 16);
+            const members = db
+                .prepare(
+                    "SELECT COUNT(*) AS n FROM orderbook_members WHERE present=1",
+                )
+                .get() as { n: number };
+            assert.equal(members.n, 16);
             assert.deepEqual(
                 db
                     .prepare(
@@ -334,7 +334,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 (
                     db
                         .prepare(
-                            "SELECT count(*) AS n FROM market_order_observations",
+                            "SELECT count(*) AS n FROM orderbook_feeds WHERE generation>0",
                         )
                         .get() as { n: number }
                 ).n,
@@ -350,7 +350,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 deliveries,
                 usefulScans: calls.length,
                 acknowledgedSkips: 533,
-                rawPublished: rawPublished.length,
+                publishedMembers: members.n,
                 elapsedMs,
                 ...stateCounts(state),
             };
@@ -388,8 +388,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                     assert.fail("Interrupted listings cannot complete offers");
                 },
             },
-            queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(getSettingDefault("WETH_ADDRESS")),
         );
         const collections = new SqliteCollectionRegistry();
         const stop = await runWorker<OpenSeaReconcileCollectionPayload>(
@@ -456,8 +455,7 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                     apiCalls.push("offers");
                 },
             },
-            queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(getSettingDefault("WETH_ADDRESS")),
         );
         const collections = new SqliteCollectionRegistry();
         const stop = await runWorker<OpenSeaReconcileCollectionPayload>(

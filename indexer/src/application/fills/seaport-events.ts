@@ -31,6 +31,7 @@ type OrderParameters = {
 };
 
 export type DecodedOrderInfo = {
+    protocolAddress?: string;
     orderId?: string;
     kind?: string;
     maker?: string;
@@ -192,6 +193,7 @@ function decodeOrderCancelled(log: RpcLog): CancelEvent | null {
         const offerer = decoded.args.offerer as Hex;
         return {
             kind: "seaport",
+            protocolAddress: log.address.toLowerCase(),
             orderId: orderHash,
             maker: offerer.toLowerCase(),
             blockNumber: log.blockNumber,
@@ -274,6 +276,7 @@ function decodeOrderValidated(
 
         return {
             kind: "seaport",
+            protocolAddress: log.address.toLowerCase(),
             orderId: orderHash,
             maker,
             contract: nft.contract,

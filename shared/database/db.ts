@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
+import { registerOrderbookScopeFunction } from "./current-asks.js";
 import { SQLITE_STORAGE_POLICY } from "./storage-policy.js";
 
 export type BetterSqlite3Database = Database.Database;
@@ -139,6 +140,7 @@ function ensureConnection(): BetterSqlite3Database {
             timeout: SQLITE_BUSY_TIMEOUT_MS,
         });
         try {
+            registerOrderbookScopeFunction(conn);
             executeWithSqliteBusyRetry(() => applyPragmas(conn));
             currentDb = conn;
         } catch (error) {

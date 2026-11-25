@@ -75,6 +75,7 @@ export async function handleReconcileJob(
             collection,
             OPENSEA_ORDERBOOK_RUN_KIND.Reconcile,
             runId,
+            job.scheduledAt,
         );
         orderbookRuns.completeRun(runId);
         collections.markOpenSeaReady(collection.chainId, collection.id);
@@ -143,7 +144,14 @@ export async function scheduleDueReconciles(
         reason === OPENSEA_RECONCILE_REASON.Scheduled
             ? freshness.scheduledJobBucket(now)
             : now;
+    const markets = new Set<string>();
     for (const collection of due) {
+        const market = JSON.stringify([
+            collection.address.toLowerCase(),
+            collection.openseaSlug,
+        ]);
+        if (markets.has(market)) continue;
+        markets.add(market);
         await queue.publish(
             OPENSEA_QUEUE_NAME.Reconcile,
             createReconcileJob(

@@ -252,6 +252,44 @@ describe("validateSeaportOrder", () => {
         nowSpy.mockRestore();
     });
 
+    it("requires enough funding for the outstanding fraction and reads ERC1155 balances for a partial listing", async () => {
+        const terms = buildSeaportData();
+        terms.orderType = "1";
+        terms.offer[0]!.itemType = "3";
+        terms.offer[0]!.startAmount = terms.offer[0]!.endAmount = "4";
+        const hash = computeSeaportOrderHash(terms);
+        const order = {
+            ...buildOrderRecord({ seaportData: terms }),
+            id: "shared-signed-order",
+            protocolOrderHash: hash,
+            quantity: "4",
+        };
+        const validate = async (
+            balance: bigint,
+            filled: bigint,
+            cancelled = false,
+        ) =>
+            validateSeaportOrder(
+                new MockRpc({ balance, filled, total: 4n, cancelled }),
+                new MemoryConduitRegistry(),
+                { conduitController: SEAPORT },
+                order,
+            );
+        expect(await validate(2n, 2n)).toMatchObject({
+            status: ORDER_STATUS.Fillable,
+            remainingQuantity: "2",
+        });
+        expect(await validate(1n, 2n)).toMatchObject({
+            status: ORDER_STATUS.NoBalance,
+        });
+        expect(await validate(2n, 2n, true)).toMatchObject({
+            status: ORDER_STATUS.Cancelled,
+        });
+        expect(await validate(4n, 4n)).toMatchObject({
+            status: ORDER_STATUS.Filled,
+        });
+    });
+
     it("returns invalid instead of throwing when getOrderStatus fails", async () => {
         const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
         const rpc = new MockRpc({
@@ -314,6 +352,10 @@ describe("validateSeaportOrder", () => {
 });
 
 type MockRpcOptions = {
+    balance?: bigint;
+    filled?: bigint;
+    total?: bigint;
+    cancelled?: boolean;
     failFunction?: string;
     conduitKey?: string;
     conduitAddress?: string;
@@ -364,7 +406,12 @@ class MockRpc implements RpcProviderPort {
 
         switch (params.functionName) {
             case "getOrderStatus":
-                return [false, false, 0n, 1n] as T;
+                return [
+                    false,
+                    this.options.cancelled ?? false,
+                    this.options.filled ?? 0n,
+                    this.options.total ?? 1n,
+                ] as T;
             case "getCounter":
                 return 0n as T;
             case "getConduit":
@@ -383,7 +430,7 @@ class MockRpc implements RpcProviderPort {
             case "allowance":
                 return (10n ** 19n) as T;
             case "balanceOf":
-                return (10n ** 19n) as T;
+                return (this.options.balance ?? 10n ** 19n) as T;
             default:
                 throw new Error(
                     `Unexpected readContract call: ${params.functionName}`,

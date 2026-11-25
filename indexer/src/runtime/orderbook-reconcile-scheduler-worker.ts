@@ -1,3 +1,5 @@
+import { scheduleVvvBooks } from "../application/offchain/vvv-reconcile.js";
+import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
@@ -38,6 +40,9 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const collections = new SqliteCollectionRegistry();
+        const books = new SqliteOrderSourceStateStore(
+            config.tokens.wethAddress,
+        );
         const provider = config.opensea;
         const freshness = provider
             ? new OpenSeaReconcilePolicy(provider)
@@ -47,6 +52,7 @@ async function main() {
                 | typeof OPENSEA_RECONCILE_REASON.Scheduled
                 | typeof OPENSEA_RECONCILE_REASON.StartupStale,
         ) {
+            await scheduleVvvBooks(books, queue, config.chainId);
             if (freshness)
                 await scheduleDueReconciles(
                     queue,

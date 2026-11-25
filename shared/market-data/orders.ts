@@ -33,3 +33,10 @@ export type OrderSourceScopeKind =
 
 export const ORDER_SIDE = { Buy: "buy", Sell: "sell" } as const;
 export type OrderSide = (typeof ORDER_SIDE)[keyof typeof ORDER_SIDE];
+
+export const ORDERBOOK_VENUE = { OpenSea: "opensea", Vvv: "vvv" } as const;
+export type OrderbookVenue =
+    (typeof ORDERBOOK_VENUE)[keyof typeof ORDERBOOK_VENUE];
+
+export const SEAPORT_MAINNET_V1_6 =
+    "0x0000000000000068F116a894984e2DB1123eB395";

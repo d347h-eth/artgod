@@ -341,12 +341,6 @@ export class SqliteStorage
     private deleteMetadataFromBlock = db.prepare<[number, number]>(
         "DELETE FROM token_metadata WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
     );
-    private deleteOrdersFromBlock = db.prepare<[number, number]>(
-        // Source cancellation remains definitive even when this row also has a
-        // rolled-back chain outcome. Normal cleanup retires its payload later.
-        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ? " +
-            `AND source_status<>'${ORDER_SOURCE_STATUS.Cancelled}'`,
-    );
     private resetOrderFillability = db.prepare<
         [string, number, number, string, string, string, string]
     >(
@@ -638,7 +632,17 @@ export class SqliteStorage
             });
             this.deleteActivitiesFromBlock.run(chainId, fromBlock);
             this.deleteMetadataFromBlock.run(chainId, fromBlock);
-            this.deleteOrdersFromBlock.run(chainId, fromBlock);
+            db.prepare(
+                "DELETE FROM orders WHERE chain_id=? AND block_number>=? AND order_hash IS NULL AND source_status<>?",
+            ).run(chainId, fromBlock, ORDER_SOURCE_STATUS.Cancelled);
+            // Venue membership survives a fork. Fence orphaned protocol proofs and
+            // make their orders eligible for revalidation at the new chain revision.
+            db.prepare(
+                "UPDATE orders SET block_number=NULL,validated_at=0,remaining_quantity=NULL,state_revision=state_revision+1,fillability_status=? WHERE chain_id=? AND order_hash IS NOT NULL AND (block_number>=? OR id IN (SELECT order_id FROM order_validation_demand WHERE chain_id=? AND proof_block>=?))",
+            ).run(ORDER_STATUS.Invalid, chainId, fromBlock, chainId, fromBlock);
+            db.prepare(
+                "INSERT INTO order_validation_demand(order_id,chain_id,revision,required_at,anchor_independent,updated_at) SELECT id,chain_id,state_revision,0,1,0 FROM orders WHERE chain_id=? AND order_hash IS NOT NULL AND validated_at=0 AND fillability_status=? AND source_status=? ON CONFLICT(order_id) DO UPDATE SET pending=1,revision=excluded.revision,generation=generation+1,minimum_block=NULL,anchor_independent=1,proof_revision=NULL,proof_block=NULL,lease_until=0,lease_owner=NULL,next_attempt_at=0",
+            ).run(chainId, ORDER_STATUS.Invalid, ORDER_SOURCE_STATUS.Active);
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);

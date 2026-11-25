@@ -4,6 +4,7 @@ import desktopRuntimeInputs from "../../config/desktop-runtime-inputs.json" with
 export const NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES = Object.freeze({
     BetterSqlite3: "better-sqlite3",
     Sharp: "sharp",
+    PlaywrightCore: "playwright-core",
 });
 
 // Broker patch release staged into desktop builds and matching integration tests.
@@ -190,6 +191,17 @@ const PACKAGE_SOURCE_ISSUERS = Object.freeze({
 });
 
 const FIXED_PACKAGE_FILE_SELECTIONS = Object.freeze({
+    [NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.PlaywrightCore]: Object.freeze({
+        required: Object.freeze([
+            "package.json",
+            "LICENSE",
+            "browsers.json",
+            "index.js",
+            "index.mjs",
+            "lib",
+        ]),
+        optional: Object.freeze(["NOTICE"]),
+    }),
     [NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3]: Object.freeze({
         required: Object.freeze([
             "package.json",
@@ -404,6 +416,10 @@ export function getMacOSMachOArchitectures(nodeTarget) {
 // Returns the complete reviewed package set for one staged runtime.
 export function getDesktopRuntimeDependencyPackageNames(runtime, nodeTarget) {
     const packageNames = [...SQLITE_RUNTIME_PACKAGE_NAMES];
+    if (runtime === DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer)
+        packageNames.push(
+            NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.PlaywrightCore,
+        );
     if (runtime.includeSharp) {
         packageNames.push(
             ...SHARP_COMMON_RUNTIME_PACKAGE_NAMES,
@@ -451,6 +467,12 @@ export function getDesktopRuntimePackageSourceIssuer(packageName, runtime) {
         });
     }
 
+    if (
+        packageName ===
+            NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.PlaywrightCore &&
+        runtime === DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer
+    )
+        return { workspaceRelativePath: "indexer/package.json" };
     const fixedIssuer = PACKAGE_SOURCE_ISSUERS[packageName];
     if (fixedIssuer) return fixedIssuer;
 

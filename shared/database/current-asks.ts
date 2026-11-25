@@ -1,5 +1,9 @@
 import type Database from "better-sqlite3";
 import {
+    CollectionTokenScope,
+    COLLECTION_TOKEN_SCOPE_KIND,
+} from "../collections/token-scope.js";
+import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
@@ -29,6 +33,62 @@ export const CURRENT_ASK_INDEX_SQL = [
     )
     .join("\n");
 
+/** A page expires when publication, settlement, or a validity boundary changes. */
+export function collectionMarketVersion(
+    conn: Database.Database,
+    chainId: number,
+    collectionId: number,
+    now: number,
+): string {
+    const row = conn
+        .prepare(
+            "SELECT market_revision AS revision,(SELECT MIN(valid_from) FROM orders WHERE chain_id=? AND collection_id=? AND valid_from>?) AS start,(SELECT MIN(valid_until) FROM orders WHERE chain_id=? AND collection_id=? AND valid_until>?) AS expiry FROM collections WHERE chain_id=? AND collection_id=?",
+        )
+        .get(
+            chainId,
+            collectionId,
+            now,
+            chainId,
+            collectionId,
+            now,
+            chainId,
+            collectionId,
+        ) as
+        | { revision: number; start: number | null; expiry: number | null }
+        | undefined;
+    return JSON.stringify(row ?? null);
+}
+
+const TOKEN_IN_RANGE = "artgod_token_in_range";
+const registeredConnections = new WeakSet<Database.Database>();
+
+/** SQLite integer arithmetic cannot represent every ERC-721 token ID. */
+export function registerOrderbookScopeFunction(conn: Database.Database): void {
+    if (registeredConnections.has(conn)) return;
+    conn.function(
+        TOKEN_IN_RANGE,
+        { deterministic: true },
+        (start: string, count: number, token: string) =>
+            Number(
+                CollectionTokenScope.tokenRange(start, count).containsToken(
+                    token,
+                ),
+            ),
+    );
+    registeredConnections.add(conn);
+}
+
+/** Check the binding and the current declared scope even between successful reads. */
+export function hasCurrentOrderBindingSql(alias: string): string {
+    const kind = COLLECTION_TOKEN_SCOPE_KIND;
+    return `(${alias}.order_hash IS NULL OR EXISTS (
+        SELECT 1 FROM orderbook_bindings b JOIN collections c USING(collection_id)
+        WHERE b.feed_id=${alias}.winning_feed_id AND b.collection_id=${alias}.collection_id
+        AND (CASE WHEN ${alias}.token_id IS NULL OR c.token_scope_kind='${kind.AllContractTokens}' THEN 1
+                  WHEN c.token_scope_kind='${kind.TokenRange}' THEN ${TOKEN_IN_RANGE}(c.scope_start_token_id,c.scope_total_supply,${alias}.token_id)
+                  ELSE EXISTS (SELECT 1 FROM collection_scope_tokens s WHERE s.chain_id=c.chain_id AND s.collection_id=c.collection_id AND s.token_id=${alias}.token_id) END)))`;
+}
+
 /** Scope expressions are adapter-owned SQL, not request input. Bindings after
  * scope are currencies, current time for valid_from, then current time for expiry. */
 export function currentAskIdSql(scope: {
@@ -44,6 +104,9 @@ export function currentAskIdSql(scope: {
         `SELECT ask.id FROM orders ask WHERE ask.chain_id=${scope.chain} AND ask.collection_id=${scope.collection} AND ask.token_id=${scope.token} ` +
         (scope.maker ? `AND ask.maker=${scope.maker} ` : "") +
         `AND ${eligibleAskSql("ask")} AND ask.currency IN (${Array(scope.currencyCount).fill("?").join(",")}) ` +
+        "AND " +
+        hasCurrentOrderBindingSql("ask") +
+        " " +
         "AND (ask.valid_from IS NULL OR ask.valid_from<=?) AND (ask.valid_until IS NULL OR ask.valid_until>?) " +
         `ORDER BY LENGTH(${normalizedAskPriceSql("ask")}),${normalizedAskPriceSql("ask")},ask.currency,ask.id LIMIT 1`
     );
@@ -58,22 +121,25 @@ export type CurrentAsk = {
 
 /** Shared best-ask selection for stored daily prices and collection cards. */
 export class SqliteCurrentAsks {
-    private readonly select: Database.Statement;
+    private select?: Database.Statement;
     constructor(
-        conn: Database.Database,
+        private readonly conn: Database.Database,
         private readonly currencies: readonly string[],
     ) {
-        this.select = conn.prepare(
+        registerOrderbookScopeFunction(conn);
+    }
+    private sellerStatement() {
+        return (this.select ??= this.conn.prepare(
             "SELECT id,price,currency,quantity FROM orders WHERE id=(" +
                 currentAskIdSql({
                     chain: "?",
                     collection: "?",
                     token: "?",
                     maker: "?",
-                    currencyCount: currencies.length,
+                    currencyCount: this.currencies.length,
                 }) +
                 ")",
-        );
+        ));
     }
 
     forSeller(
@@ -83,7 +149,7 @@ export class SqliteCurrentAsks {
         maker: string,
         now: number,
     ): CurrentAsk | undefined {
-        return this.select.get(
+        return this.sellerStatement().get(
             chainId,
             collectionId,
             tokenId,

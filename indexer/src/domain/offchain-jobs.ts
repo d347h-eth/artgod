@@ -3,12 +3,10 @@ export const OFFCHAIN_JOB_KIND = {
 } as const;
 
 // Names raw offchain payload producers recognized by normalizers and workers.
-export const OFFCHAIN_ORDER_SOURCE = {
-    OpenSea: "opensea",
-} as const;
+export { ORDERBOOK_VENUE as OFFCHAIN_ORDER_SOURCE } from "@artgod/shared/market-data/orders";
 
 export type OffchainOrderSource =
-    (typeof OFFCHAIN_ORDER_SOURCE)[keyof typeof OFFCHAIN_ORDER_SOURCE];
+    import("@artgod/shared/market-data/orders").OrderbookVenue;
 
 // Names raw observation lanes that feed offchain order normalization.
 export const OFFCHAIN_OBSERVATION_CHANNEL = {
@@ -38,6 +36,7 @@ export type OffchainOrderRawPayload = {
     /** Epoch milliseconds at transport receipt. */
     receivedAt: number;
     channel: OffchainObservationChannel;
+    market?: string;
     dedupeKey: string;
     eventType: string;
     orderId?: string | null;

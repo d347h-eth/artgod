@@ -24,16 +24,23 @@ export function normalizeSeaportOrderData(
         return null;
     }
 
+    return decodeSeaportComponents(protocolAddress, protocolData);
+}
+
+/** Both adapters use the identical signed array and exact integer representation.
+ * VVV omits the unsigned count. Its adapter checks the hash and signer before
+ * accepting this candidate as a settlement identity. */
+export function decodeSeaportComponents(
+    protocolAddress: unknown,
+    envelope: unknown,
+): SeaportOrderData {
     const normalizedProtocolAddress = assertAddress(
         protocolAddress,
         "protocol_address",
     );
-    const protocol = asObject(protocolData, "protocol_data");
-    const parameters = asObject(
-        protocol.parameters,
-        "protocol_data.parameters",
-    );
-
+    const protocol = asObject(envelope, "order");
+    const parameters = asObject(protocol.parameters, "order.parameters");
+    const consideration = parseConsiderationItems(parameters.consideration);
     return {
         protocolAddress: normalizedProtocolAddress,
         signature: parseOptionalString(
@@ -43,7 +50,7 @@ export function normalizeSeaportOrderData(
         offerer: assertAddress(parameters.offerer, "offerer"),
         zone: assertAddress(parameters.zone, "zone"),
         offer: parseOfferItems(parameters.offer),
-        consideration: parseConsiderationItems(parameters.consideration),
+        consideration,
         orderType: normalizeUint(parameters.orderType, "orderType"),
         startTime: normalizeUint(parameters.startTime, "startTime"),
         endTime: normalizeUint(parameters.endTime, "endTime"),
@@ -51,7 +58,7 @@ export function normalizeSeaportOrderData(
         salt: normalizeUint(parameters.salt, "salt"),
         conduitKey: assertString(parameters.conduitKey, "conduitKey"),
         totalOriginalConsiderationItems: normalizeUint(
-            parameters.totalOriginalConsiderationItems,
+            parameters.totalOriginalConsiderationItems ?? consideration.length,
             "totalOriginalConsiderationItems",
         ),
         counter: normalizeUint(parameters.counter, "counter"),
@@ -126,7 +133,12 @@ function normalizeItem(value: unknown, name: string): SeaportOrderItem {
 }
 
 function normalizeUint(value: unknown, name: string): string {
-    return toBigInt(value, name).toString();
+    if (typeof value === "number" && !Number.isSafeInteger(value))
+        throw new Error("Unsafe integer in " + name);
+    const amount = toBigInt(value, name);
+    if (amount < 0n || amount >= 2n ** 256n)
+        throw new Error("Invalid unsigned integer in " + name);
+    return amount.toString();
 }
 
 function findSingleNftItem(

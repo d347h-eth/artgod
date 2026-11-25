@@ -49,6 +49,7 @@ export async function dispatchOffchainPayload(
     queue: QueuePort,
     tokenSets: TokenSetRegistryPort,
     payload: OffchainOrderRawPayload,
+    marketOrders?: { observe(raw: OffchainOrderRawPayload): Promise<boolean> },
 ): Promise<DispatchOffchainPayloadResult> {
     let handled = false;
     let upsertedOrderId: string | null = null;
@@ -78,7 +79,9 @@ export async function dispatchOffchainPayload(
         handled = true;
     }
 
-    const normalized = normalizeOffchainOrder(payload);
+    if (marketOrders)
+        handled = (await marketOrders.observe(payload)) || handled;
+    const normalized = marketOrders ? null : normalizeOffchainOrder(payload);
     const observedAt =
         normalized?.rawSourceKind === "rest"
             ? Math.floor(payload.receivedAt / 1000)
@@ -91,88 +94,16 @@ export async function dispatchOffchainPayload(
             Math.floor(Date.now() / 1000),
         )
     ) {
-        let tokenSetId: string | null = null;
-        let tokenSetSchemaHash: string | null = null;
-        let localTokenSetStatus =
-            normalized.localTokenSetStatus ?? ORDER_LOCAL_TOKEN_SET_STATUS.None;
-
-        if (normalized.sourceSchema) {
-            const resolved = tokenSets.ensureTokenSet({
-                chainId: normalized.chainId,
-                collectionId: payload.collectionId,
-                schema: normalized.sourceSchema,
-            });
-            if (!resolved) {
-                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved;
-                logger.warn("Offchain token set unresolved", {
-                    component: "OffchainDispatch",
-                    action: "dispatch",
-                    source: normalized.source,
-                    orderId: normalized.orderId,
-                    chainId: normalized.chainId,
-                    collectionId: payload.collectionId,
-                    sourceScopeKind: normalized.sourceScopeKind,
-                });
-            } else if (
-                normalized.sourceScopeKind ===
-                    ORDER_SOURCE_SCOPE_KIND.Attribute &&
-                normalized.sourceCriteriaRoot &&
-                normalized.sourceCriteriaRoot.toLowerCase() !==
-                    resolved.merkleRoot.toLowerCase()
-            ) {
-                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Mismatch;
-                logger.warn("Offchain token set criteria mismatch", {
-                    component: "OffchainDispatch",
-                    action: "dispatch",
-                    source: normalized.source,
-                    orderId: normalized.orderId,
-                    chainId: normalized.chainId,
-                    collectionId: payload.collectionId,
-                    sourceScopeKind: normalized.sourceScopeKind,
-                    expected: normalized.sourceCriteriaRoot,
-                    resolved: resolved.merkleRoot,
-                });
-            } else {
-                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Resolved;
-                tokenSetId = resolved.tokenSetId;
-                tokenSetSchemaHash = resolved.schemaHash;
-            }
-        }
-
         const upsertJob: JobEnvelope<OrderUpsertPayload> = {
             jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${payload.receivedAt}`,
             kind: ORDER_JOB_KIND.Upsert,
             queue: QUEUE_NAMES.OrdersUpsert,
-            payload: {
+            payload: makeOrderUpsert(
+                tokenSets,
+                normalized,
+                payload.collectionId,
                 observedAt,
-                chainId: normalized.chainId,
-                collectionId: payload.collectionId,
-                orderId: normalized.orderId,
-                kind: normalized.kind,
-                side: normalized.side,
-                maker: normalized.maker,
-                taker: normalized.taker ?? null,
-                contract: normalized.contract,
-                tokenId: normalized.tokenId ?? null,
-                sourceScopeKind: normalized.sourceScopeKind,
-                sourceCriteriaRoot: normalized.sourceCriteriaRoot ?? null,
-                sourceEncodedTokenIds: normalized.sourceEncodedTokenIds ?? null,
-                sourceSchema: normalized.sourceSchema ?? null,
-                localTokenSetStatus,
-                tokenSetId,
-                tokenSetSchemaHash,
-                quantity: normalized.quantity ?? "1",
-                price: normalized.price ?? null,
-                currency: normalized.currency ?? null,
-                validFrom: normalized.validFrom ?? null,
-                validUntil: normalized.validUntil ?? null,
-                seaportData: normalized.seaportData ?? null,
-                source: normalized.source,
-                sourceStatus: "active",
-                rawSourceKind: normalized.rawSourceKind,
-                rawPayload: normalized.rawPayload,
-                validateAfterUpsert: true,
-            },
+            ),
             attempt: 0,
             scheduledAt: Date.now(),
             chainId: normalized.chainId,
@@ -183,7 +114,9 @@ export async function dispatchOffchainPayload(
         upsertedOrderId = normalized.orderId;
     }
 
-    const updateById = normalizeOffchainOrderUpdateById(payload);
+    const updateById = marketOrders
+        ? null
+        : normalizeOffchainOrderUpdateById(payload);
     if (updateById) {
         const updateJob: JobEnvelope<OrderUpdateByIdPayload> = {
             jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus}`,
@@ -271,5 +204,90 @@ export async function dispatchOffchainPayload(
     return {
         handled,
         upsertedOrderId,
+    };
+}
+
+export function makeOrderUpsert(
+    tokenSets: TokenSetRegistryPort,
+    normalized: import("./normalize.js").NormalizedOffchainOrder,
+    collectionId: number,
+    observedAt: number,
+): OrderUpsertPayload {
+    let tokenSetId: string | null = null;
+    let tokenSetSchemaHash: string | null = null;
+    let localTokenSetStatus =
+        normalized.localTokenSetStatus ?? ORDER_LOCAL_TOKEN_SET_STATUS.None;
+
+    if (normalized.sourceSchema) {
+        const resolved = tokenSets.ensureTokenSet({
+            chainId: normalized.chainId,
+            collectionId: collectionId,
+            schema: normalized.sourceSchema,
+        });
+        if (!resolved) {
+            localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved;
+            logger.warn("Offchain token set unresolved", {
+                component: "OffchainDispatch",
+                action: "dispatch",
+                source: normalized.source,
+                orderId: normalized.orderId,
+                chainId: normalized.chainId,
+                collectionId: collectionId,
+                sourceScopeKind: normalized.sourceScopeKind,
+            });
+        } else if (
+            normalized.sourceScopeKind === ORDER_SOURCE_SCOPE_KIND.Attribute &&
+            normalized.sourceCriteriaRoot &&
+            normalized.sourceCriteriaRoot.toLowerCase() !==
+                resolved.merkleRoot.toLowerCase()
+        ) {
+            localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Mismatch;
+            logger.warn("Offchain token set criteria mismatch", {
+                component: "OffchainDispatch",
+                action: "dispatch",
+                source: normalized.source,
+                orderId: normalized.orderId,
+                chainId: normalized.chainId,
+                collectionId: collectionId,
+                sourceScopeKind: normalized.sourceScopeKind,
+                expected: normalized.sourceCriteriaRoot,
+                resolved: resolved.merkleRoot,
+            });
+        } else {
+            localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Resolved;
+            tokenSetId = resolved.tokenSetId;
+            tokenSetSchemaHash = resolved.schemaHash;
+        }
+    }
+
+    return {
+        observedAt,
+        chainId: normalized.chainId,
+        collectionId,
+        orderId: normalized.orderId,
+        kind: normalized.kind,
+        side: normalized.side,
+        maker: normalized.maker,
+        taker: normalized.taker ?? null,
+        contract: normalized.contract,
+        tokenId: normalized.tokenId ?? null,
+        sourceScopeKind: normalized.sourceScopeKind,
+        sourceCriteriaRoot: normalized.sourceCriteriaRoot ?? null,
+        sourceEncodedTokenIds: normalized.sourceEncodedTokenIds ?? null,
+        sourceSchema: normalized.sourceSchema ?? null,
+        localTokenSetStatus,
+        tokenSetId,
+        tokenSetSchemaHash,
+        quantity: normalized.quantity ?? "1",
+        price: normalized.price ?? null,
+        currency: normalized.currency ?? null,
+        validFrom: normalized.validFrom ?? null,
+        validUntil: normalized.validUntil ?? null,
+        seaportData: normalized.seaportData ?? null,
+        source: normalized.source,
+        sourceStatus: "active",
+        rawSourceKind: normalized.rawSourceKind,
+        rawPayload: normalized.rawPayload,
+        validateAfterUpsert: true,
     };
 }

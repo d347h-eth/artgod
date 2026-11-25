@@ -81,6 +81,7 @@ export class OpenSeaApiAdapter {
         handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void> {
         let cursor: string | undefined;
+        const visited = new Set<string>();
 
         do {
             const response = await this.withGetCost("getAllListings", () =>
@@ -91,16 +92,24 @@ export class OpenSeaApiAdapter {
                     false,
                 ),
             );
-            const listings = asArray(response?.listings);
+            if (!Array.isArray(response?.listings))
+                throw new Error("Incomplete OpenSea listings page");
+            const listings = response.listings;
             for (const entry of listings) {
                 const listing = asRecord(entry);
+                if (!getOpenSeaOrderHash(listing))
+                    throw new Error("OpenSea listing missing identity");
                 if (!isActiveStatus(listing.status)) continue;
                 const record = toRestListingRecord(listing, contractAddress);
                 if (!record) continue;
                 await handler(record);
             }
-            cursor =
-                typeof response?.next === "string" ? response.next : undefined;
+            if (response.next != null && typeof response.next !== "string")
+                throw new Error("Invalid OpenSea page cursor");
+            cursor = response.next ?? undefined;
+            if (cursor && visited.has(cursor))
+                throw new Error("Repeated OpenSea page cursor");
+            if (cursor) visited.add(cursor);
         } while (cursor);
     }
 
@@ -110,21 +119,30 @@ export class OpenSeaApiAdapter {
         handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void> {
         let cursor: string | undefined;
+        const visited = new Set<string>();
 
         do {
             const response = await this.withGetCost("getAllOffers", () =>
                 this.api.getAllOffers(collectionSlug, this.pageSize, cursor),
             );
-            const offers = asArray(response?.offers);
+            if (!Array.isArray(response?.offers))
+                throw new Error("Incomplete OpenSea offers page");
+            const offers = response.offers;
             for (const entry of offers) {
                 const offer = asRecord(entry);
+                if (!getOpenSeaOrderHash(offer))
+                    throw new Error("OpenSea offer missing identity");
                 if (!isActiveStatus(offer.status)) continue;
                 const record = toRestOfferRecord(offer, contractAddress);
                 if (!record) continue;
                 await handler(record);
             }
-            cursor =
-                typeof response?.next === "string" ? response.next : undefined;
+            if (response.next != null && typeof response.next !== "string")
+                throw new Error("Invalid OpenSea page cursor");
+            cursor = response.next ?? undefined;
+            if (cursor && visited.has(cursor))
+                throw new Error("Repeated OpenSea page cursor");
+            if (cursor) visited.add(cursor);
         } while (cursor);
     }
 

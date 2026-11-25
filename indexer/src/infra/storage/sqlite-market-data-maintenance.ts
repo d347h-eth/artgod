@@ -230,9 +230,24 @@ export class SqliteMarketDataMaintenance
                                   )
                                   .get(table) as { seq: number } | undefined)
                             : undefined;
+                    // The cancellation ledger owns triggers that update the live orders
+                    // table. SQLite validates their SQL while renaming the shadow.
+                    // Restore them in the same transaction as the table swap.
+                    const dependentTriggers =
+                        table === "orders"
+                            ? (this.conn
+                                  .prepare(
+                                      "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name='trading_bidding_order_cancellations' AND name IN ('book_cancellation_insert','book_cancellation_update')",
+                                  )
+                                  .all() as { name: string; sql: string }[])
+                            : [];
+                    for (const trigger of dependentTriggers)
+                        this.conn.exec("DROP TRIGGER " + quote(trigger.name));
                     this.conn.exec(
                         `DROP TABLE ${table}; ALTER TABLE ${replacement} RENAME TO ${table};`,
                     );
+                    for (const trigger of dependentTriggers)
+                        this.conn.exec(trigger.sql);
                     if (sequence) {
                         this.conn
                             .prepare(
@@ -348,7 +363,8 @@ export class SqliteMarketDataMaintenance
             now,
             POLICY.maintenanceBatchRows,
         ) as { chain_id: number; order_id: string }[];
-        if (!candidates.size && !markers.length) return 0;
+        if (!candidates.size && !markers.length)
+            return this.retireBookEvidence(now);
         return this.database.writeTransaction(() => {
             const rows = [...candidates.values()];
             for (const row of rows) {
@@ -364,6 +380,50 @@ export class SqliteMarketDataMaintenance
                 this.deleteMarker!.run(marker.chain_id, marker.order_id, now);
             // Nonzero while either family makes progress, including an empty orderbook.
             return rows.length + markers.length;
+        })();
+    }
+
+    /** Expire history after the passive replay window. Keep a withdrawal that
+     * still fences a live relay and keep the current membership for comparison. */
+    private retireBookEvidence(now: number): number {
+        if (
+            !this.conn
+                .prepare(
+                    "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='orderbook_members'",
+                )
+                .get()
+        )
+            return 0;
+        const cutoff = (now - POLICY.unknownOrderLifetimeSeconds) * 1000;
+        if (
+            !this.conn
+                .prepare(
+                    "SELECT 1 FROM orderbook_changes WHERE observed_ms<=? LIMIT 1",
+                )
+                .get(cutoff) &&
+            !this.conn
+                .prepare(
+                    "SELECT 1 FROM orderbook_members WHERE present=0 AND observed_ms<=? LIMIT 1",
+                )
+                .get(cutoff)
+        )
+            return 0;
+        return this.database.writeTransaction(() => {
+            const changes = this.conn
+                .prepare(
+                    `DELETE FROM orderbook_changes WHERE (feed_id,generation,native_id) IN (
+                SELECT feed_id,generation,native_id FROM orderbook_changes WHERE observed_ms<=? ORDER BY observed_ms LIMIT ?)`,
+                )
+                .run(cutoff, POLICY.maintenanceBatchRows).changes;
+            const removed = this.conn
+                .prepare(
+                    `DELETE FROM orderbook_members WHERE (feed_id,native_id) IN (
+                SELECT m.feed_id,m.native_id FROM orderbook_members m WHERE m.present=0 AND m.observed_ms<=?
+                AND (m.withdrawn=0 OR NOT EXISTS (SELECT 1 FROM orderbook_members r WHERE r.placement=m.placement AND r.present=1 AND r.authority=0))
+                ORDER BY m.observed_ms LIMIT ?)`,
+                )
+                .run(cutoff, POLICY.maintenanceBatchRows - changes).changes;
+            return changes + removed;
         })();
     }
 

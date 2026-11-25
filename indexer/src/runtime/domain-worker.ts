@@ -1,3 +1,4 @@
+import { consumeOrderUpsert } from "../application/orders/consume-order-upsert.js";
 import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
@@ -216,6 +217,7 @@ async function main() {
             chainId: config.chainId,
             validation: admitOrderValidation,
             lifecycle: ordersDomain,
+            settlement: ordersDomain,
             observability: processingObservability,
         });
         const orderValidation = new ValidateOrderDemand({
@@ -460,15 +462,8 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<OrderUpsertPayload>) => {
-                if (job.kind !== ORDER_JOB_KIND.Upsert) return;
-                await ordersDomain.handleOrderUpsert({
-                    ...job.payload,
-                    observedAt:
-                        job.payload.observedAt ??
-                        Math.floor(job.scheduledAt / 1000),
-                });
-            },
+            (job: JobEnvelope<OrderUpsertPayload>) =>
+                consumeOrderUpsert(job, ordersDomain),
             {
                 workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,

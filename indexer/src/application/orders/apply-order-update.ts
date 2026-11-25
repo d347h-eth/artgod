@@ -1,4 +1,7 @@
-import type { OrderUpdateByIdPayload } from "../../domain/order-jobs.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
+} from "../../domain/order-jobs.js";
 import { orderUpdateQueue } from "../../domain/order-processing.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
@@ -20,6 +23,18 @@ export class ApplyOrderUpdate {
             chainId: number;
             validation: Pick<AdmitOrderValidation, "execute">;
             lifecycle: Pick<OrdersDomainPort, "handleOrderUpdateById">;
+            settlement?: {
+                resolve(
+                    chainId: number,
+                    protocol: string,
+                    hash: string,
+                ): string[];
+                awaitFillProof(
+                    chainId: number,
+                    id: string,
+                    block: number,
+                ): void;
+            };
             observability?: OrderProcessingObservability;
         },
     ) {}
@@ -29,6 +44,45 @@ export class ApplyOrderUpdate {
     ): Promise<void> {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
+        if (payload.protocolAddress && this.deps.settlement) {
+            const ids = this.deps.settlement.resolve(
+                payload.chainId,
+                payload.protocolAddress,
+                payload.orderId,
+            );
+            if (ids.length) {
+                for (const id of ids) {
+                    if (
+                        payload.reason === ORDER_UPDATE_REASON.Fill &&
+                        payload.blockNumber != null
+                    ) {
+                        // OrderFulfilled may consume only a fraction. Suppress the quote
+                        // until the shared order has proof of the remaining quantity.
+                        this.deps.settlement.awaitFillProof(
+                            payload.chainId,
+                            id,
+                            payload.blockNumber,
+                        );
+                        this.deps.validation.execute(
+                            eventValidationRequest(
+                                payload.chainId,
+                                id,
+                                payload.blockNumber,
+                            ),
+                        );
+                    } else
+                        await this.apply(
+                            { ...payload, orderId: id },
+                            requiredAt,
+                        );
+                }
+                return;
+            }
+        }
+        return this.apply(payload, requiredAt);
+    }
+
+    private async apply(payload: OrderUpdateByIdPayload, requiredAt: number) {
         if (orderUpdateQueue(payload) === QUEUE_NAMES.OrdersUpdateById) {
             this.deps.validation.execute(
                 payload.blockNumber == null

@@ -53,7 +53,12 @@ test("backend and indexer receive the reviewed Sharp closure for Linux", () => {
                 runtime,
                 DESKTOP_NODE_DIST_TARGET.LinuxX64,
             ).slice(3),
-            expectedSharpPackages,
+            runtime === DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer
+                ? [
+                      NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.PlaywrightCore,
+                      ...expectedSharpPackages,
+                  ]
+                : expectedSharpPackages,
         );
     }
 });

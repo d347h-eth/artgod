@@ -72,6 +72,8 @@ export type OrderUpdateByMakerPayload =
 
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.
 export type OrderUpdateByIdPayload = {
+    /** The emitting deployment scopes a protocol order hash on this chain. */
+    protocolAddress?: string;
     chainId: number;
     /** Present on source updates, including cancellation before its create arrives. */
     collectionId?: number;

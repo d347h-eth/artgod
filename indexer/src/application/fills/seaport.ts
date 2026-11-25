@@ -1,3 +1,4 @@
+import { SEAPORT_MAINNET_V1_6 } from "@artgod/shared/market-data/orders";
 import { logger } from "@artgod/shared/utils";
 import {
     FILL_KIND,
@@ -79,7 +80,7 @@ export const SEAPORT_EXCHANGE_ADDRESSES = new Set(
         "0x00000000006c3852cbef3e08e8df289169ede581",
         "0x00000000000001ad428e4906ae43d8f9852d0dd6",
         "0x00000000000000adc04c56bf30ac9d3c0aaf14dc",
-        "0x0000000000000068f116a894984e2db1123eb395",
+        SEAPORT_MAINNET_V1_6,
     ].map((address) => address.toLowerCase()),
 );
 

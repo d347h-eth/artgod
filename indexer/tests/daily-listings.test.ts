@@ -1,3 +1,4 @@
+import { BOOK_VIEW, type BookObservation } from "../src/domain/orderbook.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -393,29 +394,52 @@ describe("permanent daily listings and current asks", () => {
     it("refreshes a seller price when REST marks the cheaper ask absent, before midnight freezes the row", async () => {
         now = FIRST - 10 + POLICY.utcDaySeconds - 1;
         vi.setSystemTime(now * 1000);
-        order("cheaper", "10");
-        order("remaining", "20");
-        db.prepare("UPDATE orders SET source=?,observed_at=?").run(
-            OFFCHAIN_ORDER_SOURCE.OpenSea,
-            now - 3600,
-        );
+        const feed = {
+            chainId: 1,
+            venue: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            reference: "daily",
+            contract: CONTRACT,
+            view: BOOK_VIEW.Public,
+        };
+        db.prepare(
+            "UPDATE collections SET opensea_slug=?,opensea_status='ready' WHERE collection_id=1",
+        ).run(feed.reference);
+        const books = new SqliteOrderSourceStateStore(WETH, () => now * 1000);
+        books.bind(feed, 1);
+        function listing(id: string, price: string): BookObservation {
+            return {
+                nativeId: id,
+                placement: feed,
+                settlementId: id,
+                status: ORDER_SOURCE_STATUS.Active,
+                fillable: true,
+                audience: null,
+                sourceTime: null,
+                fees: null,
+                proceeds: null,
+                order: {
+                    orderId: id,
+                    kind: "seaport",
+                    maker: SELLER,
+                    contract: CONTRACT,
+                    tokenId: "1",
+                    sourceScopeKind: "token",
+                    side: "sell",
+                    price,
+                    currency: ETH,
+                    quantity: "1",
+                },
+            };
+        }
+        const prior = books.begin(feed);
+        prior.record(listing("cheaper", "10"));
+        prior.record(listing("remaining", "20"));
+        prior.publish();
         await event("cheaper", now - 500);
         const pinned = list().items[0]!;
-        const observation = new SqliteOrderSourceStateStore(
-            prices,
-            () => now,
-        ).beginObservation({
-            chainId: 1,
-            collectionId: 1,
-            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
-            startedAt: now,
-        });
-        try {
-            observation.recordActiveOrder("remaining");
-            expect(await observation.complete()).toBe(1);
-        } finally {
-            observation.close();
-        }
+        const observation = books.begin(feed);
+        observation.record(listing("remaining", "20"));
+        expect(observation.publish().deactivatedOrders).toBe(1);
         expect(list().items[0]).toMatchObject({
             id: pinned.id,
             occurredAt: pinned.occurredAt,

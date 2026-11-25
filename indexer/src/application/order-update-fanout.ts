@@ -73,7 +73,7 @@ export function buildOrderUpdateFollowUps(
                 chainId,
                 fill.orderId,
                 ORDER_UPDATE_REASON.Fill,
-                fill,
+                { ...fill, protocolAddress: fill.execution.protocolAddress },
             ),
         );
     }
@@ -190,6 +190,7 @@ function buildOrderUpdateById(
     orderId: string,
     reason: string,
     attribution: {
+        protocolAddress?: string;
         blockNumber: number;
         blockHash: string;
         txHash: string;
@@ -203,6 +204,9 @@ function buildOrderUpdateById(
         payload: {
             chainId,
             orderId,
+            ...(attribution.protocolAddress
+                ? { protocolAddress: attribution.protocolAddress }
+                : {}),
             reason,
             blockNumber: attribution.blockNumber,
             blockHash: attribution.blockHash,

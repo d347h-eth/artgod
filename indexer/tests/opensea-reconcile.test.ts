@@ -10,7 +10,10 @@ import {
     handleReconcileJob,
     scheduleDueReconciles,
 } from "../src/application/offchain/opensea-reconcile.js";
-import { OpenSeaOrderbookSync } from "../src/application/offchain/opensea-orderbook-sync.js";
+import {
+    openSeaFeed,
+    OpenSeaOrderbookSync,
+} from "../src/application/offchain/opensea-orderbook-sync.js";
 import { OpenSeaReconcilePolicy } from "../src/domain/opensea-reconcile-policy.js";
 import {
     OPENSEA_JOB_KIND,
@@ -256,12 +259,12 @@ describe("OpenSea reconciliation admission", () => {
         async (reason) => {
             collections.markOpenSeaReconcileCompleted(1, 99);
             const writes = db.prepare("SELECT total_changes() AS n").get();
-            const sourceState = new SqliteOrderSourceStateStore({
-                refreshSeller: vi.fn(),
-            });
-            const begin = vi.spyOn(sourceState, "beginObservation");
+            const sourceState = new SqliteOrderSourceStateStore(
+                loadOpenSeaConfig().tokens.wethAddress,
+            );
+            const begin = vi.spyOn(sourceState, "begin");
             const api = { forEachListing: vi.fn(), forEachOffer: vi.fn() };
-            const pipeline = new OpenSeaOrderbookSync(api, queue, sourceState);
+            const pipeline = new OpenSeaOrderbookSync(api, sourceState);
             for (let i = 0; i < 64; i++)
                 await handle(job(reason, 99, String(i)), pipeline);
             expect(api.forEachListing).not.toHaveBeenCalled();
@@ -371,6 +374,14 @@ describe("OpenSea reconciliation admission", () => {
             ORDER_SOURCE_STATUS.Active,
             ORDER_STATUS.Fillable,
         );
+        const store = new SqliteOrderSourceStateStore(
+            loadOpenSeaConfig().tokens.wethAddress,
+        );
+        const feed = openSeaFeed(collections.getCollection(1, 99)!);
+        const feedId = store.bind(feed, 99);
+        db.prepare(
+            "INSERT INTO orderbook_members(feed_id,native_id,placement,settlement_id,present,eligible,authority,revision,observed_ms,terms,collection_id) VALUES(?,'absent','fixture','absent',1,1,1,0,0,'old',99)",
+        ).run(feedId);
         let fail = true;
         type Api = ConstructorParameters<typeof OpenSeaOrderbookSync>[0];
         const api = {
@@ -402,11 +413,7 @@ describe("OpenSea reconciliation admission", () => {
                 },
             ),
         };
-        const pipeline = new OpenSeaOrderbookSync(
-            api,
-            queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: vi.fn() }),
-        );
+        const pipeline = new OpenSeaOrderbookSync(api, store);
         await handle(job(), pipeline);
         expect(events).toEqual(["listings", "offers"]);
         expect(

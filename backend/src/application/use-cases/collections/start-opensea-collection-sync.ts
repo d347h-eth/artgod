@@ -83,9 +83,10 @@ export class StartOpenSeaCollectionSyncUseCase {
                 chainId: number,
                 collectionRef: string,
             ): OpenSeaCollectionSyncState | null;
-            resolveOpenSeaSlugOwner(
+            resolveConflictingOpenSeaSlugOwner(
                 chainId: number,
                 openseaSlug: string,
+                contract: string,
             ): { collectionId: number } | null;
             markOpenSeaPending(input: {
                 chainId: number;
@@ -271,10 +272,12 @@ export class StartOpenSeaCollectionSyncUseCase {
         ) {
             return null;
         }
-        const owner = this.collectionSyncPort.resolveOpenSeaSlugOwner(
-            collection.chainId,
-            resolvedSlug,
-        );
+        const owner =
+            this.collectionSyncPort.resolveConflictingOpenSeaSlugOwner(
+                collection.chainId,
+                resolvedSlug,
+                collection.address,
+            );
         if (owner && owner.collectionId !== collection.collectionId) {
             throw new BootstrapConflictError(
                 "OpenSea slug is already assigned to another collection",

@@ -1,3 +1,4 @@
+import { SEAPORT_MAINNET_V1_6 } from "@artgod/shared/market-data/orders";
 import {
     compactSignatureToSignature,
     concatHex,
@@ -15,11 +16,9 @@ import type { SeaportOrderData } from "../../domain/orders.js";
 
 const SEAPORT_CONTRACT_NAME = "Seaport";
 const SEAPORT_VERSION_V1_6 = "1.6";
+
 const SEAPORT_V1_6_PROTOCOL_ADDRESSES = new Map<string, string>([
-    [
-        getAddress("0x0000000000000068F116a894984e2DB1123eB395"),
-        SEAPORT_VERSION_V1_6,
-    ],
+    [SEAPORT_MAINNET_V1_6, SEAPORT_VERSION_V1_6],
     [
         getAddress("0x00000000006687982678b03100B9bDC8be440814"),
         SEAPORT_VERSION_V1_6,

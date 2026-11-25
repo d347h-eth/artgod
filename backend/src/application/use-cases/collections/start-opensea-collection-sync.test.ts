@@ -182,7 +182,7 @@ function makeUseCase(
             resolveCollectionRef() {
                 return collection;
             },
-            resolveOpenSeaSlugOwner() {
+            resolveConflictingOpenSeaSlugOwner() {
                 return null;
             },
             markOpenSeaPending(input) {

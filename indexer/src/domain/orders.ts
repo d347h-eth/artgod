@@ -112,6 +112,7 @@ export type SeaportOrderData = {
 
 export type OrderRecord = {
     id: string;
+    protocolOrderHash?: string;
     chainId: number;
     collectionId: number;
     kind: string;
@@ -142,4 +143,8 @@ export type OrderRecord = {
     logIndex?: number | null;
 };
 
-export type OrderValidationResult = { status: OrderStatus; reason: string };
+export type OrderValidationResult = {
+    status: OrderStatus;
+    reason: string;
+    remainingQuantity?: string;
+};

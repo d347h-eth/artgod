@@ -116,6 +116,16 @@ export class SqliteQueueOutbox {
         });
     }
 
+    enqueueRequiredJob<T>(job: JobEnvelope<T>): number {
+        return this.insertJob({
+            job,
+            nextAttemptAt: 0,
+            retryPolicy: QUEUE_OUTBOX_RETRY_POLICY.Required,
+            blockNumber: null,
+            blockHash: null,
+        });
+    }
+
     // Called inside the sync data transaction. Revision-qualified IDs allow new
     // canonical events at the same height/log position after an earlier rollback.
     enqueueSyncFollowUp(input: {

@@ -1,9 +1,10 @@
+import { SEAPORT_MAINNET_V1_6 } from "../market-data/orders.js";
 // ArtGod-owned mainnet pins used to validate OpenSea wallet authority independently of the SDK.
 export const OPENSEA_MAINNET_SECURITY_POLICY = {
     chainId: 1,
     seaportName: "Seaport",
     seaportVersion: "1.6",
-    seaportAddress: "0x0000000000000068F116a894984e2DB1123eB395",
+    seaportAddress: SEAPORT_MAINNET_V1_6,
     signedZoneAddress: "0x000056f7000000ece9003ca63978907a00ffd100",
     conduitKey:
         "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",

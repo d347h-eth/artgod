@@ -82,6 +82,7 @@ import {
 
 type OrderRow = {
     id: string;
+    order_hash: string | null;
     chain_id: number;
     collection_id: number;
     kind: string;
@@ -213,13 +214,14 @@ type SlowOrderValidation = {
 };
 
 type TimedOrderValidation = {
+    remainingQuantity?: string;
     status: OrderStatus;
     reason: string;
     durationMs: number;
 };
 
 const SELECT_ORDER_FIELDS =
-    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
+    "SELECT id, order_hash, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
     "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index, observed_at, validated_at, state_revision " +
     "FROM orders ";
 
@@ -229,58 +231,21 @@ const ACTIVE_REVALIDATABLE_ORDER_FILTER =
     "AND id <= @upperOrderId AND rowid <= @upperRowId " +
     "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
 
-export class SqliteOrdersDomain
-    implements
-        OrdersDomainPort,
-        MakerOrderProjectionPort,
-        OrderValidationProjectionPort
-{
-    private readonly listingPrices: SqliteDailyListingPrices;
-    private readonly retirements: SqliteOrderRetirements;
-    private readonly wethAddress: string;
-    private readonly validateOrder: SeaportOrderValidator;
-    private readonly validationDemand = new SqliteOrderValidationDemand(this);
-    private updateOrderFillabilityStatus =
-        db.prepare<OrderFillabilityStatusParams>(
-            "UPDATE orders SET fillability_status = @fillabilityStatus, state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP " +
-                "WHERE chain_id = @chainId AND id = @orderId AND fillability_status IS NOT @fillabilityStatus",
-        );
-    private selectOrderById = db.prepare<OrderIdentityParams>(
-        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
-            "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index, observed_at, validated_at, state_revision " +
-            "FROM orders WHERE chain_id = @chainId AND id = @orderId",
-    );
-    private selectMakerSellOrdersForToken =
-        db.prepare<MakerSellOrdersForTokenParams>(
-            SELECT_ORDER_FIELDS +
-                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
-                "AND collection_id = @collectionId AND token_id = @tokenId " +
-                ACTIVE_REVALIDATABLE_ORDER_FILTER +
-                "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
-        );
-    private selectMakerSellOrdersForCollection =
-        db.prepare<MakerSellOrdersForCollectionParams>(
-            SELECT_ORDER_FIELDS +
-                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
-                "AND collection_id = @collectionId " +
-                ACTIVE_REVALIDATABLE_ORDER_FILTER +
-                "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
-        );
-    private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
-        SELECT_ORDER_FIELDS +
-            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'buy' " +
-            "AND currency = @currency " +
-            ACTIVE_REVALIDATABLE_ORDER_FILTER +
-            "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
-    );
-    private selectMakerSeaportOrders = db.prepare<MakerSeaportOrdersParams>(
-        SELECT_ORDER_FIELDS +
-            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker " +
-            ACTIVE_REVALIDATABLE_ORDER_FILTER +
-            "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
-    );
-    private selectCollectionAnchor = db.prepare<[number, number]>(
-        "SELECT bootstrap_anchor_block FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
+export class SqliteOrderProjection {
+    protected readonly listingPrices: SqliteDailyListingPrices;
+    protected readonly retirements = new SqliteOrderRetirements(db.raw);
+    constructor(
+        wethAddress: string,
+        protected readonly debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+        protected readonly nowSeconds = () => Math.floor(Date.now() / 1000),
+    ) {
+        this.listingPrices = new SqliteDailyListingPrices(db, [
+            zeroAddress,
+            wethAddress.toLowerCase(),
+        ]);
+    }
+    protected selectOrderById = db.prepare<OrderIdentityParams>(
+        SELECT_ORDER_FIELDS + "WHERE chain_id = @chainId AND id = @orderId",
     );
     private upsertOrder = db.prepare<{
         id: string;
@@ -352,471 +317,7 @@ export class SqliteOrdersDomain
             "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,excluded.quantity,excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
     );
 
-    constructor(
-        wethAddress: string,
-        validateOrder: SeaportOrderValidator,
-        private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
-        private readonly nowSeconds = () => Math.floor(Date.now() / 1000),
-        private readonly createValidationBatch?: MakerValidationBatchFactory,
-        private readonly mutations?: OrderMutationObserver,
-    ) {
-        this.wethAddress = wethAddress.toLowerCase();
-        this.validateOrder = validateOrder;
-        this.retirements = new SqliteOrderRetirements(db.raw);
-        this.listingPrices = new SqliteDailyListingPrices(db, [
-            zeroAddress,
-            this.wethAddress,
-        ]);
-    }
-
-    async handleDomainSync(context: DomainSyncContext): Promise<void> {
-        logger.debug("Orders domain sync ignored", {
-            component: ORDER_DOMAIN_LOG_COMPONENT,
-            action: "handleDomainSync",
-            ...context,
-            reason: "order-updates-flow-through-dedicated-jobs",
-        });
-    }
-
-    async handleOrderUpdateByMaker(
-        payload: OrderUpdateByMakerPayload,
-        context?: OrderUpdateByMakerRuntimeContext,
-    ): Promise<void> {
-        // Keyset batches close the SQLite reader before awaiting RPC; no lifetime snapshot pins the WAL.
-        let afterId: string | null = "";
-        while (afterId !== null)
-            afterId = await this.processMakerBatch(payload, context, afterId);
-    }
-
-    private async processMakerBatch(
-        payload: OrderUpdateByMakerPayload,
-        context: OrderUpdateByMakerRuntimeContext | undefined,
-        afterId: string,
-    ): Promise<string | null> {
-        const startedAt = Date.now();
-        const selectedRows = this.selectMakerUpdateCandidates(payload, afterId);
-        const nextId =
-            selectedRows.length === STORAGE_POLICY.maintenanceBatchRows
-                ? selectedRows[selectedRows.length - 1]!.id
-                : null;
-        const rows = this.filterCurrentStateRows(
-            payload.chainId,
-            selectedRows,
-            payload.blockNumber,
-        );
-        const logContext = buildOrderUpdateByMakerLogContext(payload, context);
-        const candidateOrders = selectedRows.length;
-        const currentStateCandidateOrders = rows.length;
-        const skippedBeforeAnchorOrders =
-            candidateOrders - currentStateCandidateOrders;
-        const nowSeconds = Math.floor(startedAt / 1000);
-
-        if (rows.length === 0) {
-            logger.debug(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
-                ...logContext,
-                durationMs: Date.now() - startedAt,
-                candidateOrders,
-                currentStateCandidateOrders,
-                skippedBeforeAnchorOrders,
-                candidateProfile: profileOrderRows(selectedRows, nowSeconds),
-                currentStateCandidateProfile: profileOrderRows(
-                    rows,
-                    nowSeconds,
-                ),
-                validatedOrders: 0,
-                updated: 0,
-                validation: createValidationSummary(),
-            });
-            return nextId;
-        }
-
-        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Started, {
-            ...logContext,
-            candidateOrders,
-            currentStateCandidateOrders,
-            skippedBeforeAnchorOrders,
-            candidateProfile: profileOrderRows(selectedRows, nowSeconds),
-            currentStateCandidateProfile: profileOrderRows(rows, nowSeconds),
-        });
-
-        let updated = 0;
-        let validatedOrders = 0;
-        let lastProgressLogAt = startedAt;
-        const validationSummary = createValidationSummary();
-        let batch: MakerValidationBatch | undefined;
-        let pending: Array<{ row: OrderRow; status: OrderStatus }> = [];
-        const flush = async () => {
-            if (!batch) return;
-            // No transaction or pinned SQLite reader spans these remote checks.
-            await batch.finish();
-            updated += db.writeTransaction(() => {
-                let changes = 0;
-                for (const result of pending) {
-                    if (
-                        this.canMutateCurrentStateForCollection(
-                            payload.chainId,
-                            result.row.collection_id,
-                            payload.blockNumber,
-                        )
-                    ) {
-                        changes += this.applyValidation(
-                            result.row,
-                            result.status,
-                        ).changes;
-                    }
-                }
-                return changes;
-            })();
-            pending = [];
-            batch = undefined;
-        };
-        for (let index = 0; index < rows.length; index += 1) {
-            const row = rows[index]!;
-            const useBatch =
-                this.createValidationBatch &&
-                row.side === "buy" &&
-                row.currency?.toLowerCase() === this.wethAddress;
-            if (batch && (!useBatch || !batch.canAccept())) await flush();
-            if (useBatch && !batch) {
-                batch = await this.createValidationBatch!({
-                    chainId: payload.chainId,
-                    minimumBlock: payload.blockNumber ?? null,
-                });
-            }
-            const validation = await this.revalidateSeaportOrderWithReporting(
-                row,
-                logContext,
-                index + 1,
-                rows.length,
-                startedAt,
-                batch?.validate,
-            );
-            if (batch) pending.push({ row, status: validation.status });
-            else
-                updated += this.applyValidation(row, validation.status).changes;
-            validatedOrders += 1;
-            recordValidation(validationSummary, row, validation);
-
-            const now = Date.now();
-            if (
-                now - lastProgressLogAt >=
-                ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.ProgressLogIntervalMs
-            ) {
-                lastProgressLogAt = now;
-                logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Progress, {
-                    ...logContext,
-                    durationMs: now - startedAt,
-                    candidateOrders,
-                    currentStateCandidateOrders,
-                    skippedBeforeAnchorOrders,
-                    validatedOrders,
-                    remainingOrders: rows.length - validatedOrders,
-                    updated,
-                    lastOrderId: row.id,
-                    validation: validationSummary,
-                });
-            }
-        }
-        await flush();
-
-        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
-            ...logContext,
-            durationMs: Date.now() - startedAt,
-            candidateOrders,
-            currentStateCandidateOrders,
-            skippedBeforeAnchorOrders,
-            validatedOrders,
-            updated,
-            validation: validationSummary,
-        });
-        return nextId;
-    }
-
-    private applyValidation(
-        row: OrderRow,
-        status: OrderStatus,
-    ): { changes: number } {
-        const now = this.nowSeconds();
-        return db.writeTransaction(() => {
-            const result = db
-                .prepare<{
-                    chainId: number;
-                    orderId: string;
-                    revision: number;
-                    status: OrderStatus;
-                    now: number;
-                    stale: number;
-                    active: string;
-                }>(
-                    "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN fillability_status IS NOT @status THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
-                        "state_revision=state_revision+CASE WHEN fillability_status IS NOT @status THEN 1 ELSE 0 END,fillability_status=@status " +
-                        "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
-                        "AND (fillability_status IS NOT @status OR validated_at<=@stale)",
-                )
-                .run({
-                    chainId: row.chain_id,
-                    orderId: row.id,
-                    revision: row.state_revision,
-                    status,
-                    now,
-                    stale: now - STORAGE_POLICY.orderRevalidationSeconds,
-                    active: ORDER_SOURCE_STATUS.Active,
-                });
-            if (result.changes)
-                this.listingPrices.refreshOrder(row.chain_id, row.id, now);
-            return result;
-        })();
-    }
-
-    async handleOrderUpdateById(
-        payload: OrderUpdateByIdPayload,
-    ): Promise<void> {
-        const sourceStatus = payload.sourceStatus;
-        if (sourceStatus) {
-            const result = db.writeTransaction(() => {
-                const applied = this.applySourceObservation(payload);
-                if (applied.changes)
-                    this.listingPrices.refreshOrder(
-                        payload.chainId,
-                        payload.orderId,
-                        this.nowSeconds(),
-                    );
-                return applied;
-            })();
-
-            observeBestEffort(() =>
-                this.mutations?.sourceUpdated(
-                    result.changes > 0,
-                    sourceStatus,
-                    payload.reason,
-                ),
-            );
-            return;
-        }
-
-        // Order updates by id handle explicit cancels/fills or on-chain order creation.
-        const status = statusFromReason(payload.reason);
-
-        if (!status) {
-            logger.debug("Orders update-by-id ignored", {
-                component: ORDER_DOMAIN_LOG_COMPONENT,
-                action: "handleOrderUpdateById",
-                ...payload,
-            });
-            return;
-        }
-
-        let row: OrderRow | undefined;
-        if (payload.blockNumber !== null && payload.blockNumber !== undefined) {
-            row = this.selectOrderById.get({
-                chainId: payload.chainId,
-                orderId: payload.orderId,
-            }) as OrderRow | undefined;
-            if (!row) {
-                logger.warn("Orders update-by-id missing order", {
-                    component: ORDER_DOMAIN_LOG_COMPONENT,
-                    action: "handleOrderUpdateById",
-                    ...payload,
-                });
-                return;
-            }
-            if (
-                !this.canMutateCurrentStateForCollection(
-                    row.chain_id,
-                    row.collection_id,
-                    payload.blockNumber,
-                )
-            ) {
-                logger.debug(
-                    "Orders update-by-id skipped before bootstrap anchor",
-                    {
-                        component: ORDER_DOMAIN_LOG_COMPONENT,
-                        action: "handleOrderUpdateById",
-                        chainId: row.chain_id,
-                        collectionId: row.collection_id,
-                        orderId: row.id,
-                        reason: payload.reason,
-                        blockNumber: payload.blockNumber ?? null,
-                    },
-                );
-                return;
-            }
-        }
-
-        let finalStatus: OrderStatus = status;
-        if (payload.reason === ORDER_UPDATE_REASON.Validation) {
-            const orderRow =
-                row ??
-                (this.selectOrderById.get({
-                    chainId: payload.chainId,
-                    orderId: payload.orderId,
-                }) as OrderRow | undefined);
-            if (!orderRow) {
-                logger.warn("Orders update-by-id missing order", {
-                    component: ORDER_DOMAIN_LOG_COMPONENT,
-                    action: "handleOrderUpdateById",
-                    ...payload,
-                });
-                return;
-            }
-            const order = mapOrderRow(orderRow);
-            if (
-                orderRow.valid_until !== null &&
-                orderRow.valid_until <= this.nowSeconds()
-            ) {
-                this.applyValidation(orderRow, ORDER_STATUS.Expired);
-                return;
-            }
-            if (orderRow.kind === "seaport" && hasSeaportData(order)) {
-                const validation = await this.validateOrder(order);
-                finalStatus = validation.status;
-                logger.debug("Orders validation result", {
-                    component: ORDER_DOMAIN_LOG_COMPONENT,
-                    action: "handleOrderUpdateById",
-                    orderId: orderRow.id,
-                    chainId: orderRow.chain_id,
-                    status: validation.status,
-                    reason: validation.reason,
-                });
-            } else if (orderRow.kind === "seaport") {
-                finalStatus = ORDER_STATUS.Invalid;
-                logger.warn(
-                    "Orders update-by-id missing canonical seaport data",
-                    {
-                        component: ORDER_DOMAIN_LOG_COMPONENT,
-                        action: "handleOrderUpdateById",
-                        chainId: orderRow.chain_id,
-                        orderId: orderRow.id,
-                    },
-                );
-            }
-            this.applyValidation(orderRow, finalStatus);
-            return;
-        }
-
-        const result = db.writeTransaction(() => {
-            const applied = this.updateOrderFillabilityStatus.run({
-                fillabilityStatus: finalStatus,
-                chainId: payload.chainId,
-                orderId: payload.orderId,
-            });
-            if (applied.changes && payload.blockNumber != null)
-                db.prepare<[number, number, string]>(
-                    "UPDATE orders SET block_number=? WHERE chain_id=? AND id=?",
-                ).run(payload.blockNumber, payload.chainId, payload.orderId);
-            if (applied.changes)
-                this.listingPrices.refreshOrder(
-                    payload.chainId,
-                    payload.orderId,
-                    this.nowSeconds(),
-                );
-            return applied;
-        })();
-
-        logger.debug("Orders update-by-id applied", {
-            component: ORDER_DOMAIN_LOG_COMPONENT,
-            action: "handleOrderUpdateById",
-            ...payload,
-            status: finalStatus,
-            updated: result.changes,
-        });
-    }
-
-    private applySourceObservation(payload: OrderUpdateByIdPayload): {
-        changes: number;
-    } {
-        const now = this.nowSeconds();
-        const at = payload.observedAt ?? now;
-        // A late cancellation of a known order is still definitive. Do not
-        // apply the create/replay age cutoff before looking up that order.
-        if (
-            !payload.sourceStatus ||
-            !Number.isSafeInteger(at) ||
-            at <= 0 ||
-            at > now + STORAGE_POLICY.futureEventToleranceSeconds
-        )
-            return { changes: 0 };
-        const row = this.selectOrderById.get({
-            chainId: payload.chainId,
-            orderId: payload.orderId,
-        }) as OrderRow | undefined;
-        const collectionId = row?.collection_id ?? payload.collectionId;
-        if (
-            collectionId == null ||
-            !db
-                .prepare<
-                    [number, number]
-                >("SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?")
-                .get(payload.chainId, collectionId)
-        )
-            return { changes: 0 };
-        const terminal = isTerminalSourceStatus(payload.sourceStatus);
-        const sourceCancellation =
-            payload.sourceStatus === ORDER_SOURCE_STATUS.Cancelled;
-        // Keep newly supplied expiry while the full row is still retained, so
-        // its eventual marker does not fall back to an unknown deadline.
-        const expiryChanges = row
-            ? this.rememberOrderExpiry(row, payload.validUntil)
-            : 0;
-        // Independent source cancellation must survive reversal of a chain
-        // fill/cancel. Record it even when that chain outcome arrived first.
-        if (
-            row &&
-            (row.source_status === ORDER_SOURCE_STATUS.Cancelled ||
-                (!sourceCancellation &&
-                    (isTerminalSourceStatus(row.source_status) ||
-                        row.fillability_status === ORDER_STATUS.Filled ||
-                        row.fillability_status === ORDER_STATUS.Cancelled)))
-        )
-            return { changes: expiryChanges };
-        // A source cancellation is definitive even if a stale REST snapshot was
-        // received afterward. Reversible inactivity obeys observation ordering.
-        if (row && !terminal && at < row.observed_at)
-            return { changes: expiryChanges };
-        if (
-            !row &&
-            (terminal || payload.sourceStatus === ORDER_SOURCE_STATUS.Inactive)
-        ) {
-            return {
-                changes: this.retirements.record(
-                    {
-                        chainId: payload.chainId,
-                        collectionId,
-                        orderId: payload.orderId,
-                        validUntil: payload.validUntil ?? null,
-                        retiredAt: at,
-                        reason: sourceCancellation
-                            ? ORDER_RETIREMENT_REASON.SourceCancelled
-                            : terminal
-                              ? ORDER_RETIREMENT_REASON.Terminal
-                              : ORDER_RETIREMENT_REASON.Stale,
-                    },
-                    now,
-                ),
-            };
-        }
-        if (!row) return { changes: 0 };
-        const result = db
-            .prepare<{
-                status: string;
-                at: number;
-                chainId: number;
-                orderId: string;
-            }>(
-                "UPDATE orders SET observed_at=MAX(observed_at,@at),state_revision=state_revision+CASE WHEN source_status IS NOT @status THEN 1 ELSE 0 END," +
-                    "updated_at=CASE WHEN source_status IS NOT @status THEN CURRENT_TIMESTAMP ELSE updated_at END,source_status=@status " +
-                    "WHERE chain_id=@chainId AND id=@orderId AND (source_status IS NOT @status OR observed_at<@at)",
-            )
-            .run({
-                status: payload.sourceStatus,
-                at,
-                chainId: payload.chainId,
-                orderId: payload.orderId,
-            });
-        return { changes: result.changes + expiryChanges };
-    }
-
-    private rememberOrderExpiry(
+    protected rememberOrderExpiry(
         row: OrderRow,
         supplied: number | null | undefined,
     ): number {
@@ -830,38 +331,10 @@ export class SqliteOrdersDomain
             .run(validUntil, row.chain_id, row.id).changes;
     }
 
-    async handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
-        changed: boolean;
-        validationNeeded: boolean;
-        validationRevision: number;
-    }> {
-        // Admission, tombstone checks and mutation share the writer snapshot.
-        // There is no network work inside this transaction.
-        const outcome = db.writeTransaction(() => {
-            const outcome = this.applyOrderUpsert(payload);
-            if (payload.validateAfterUpsert && outcome.validationNeeded) {
-                const now = this.nowSeconds() * 1_000;
-                this.validationDemand.admit(
-                    {
-                        chainId: payload.chainId,
-                        orderId: payload.orderId,
-                        // Replay keeps its observation requirement; retry time is not new demand.
-                        requiredAt: Math.min(
-                            now,
-                            (payload.observedAt ?? now / 1_000) * 1_000,
-                        ),
-                        minimumBlock: null,
-                    },
-                    now,
-                );
-            }
-            return outcome;
-        })();
-        observeBestEffort(() => this.mutations?.upserted(outcome.changed));
-        return outcome;
-    }
-
-    private applyOrderUpsert(payload: OrderUpsertPayload): {
+    applyOrderUpsert(
+        payload: OrderUpsertPayload,
+        refreshHistory = true,
+    ): {
         changed: boolean;
         validationNeeded: boolean;
         validationRevision: number;
@@ -1031,7 +504,12 @@ export class SqliteOrdersDomain
             ).run(observedAt, payload.chainId, payload.orderId);
         }
         if (retired) this.retirements.forget(payload.chainId, payload.orderId);
-        this.listingPrices.refreshOrder(payload.chainId, payload.orderId, now);
+        if (refreshHistory)
+            this.listingPrices.refreshOrder(
+                payload.chainId,
+                payload.orderId,
+                now,
+            );
 
         return {
             changed: result.changes > 0,
@@ -1044,6 +522,604 @@ export class SqliteOrdersDomain
                 ? existingRow.state_revision + (result.changes > 0 ? 1 : 0)
                 : 0,
         };
+    }
+}
+export class SqliteOrdersDomain
+    extends SqliteOrderProjection
+    implements
+        OrdersDomainPort,
+        MakerOrderProjectionPort,
+        OrderValidationProjectionPort
+{
+    private readonly wethAddress: string;
+    private readonly validateOrder: SeaportOrderValidator;
+    private readonly validationDemand = new SqliteOrderValidationDemand(this);
+    private updateOrderFillabilityStatus =
+        db.prepare<OrderFillabilityStatusParams>(
+            "UPDATE orders SET fillability_status = @fillabilityStatus, state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP " +
+                "WHERE chain_id = @chainId AND id = @orderId AND fillability_status IS NOT @fillabilityStatus",
+        );
+    private selectMakerSellOrdersForToken =
+        db.prepare<MakerSellOrdersForTokenParams>(
+            SELECT_ORDER_FIELDS +
+                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
+                "AND collection_id = @collectionId AND token_id = @tokenId " +
+                ACTIVE_REVALIDATABLE_ORDER_FILTER +
+                "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
+        );
+    private selectMakerSellOrdersForCollection =
+        db.prepare<MakerSellOrdersForCollectionParams>(
+            SELECT_ORDER_FIELDS +
+                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
+                "AND collection_id = @collectionId " +
+                ACTIVE_REVALIDATABLE_ORDER_FILTER +
+                "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
+        );
+    private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
+        SELECT_ORDER_FIELDS +
+            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'buy' " +
+            "AND currency = @currency " +
+            ACTIVE_REVALIDATABLE_ORDER_FILTER +
+            "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
+    );
+    private selectMakerSeaportOrders = db.prepare<MakerSeaportOrdersParams>(
+        SELECT_ORDER_FIELDS +
+            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker " +
+            ACTIVE_REVALIDATABLE_ORDER_FILTER +
+            "AND seaport_data_json IS NOT NULL ORDER BY id LIMIT @batchLimit",
+    );
+    private selectCollectionAnchor = db.prepare<[number, number]>(
+        "SELECT bootstrap_anchor_block FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
+    );
+    constructor(
+        wethAddress: string,
+        validateOrder: SeaportOrderValidator,
+        debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+        nowSeconds = () => Math.floor(Date.now() / 1000),
+        private readonly createValidationBatch?: MakerValidationBatchFactory,
+        private readonly mutations?: OrderMutationObserver,
+    ) {
+        super(wethAddress, debugPayloads, nowSeconds);
+        this.wethAddress = wethAddress.toLowerCase();
+        this.validateOrder = validateOrder;
+    }
+
+    async handleDomainSync(context: DomainSyncContext): Promise<void> {
+        logger.debug("Orders domain sync ignored", {
+            component: ORDER_DOMAIN_LOG_COMPONENT,
+            action: "handleDomainSync",
+            ...context,
+            reason: "order-updates-flow-through-dedicated-jobs",
+        });
+    }
+
+    async handleOrderUpdateByMaker(
+        payload: OrderUpdateByMakerPayload,
+        context?: OrderUpdateByMakerRuntimeContext,
+    ): Promise<void> {
+        // Keyset batches close the SQLite reader before awaiting RPC; no lifetime snapshot pins the WAL.
+        let afterId: string | null = "";
+        while (afterId !== null)
+            afterId = await this.processMakerBatch(payload, context, afterId);
+    }
+
+    private async processMakerBatch(
+        payload: OrderUpdateByMakerPayload,
+        context: OrderUpdateByMakerRuntimeContext | undefined,
+        afterId: string,
+    ): Promise<string | null> {
+        const startedAt = Date.now();
+        const selectedRows = this.selectMakerUpdateCandidates(payload, afterId);
+        const nextId =
+            selectedRows.length === STORAGE_POLICY.maintenanceBatchRows
+                ? selectedRows[selectedRows.length - 1]!.id
+                : null;
+        const rows = this.filterCurrentStateRows(
+            payload.chainId,
+            selectedRows,
+            payload.blockNumber,
+        );
+        const logContext = buildOrderUpdateByMakerLogContext(payload, context);
+        const candidateOrders = selectedRows.length;
+        const currentStateCandidateOrders = rows.length;
+        const skippedBeforeAnchorOrders =
+            candidateOrders - currentStateCandidateOrders;
+        const nowSeconds = Math.floor(startedAt / 1000);
+
+        if (rows.length === 0) {
+            logger.debug(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
+                ...logContext,
+                durationMs: Date.now() - startedAt,
+                candidateOrders,
+                currentStateCandidateOrders,
+                skippedBeforeAnchorOrders,
+                candidateProfile: profileOrderRows(selectedRows, nowSeconds),
+                currentStateCandidateProfile: profileOrderRows(
+                    rows,
+                    nowSeconds,
+                ),
+                validatedOrders: 0,
+                updated: 0,
+                validation: createValidationSummary(),
+            });
+            return nextId;
+        }
+
+        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Started, {
+            ...logContext,
+            candidateOrders,
+            currentStateCandidateOrders,
+            skippedBeforeAnchorOrders,
+            candidateProfile: profileOrderRows(selectedRows, nowSeconds),
+            currentStateCandidateProfile: profileOrderRows(rows, nowSeconds),
+        });
+
+        let updated = 0;
+        let validatedOrders = 0;
+        let lastProgressLogAt = startedAt;
+        const validationSummary = createValidationSummary();
+        let batch: MakerValidationBatch | undefined;
+        let pending: Array<{
+            row: OrderRow;
+            status: OrderStatus;
+            remainingQuantity?: string;
+        }> = [];
+        const flush = async () => {
+            if (!batch) return;
+            // No transaction or pinned SQLite reader spans these remote checks.
+            await batch.finish();
+            updated += db.writeTransaction(() => {
+                let changes = 0;
+                for (const result of pending) {
+                    if (
+                        this.canMutateCurrentStateForCollection(
+                            payload.chainId,
+                            result.row.collection_id,
+                            payload.blockNumber,
+                        )
+                    ) {
+                        changes += this.applyValidation(
+                            result.row,
+                            result.status,
+                            result.remainingQuantity,
+                        ).changes;
+                    }
+                }
+                return changes;
+            })();
+            pending = [];
+            batch = undefined;
+        };
+        for (let index = 0; index < rows.length; index += 1) {
+            const row = rows[index]!;
+            const useBatch =
+                this.createValidationBatch &&
+                row.side === "buy" &&
+                row.currency?.toLowerCase() === this.wethAddress;
+            if (batch && (!useBatch || !batch.canAccept())) await flush();
+            if (useBatch && !batch) {
+                batch = await this.createValidationBatch!({
+                    chainId: payload.chainId,
+                    minimumBlock: payload.blockNumber ?? null,
+                });
+            }
+            const validation = await this.revalidateSeaportOrderWithReporting(
+                row,
+                logContext,
+                index + 1,
+                rows.length,
+                startedAt,
+                batch?.validate,
+            );
+            if (batch)
+                pending.push({
+                    row,
+                    status: validation.status,
+                    remainingQuantity: validation.remainingQuantity,
+                });
+            else
+                updated += this.applyValidation(
+                    row,
+                    validation.status,
+                    validation.remainingQuantity,
+                ).changes;
+            validatedOrders += 1;
+            recordValidation(validationSummary, row, validation);
+
+            const now = Date.now();
+            if (
+                now - lastProgressLogAt >=
+                ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.ProgressLogIntervalMs
+            ) {
+                lastProgressLogAt = now;
+                logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Progress, {
+                    ...logContext,
+                    durationMs: now - startedAt,
+                    candidateOrders,
+                    currentStateCandidateOrders,
+                    skippedBeforeAnchorOrders,
+                    validatedOrders,
+                    remainingOrders: rows.length - validatedOrders,
+                    updated,
+                    lastOrderId: row.id,
+                    validation: validationSummary,
+                });
+            }
+        }
+        await flush();
+
+        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
+            ...logContext,
+            durationMs: Date.now() - startedAt,
+            candidateOrders,
+            currentStateCandidateOrders,
+            skippedBeforeAnchorOrders,
+            validatedOrders,
+            updated,
+            validation: validationSummary,
+        });
+        return nextId;
+    }
+
+    resolve(chainId: number, protocol: string, hash: string): string[] {
+        return db
+            .prepare(
+                "SELECT id FROM orders WHERE chain_id=? AND protocol_address=? AND order_hash=?",
+            )
+            .all(chainId, protocol.toLowerCase(), hash.toLowerCase())
+            .map((row) => (row as { id: string }).id);
+    }
+
+    awaitFillProof(chainId: number, id: string, block: number): void {
+        const row = this.selectOrderById.get({ chainId, orderId: id }) as
+            | OrderRow
+            | undefined;
+        if (
+            !row ||
+            !this.canMutateCurrentStateForCollection(
+                chainId,
+                row.collection_id,
+                block,
+            )
+        )
+            return;
+        db.writeTransaction(() => {
+            const changes = db
+                .prepare(
+                    "UPDATE orders SET remaining_quantity=NULL,block_number=?,state_revision=state_revision+1,fillability_status=?,validated_at=0 WHERE chain_id=? AND id=? AND fillability_status NOT IN (?,?) AND (block_number IS NULL OR block_number<=?)",
+                )
+                .run(
+                    block,
+                    ORDER_STATUS.Invalid,
+                    chainId,
+                    id,
+                    ORDER_STATUS.Cancelled,
+                    ORDER_STATUS.Filled,
+                    block,
+                );
+            if (changes.changes)
+                this.listingPrices.refreshOrder(chainId, id, this.nowSeconds());
+        })();
+    }
+
+    private applyValidation(
+        row: OrderRow,
+        status: OrderStatus,
+        remainingQuantity?: string,
+    ): { changes: number } {
+        const now = this.nowSeconds();
+        return db.writeTransaction(() => {
+            const result = db
+                .prepare<{
+                    chainId: number;
+                    orderId: string;
+                    revision: number;
+                    status: OrderStatus;
+                    now: number;
+                    stale: number;
+                    remaining: string | null;
+                    active: string;
+                }>(
+                    "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN (fillability_status IS NOT @status OR (@remaining IS NOT NULL AND remaining_quantity IS NOT @remaining)) THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
+                        "state_revision=state_revision+CASE WHEN (fillability_status IS NOT @status OR (@remaining IS NOT NULL AND remaining_quantity IS NOT @remaining)) THEN 1 ELSE 0 END,remaining_quantity=COALESCE(@remaining,remaining_quantity),fillability_status=@status " +
+                        "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
+                        "AND (fillability_status IS NOT @status OR (@remaining IS NOT NULL AND remaining_quantity IS NOT @remaining) OR validated_at<=@stale)",
+                )
+                .run({
+                    chainId: row.chain_id,
+                    orderId: row.id,
+                    revision: row.state_revision,
+                    status,
+                    remaining: remainingQuantity ?? null,
+                    now,
+                    stale: now - STORAGE_POLICY.orderRevalidationSeconds,
+                    active: ORDER_SOURCE_STATUS.Active,
+                });
+            if (result.changes)
+                this.listingPrices.refreshOrder(row.chain_id, row.id, now);
+            return result;
+        })();
+    }
+
+    async handleOrderUpdateById(
+        payload: OrderUpdateByIdPayload,
+    ): Promise<void> {
+        const sourceStatus = payload.sourceStatus;
+        if (sourceStatus) {
+            const result = db.writeTransaction(() => {
+                const applied = this.applySourceObservation(payload);
+                if (applied.changes)
+                    this.listingPrices.refreshOrder(
+                        payload.chainId,
+                        payload.orderId,
+                        this.nowSeconds(),
+                    );
+                return applied;
+            })();
+
+            observeBestEffort(() =>
+                this.mutations?.sourceUpdated(
+                    result.changes > 0,
+                    sourceStatus,
+                    payload.reason,
+                ),
+            );
+            return;
+        }
+
+        // Order updates by id handle explicit cancels/fills or on-chain order creation.
+        const status = statusFromReason(payload.reason);
+
+        if (!status) {
+            logger.debug("Orders update-by-id ignored", {
+                component: ORDER_DOMAIN_LOG_COMPONENT,
+                action: "handleOrderUpdateById",
+                ...payload,
+            });
+            return;
+        }
+
+        let row: OrderRow | undefined;
+        if (payload.blockNumber !== null && payload.blockNumber !== undefined) {
+            row = this.selectOrderById.get({
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            }) as OrderRow | undefined;
+            if (!row) {
+                logger.warn("Orders update-by-id missing order", {
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
+                    action: "handleOrderUpdateById",
+                    ...payload,
+                });
+                return;
+            }
+            if (
+                !this.canMutateCurrentStateForCollection(
+                    row.chain_id,
+                    row.collection_id,
+                    payload.blockNumber,
+                )
+            ) {
+                logger.debug(
+                    "Orders update-by-id skipped before bootstrap anchor",
+                    {
+                        component: ORDER_DOMAIN_LOG_COMPONENT,
+                        action: "handleOrderUpdateById",
+                        chainId: row.chain_id,
+                        collectionId: row.collection_id,
+                        orderId: row.id,
+                        reason: payload.reason,
+                        blockNumber: payload.blockNumber ?? null,
+                    },
+                );
+                return;
+            }
+        }
+
+        let finalStatus: OrderStatus = status;
+        let remainingQuantity: string | undefined;
+        if (payload.reason === ORDER_UPDATE_REASON.Validation) {
+            const orderRow =
+                row ??
+                (this.selectOrderById.get({
+                    chainId: payload.chainId,
+                    orderId: payload.orderId,
+                }) as OrderRow | undefined);
+            if (!orderRow) {
+                logger.warn("Orders update-by-id missing order", {
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
+                    action: "handleOrderUpdateById",
+                    ...payload,
+                });
+                return;
+            }
+            const order = mapOrderRow(orderRow);
+            if (
+                orderRow.valid_until !== null &&
+                orderRow.valid_until <= this.nowSeconds()
+            ) {
+                this.applyValidation(orderRow, ORDER_STATUS.Expired);
+                return;
+            }
+            if (orderRow.kind === "seaport" && hasSeaportData(order)) {
+                const validation = await this.validateOrder(order);
+                finalStatus = validation.status;
+                remainingQuantity = validation.remainingQuantity;
+                logger.debug("Orders validation result", {
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
+                    action: "handleOrderUpdateById",
+                    orderId: orderRow.id,
+                    chainId: orderRow.chain_id,
+                    status: validation.status,
+                    reason: validation.reason,
+                });
+            } else if (orderRow.kind === "seaport") {
+                finalStatus = ORDER_STATUS.Invalid;
+                logger.warn(
+                    "Orders update-by-id missing canonical seaport data",
+                    {
+                        component: ORDER_DOMAIN_LOG_COMPONENT,
+                        action: "handleOrderUpdateById",
+                        chainId: orderRow.chain_id,
+                        orderId: orderRow.id,
+                    },
+                );
+            }
+            this.applyValidation(orderRow, finalStatus, remainingQuantity);
+            return;
+        }
+
+        const result = db.writeTransaction(() => {
+            const applied = this.updateOrderFillabilityStatus.run({
+                fillabilityStatus: finalStatus,
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            });
+            if (applied.changes && payload.blockNumber != null)
+                db.prepare<[number, number, string]>(
+                    "UPDATE orders SET block_number=? WHERE chain_id=? AND id=?",
+                ).run(payload.blockNumber, payload.chainId, payload.orderId);
+            if (applied.changes)
+                this.listingPrices.refreshOrder(
+                    payload.chainId,
+                    payload.orderId,
+                    this.nowSeconds(),
+                );
+            return applied;
+        })();
+
+        logger.debug("Orders update-by-id applied", {
+            component: ORDER_DOMAIN_LOG_COMPONENT,
+            action: "handleOrderUpdateById",
+            ...payload,
+            status: finalStatus,
+            updated: result.changes,
+        });
+    }
+
+    private applySourceObservation(payload: OrderUpdateByIdPayload): {
+        changes: number;
+    } {
+        const now = this.nowSeconds();
+        const at = payload.observedAt ?? now;
+        // A late cancellation of a known order is still definitive. Do not
+        // apply the create/replay age cutoff before looking up that order.
+        if (
+            !payload.sourceStatus ||
+            !Number.isSafeInteger(at) ||
+            at <= 0 ||
+            at > now + STORAGE_POLICY.futureEventToleranceSeconds
+        )
+            return { changes: 0 };
+        const row = this.selectOrderById.get({
+            chainId: payload.chainId,
+            orderId: payload.orderId,
+        }) as OrderRow | undefined;
+        const collectionId = row?.collection_id ?? payload.collectionId;
+        if (
+            collectionId == null ||
+            !db
+                .prepare<
+                    [number, number]
+                >("SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?")
+                .get(payload.chainId, collectionId)
+        )
+            return { changes: 0 };
+        const terminal = isTerminalSourceStatus(payload.sourceStatus);
+        const sourceCancellation =
+            payload.sourceStatus === ORDER_SOURCE_STATUS.Cancelled;
+        // Keep newly supplied expiry while the full row is still retained, so
+        // its eventual marker does not fall back to an unknown deadline.
+        const expiryChanges = row
+            ? this.rememberOrderExpiry(row, payload.validUntil)
+            : 0;
+        // Independent source cancellation must survive reversal of a chain
+        // fill/cancel. Record it even when that chain outcome arrived first.
+        if (
+            row &&
+            (row.source_status === ORDER_SOURCE_STATUS.Cancelled ||
+                (!sourceCancellation &&
+                    (isTerminalSourceStatus(row.source_status) ||
+                        row.fillability_status === ORDER_STATUS.Filled ||
+                        row.fillability_status === ORDER_STATUS.Cancelled)))
+        )
+            return { changes: expiryChanges };
+        // A source cancellation is definitive even if a stale REST snapshot was
+        // received afterward. Reversible inactivity obeys observation ordering.
+        if (row && !terminal && at < row.observed_at)
+            return { changes: expiryChanges };
+        if (
+            !row &&
+            (terminal || payload.sourceStatus === ORDER_SOURCE_STATUS.Inactive)
+        ) {
+            return {
+                changes: this.retirements.record(
+                    {
+                        chainId: payload.chainId,
+                        collectionId,
+                        orderId: payload.orderId,
+                        validUntil: payload.validUntil ?? null,
+                        retiredAt: at,
+                        reason: sourceCancellation
+                            ? ORDER_RETIREMENT_REASON.SourceCancelled
+                            : terminal
+                              ? ORDER_RETIREMENT_REASON.Terminal
+                              : ORDER_RETIREMENT_REASON.Stale,
+                    },
+                    now,
+                ),
+            };
+        }
+        if (!row) return { changes: 0 };
+        const result = db
+            .prepare<{
+                status: string;
+                at: number;
+                chainId: number;
+                orderId: string;
+            }>(
+                "UPDATE orders SET observed_at=MAX(observed_at,@at),state_revision=state_revision+CASE WHEN source_status IS NOT @status THEN 1 ELSE 0 END," +
+                    "updated_at=CASE WHEN source_status IS NOT @status THEN CURRENT_TIMESTAMP ELSE updated_at END,source_status=@status " +
+                    "WHERE chain_id=@chainId AND id=@orderId AND (source_status IS NOT @status OR observed_at<@at)",
+            )
+            .run({
+                status: payload.sourceStatus,
+                at,
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            });
+        return { changes: result.changes + expiryChanges };
+    }
+
+    async handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
+        changed: boolean;
+        validationNeeded: boolean;
+        validationRevision: number;
+    }> {
+        // Admission, tombstone checks and mutation share the writer snapshot.
+        // There is no network work inside this transaction.
+        const outcome = db.writeTransaction(() => {
+            const outcome = this.applyOrderUpsert(payload);
+            if (payload.validateAfterUpsert && outcome.validationNeeded) {
+                const now = this.nowSeconds() * 1_000;
+                this.validationDemand.admit(
+                    {
+                        chainId: payload.chainId,
+                        orderId: payload.orderId,
+                        // Replay keeps its observation requirement; retry time is not new demand.
+                        requiredAt: Math.min(
+                            now,
+                            (payload.observedAt ?? now / 1_000) * 1_000,
+                        ),
+                        minimumBlock: null,
+                    },
+                    now,
+                );
+            }
+            return outcome;
+        })();
+        observeBestEffort(() => this.mutations?.upserted(outcome.changed));
+        return outcome;
     }
 
     private selectMakerUpdateCandidates(
@@ -1143,7 +1219,7 @@ export class SqliteOrdersDomain
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
         }) as OrderRow;
-        this.applyValidation(row, result.status);
+        this.applyValidation(row, result.status, result.remainingQuantity);
         const updated = this.selectOrderById.get({
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
@@ -1215,7 +1291,11 @@ export class SqliteOrdersDomain
                 "Maker validation revision changed",
             );
         }
-        this.applyValidation(row, resolution.validation.status);
+        this.applyValidation(
+            row,
+            resolution.validation.status,
+            resolution.validation.remainingQuantity,
+        );
         return (
             this.selectOrderById.get({
                 chainId: payload.chainId,
@@ -1318,6 +1398,7 @@ export class SqliteOrdersDomain
 function mapOrderRow(row: OrderRow): OrderRecord {
     return {
         id: row.id,
+        protocolOrderHash: row.order_hash ?? undefined,
         chainId: row.chain_id,
         collectionId: row.collection_id,
         kind: row.kind,

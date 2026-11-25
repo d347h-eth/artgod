@@ -60,7 +60,13 @@ const SNAPSHOT_COMPLETED_MS =
     "unixepoch(opensea_snapshot_completed_at, 'subsec') * 1000";
 const RECONCILE_COMPLETED_MS =
     "unixepoch(opensea_reconcile_completed_at, 'subsec') * 1000";
-const LAST_OPENSEA_REFRESH_MS = `COALESCE(MAX(${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS}), ${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS})`;
+const COLLECTION_REFRESH_MS = `COALESCE(MAX(${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS}), ${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS})`;
+
+// A market can serve multiple tracked ranges. Every attached scope inherits
+// the accepted book time, including scopes whose collection bootstrap ran later.
+const LAST_OPENSEA_REFRESH_MS = `COALESCE((SELECT CASE WHEN f.accepted_binding_revision=f.binding_revision THEN f.last_success_ms ELSE 0 END
+    FROM orderbook_bindings b JOIN orderbook_feeds f USING(feed_id)
+    WHERE b.collection_id=collections.collection_id AND f.venue='opensea' AND f.view='public'),${COLLECTION_REFRESH_MS})`;
 
 export class SqliteCollectionRegistry
     implements CollectionRegistryPort, CollectionScopeResolverPort
@@ -108,22 +114,6 @@ export class SqliteCollectionRegistry
             "AND opensea_slug IS NOT NULL " +
             "AND opensea_status IS NOT NULL " +
             "AND opensea_stream_ingestion_status = @streamIngestionStatus",
-    );
-    private selectOpenSeaReconcile = db.prepare<{
-        chainId: number;
-        completedBeforeMs: number | null;
-        collectionId: number | null;
-        liveStatus: CollectionStatus;
-    }>(
-        SELECT_COLLECTIONS_FIELDS +
-            "WHERE chain_id = @chainId " +
-            "AND status = @liveStatus " +
-            "AND opensea_slug IS NOT NULL " +
-            "AND opensea_slug <> '' " +
-            "AND opensea_status IS NOT NULL " +
-            "AND (@collectionId IS NULL OR collection_id = @collectionId) " +
-            `AND (@completedBeforeMs IS NULL OR ${LAST_OPENSEA_REFRESH_MS} IS NULL OR ${LAST_OPENSEA_REFRESH_MS} <= @completedBeforeMs) ` +
-            `ORDER BY ${LAST_OPENSEA_REFRESH_MS} ASC, collection_id ASC`,
     );
     private upsert = db.prepare<{
         chainId: number;
@@ -365,6 +355,20 @@ export class SqliteCollectionRegistry
         ).map(mapRow);
     }
 
+    listOpenSeaMarketScopes(collection: CollectionRecord): CollectionRecord[] {
+        const rows = db
+            .prepare(
+                SELECT_COLLECTIONS_FIELDS +
+                    "WHERE chain_id=? AND lower(address)=? AND opensea_slug=? AND opensea_status IS NOT NULL",
+            )
+            .all(
+                collection.chainId,
+                collection.address.toLowerCase(),
+                collection.openseaSlug,
+            ) as CollectionRow[];
+        return rows.map(mapRow);
+    }
+
     listCollectionsForOpenSeaSubscription(chainId: number): CollectionRecord[] {
         const rows = this.selectOpenSeaSubscription.all(
             openSeaSubscriptionQuery(chainId),
@@ -377,12 +381,29 @@ export class SqliteCollectionRegistry
         completedBeforeMs: number | null,
         collectionId?: number,
     ): CollectionRecord[] {
-        const rows = this.selectOpenSeaReconcile.all({
-            chainId,
-            completedBeforeMs,
-            collectionId: collectionId ?? null,
-            liveStatus: COLLECTION_STATUS.Live,
-        }) as CollectionRow[];
+        const rows = db
+            .prepare<{
+                chainId: number;
+                completedBeforeMs: number | null;
+                collectionId: number | null;
+                liveStatus: CollectionStatus;
+            }>(
+                SELECT_COLLECTIONS_FIELDS +
+                    "WHERE chain_id = @chainId " +
+                    "AND status = @liveStatus " +
+                    "AND opensea_slug IS NOT NULL " +
+                    "AND opensea_slug <> '' " +
+                    "AND opensea_status IS NOT NULL " +
+                    "AND (@collectionId IS NULL OR collection_id = @collectionId) " +
+                    `AND (@completedBeforeMs IS NULL OR ${LAST_OPENSEA_REFRESH_MS} IS NULL OR ${LAST_OPENSEA_REFRESH_MS} <= @completedBeforeMs) ` +
+                    `ORDER BY ${LAST_OPENSEA_REFRESH_MS} ASC, collection_id ASC`,
+            )
+            .all({
+                chainId,
+                completedBeforeMs,
+                collectionId: collectionId ?? null,
+                liveStatus: COLLECTION_STATUS.Live,
+            }) as CollectionRow[];
         return rows.map(mapRow);
     }
 

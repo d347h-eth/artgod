@@ -79,6 +79,7 @@ export type NftBalanceDelta = CollectionScopedTokenAttribution & {
 
 // Fill = an on-chain execution of an order (Seaport/Blur/on-chain orderbooks).
 export type FillEvent = CollectionScopedTokenAttribution & {
+    protocolAddress?: string;
     orderId?: string;
     kind?: string;
     orderSide?: "sell" | "buy";
@@ -93,6 +94,7 @@ export type FillEvent = CollectionScopedTokenAttribution & {
 
 // Cancel = explicit on-chain invalidation of an order (e.g. Seaport cancel/counter).
 export type CancelEvent = ChainAttribution & {
+    protocolAddress?: string;
     orderId?: string;
     kind?: string;
     maker?: string;
@@ -100,6 +102,7 @@ export type CancelEvent = ChainAttribution & {
 
 // Order = on-chain creation/listing for orderbooks that emit orders on-chain.
 export type OrderInfo = CollectionScopedTokenAttribution & {
+    protocolAddress?: string;
     orderId?: string;
     kind?: string;
     maker?: string;

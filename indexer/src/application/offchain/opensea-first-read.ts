@@ -52,7 +52,7 @@ export async function handleOpenSeaFirstRead(
         job.payload.chainId,
         job.payload.collectionId,
     );
-    if (!collection) {
+    if (!collection || !collection.openseaStatus) {
         markOpenSeaBootstrapTerminalFailure({
             stepsPort: bootstrapSteps,
             payload: job.payload,
@@ -118,7 +118,12 @@ export async function handleOpenSeaFirstRead(
             collection.id,
         );
 
-        await sync.syncCollection(collection, "snapshot", runId);
+        await sync.syncCollection(
+            collection,
+            "snapshot",
+            runId,
+            job.scheduledAt,
+        );
 
         collections.markOpenSeaSnapshotCompleted(
             collection.chainId,

@@ -1,7 +1,10 @@
+import { LEGACY_BOOK_JOBS } from "../../domain/orderbook-cutover.js";
+import { QUEUE_NAMES } from "../../domain/queues.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
     AckPolicy,
+    JSONCodec,
     DeliverPolicy,
     RetentionPolicy,
     StorageType,
@@ -14,6 +17,7 @@ import {
     type StreamInfo,
 } from "nats";
 import {
+    resolveNatsJobQueueSubjects,
     resolveNatsJobStreamMaintenanceProbeSubject,
     resolveNatsJobStreamName,
     resolveNatsJobStreamSubjectFilter,
@@ -162,6 +166,66 @@ export class NatsJobStreamMaintenanceAdapter {
         if (!response.success)
             throw new Error("Jobs stream acknowledged cleanup failed");
         return response.purged;
+    }
+
+    /** Inspect retained envelopes up to one stream sequence. The subject and
+     * the serialized kind must both belong to the old order pipeline. */
+    async retireLegacyBookJobs(): Promise<number> {
+        const stream = await this.loadStreamInfo();
+        if (!stream) return 0;
+        const through = stream.state.last_seq;
+        const next = async (subject: string, seq: number) => {
+            const request = { seq, next_by_subj: subject };
+            try {
+                return await this.manager.streams.getMessage(
+                    this.streamName,
+                    request,
+                );
+            } catch (error) {
+                if (isMessageNotFound(error)) return null;
+                throw error;
+            }
+        };
+        for (const subject of resolveNatsJobQueueSubjects(
+            this.streamPrefix,
+            QUEUE_NAMES.OffchainOrdersRaw,
+        )) {
+            const raw = await next(subject, stream.state.first_seq);
+            if (raw && raw.seq <= through)
+                throw new Error(
+                    "Drain mixed offchain jobs before the orderbook cutover",
+                );
+        }
+        const codec = JSONCodec<{ kind: string; queue: string }>();
+        let removed = 0;
+        for (const [queue, kinds] of LEGACY_BOOK_JOBS) {
+            for (const subject of resolveNatsJobQueueSubjects(
+                this.streamPrefix,
+                queue,
+            )) {
+                let seq = stream.state.first_seq;
+                while (seq <= through) {
+                    const message = await next(subject, seq);
+                    if (!message || message.seq > through) break;
+                    if (message.subject !== subject || message.seq < seq)
+                        throw new Error("Orderbook cutover subject mismatch");
+                    const job = codec.decode(message.data);
+                    if (job.queue === queue && kinds.includes(job.kind)) {
+                        if (
+                            !(await this.manager.streams.deleteMessage(
+                                this.streamName,
+                                message.seq,
+                                false,
+                            ))
+                        )
+                            throw new Error("Orderbook job deletion failed");
+                        removed++;
+                    }
+                    seq = message.seq + 1;
+                }
+            }
+        }
+        return removed;
     }
 
     async probeWritable(): Promise<NatsJobStreamWriteProbe> {

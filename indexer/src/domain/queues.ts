@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
     CollectionBootstrap: BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
     CollectionBootstrapImageCache:
         BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
+    VvvReconcile: "orderbook-vvv",
     OpenSeaReconcile: OPENSEA_QUEUE_NAME.Reconcile,
     OffchainOrdersRaw: "offchain-orders-raw",
     OrdersDomain: "orders-domain",

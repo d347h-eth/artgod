@@ -131,7 +131,7 @@ test("staging materializes isolated reviewed dependency trees", async (t) => {
     );
 
     const packageNames = getDesktopRuntimeDependencyPackageNames(
-        DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Backend,
+        DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer,
         DESKTOP_NODE_DIST_TARGET.LinuxX64,
     );
     for (const [index, packageName] of packageNames.entries()) {
@@ -149,7 +149,9 @@ test("staging materializes isolated reviewed dependency trees", async (t) => {
             if (
                 packageName ===
                     NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3 ||
-                packageName === NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp
+                packageName === NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp ||
+                packageName ===
+                    NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.PlaywrightCore
             ) {
                 directResolutionIssuers.push({
                     packageName,
@@ -183,6 +185,7 @@ test("staging materializes isolated reviewed dependency trees", async (t) => {
             "better-sqlite3:backend/package.json",
             "better-sqlite3:indexer/package.json",
             "better-sqlite3:trading/package.json",
+            "playwright-core:indexer/package.json",
             "sharp:backend/package.json",
             "sharp:indexer/package.json",
         ],

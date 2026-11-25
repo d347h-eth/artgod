@@ -94,6 +94,7 @@ __metadata:
     dotenv: "npm:17.4.2"
     execa: "npm:9.6.1"
     nats: "npm:2.29.3"
+    playwright-core: "npm:1.60.0"
     sharp: "npm:0.35.5"
     testcontainers: "npm:12.0.1"
     tsx: "npm:4.22.4"

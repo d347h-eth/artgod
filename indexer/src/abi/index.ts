@@ -106,6 +106,10 @@ export const ERC1155_ABI = [
     },
 ] as const;
 
+export const ERC1155_BALANCE_ABI = parseAbi([
+    "function balanceOf(address account, uint256 id) view returns (uint256)",
+]);
+
 export const ERC721_APPROVAL_ABI = [
     {
         type: "function",

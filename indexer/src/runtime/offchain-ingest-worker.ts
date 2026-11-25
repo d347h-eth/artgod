@@ -1,3 +1,5 @@
+import { OpenSeaStreamBook } from "../application/offchain/opensea-stream-book.js";
+import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -52,6 +54,10 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const collections = new SqliteCollectionRegistry();
+        const streamBook = new OpenSeaStreamBook(
+            collections,
+            new SqliteOrderSourceStateStore(config.tokens.wethAddress),
+        );
         const tokenSets = new SqliteTokenSetRegistry();
         const observations = new SqliteOffchainObservationStore();
 
@@ -99,6 +105,7 @@ async function main() {
                     queue,
                     tokenSets,
                     job.payload,
+                    streamBook,
                 );
                 if (result.handled) return;
 

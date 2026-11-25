@@ -48,13 +48,14 @@ export class SqliteOpenSeaCollectionSyncRepository {
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
 
-    private readonly selectOpenSeaSlugOwner = db.prepare<{
+    private readonly selectConflictingOpenSeaSlugOwner = db.prepare<{
         chainId: number;
         openseaSlug: string;
+        contract: string;
     }>(
         "SELECT collection_id " +
             "FROM collections " +
-            "WHERE chain_id = @chainId AND opensea_slug = @openseaSlug LIMIT 1",
+            "WHERE chain_id = @chainId AND opensea_slug = @openseaSlug AND lower(address)<>lower(@contract) LIMIT 1",
     );
 
     private readonly markOpenSeaPendingStmt = db.prepare<{
@@ -99,13 +100,15 @@ export class SqliteOpenSeaCollectionSyncRepository {
         return row ? mapCollection(row) : null;
     }
 
-    resolveOpenSeaSlugOwner(
+    resolveConflictingOpenSeaSlugOwner(
         chainId: number,
         openseaSlug: string,
+        contract: string,
     ): { collectionId: number } | null {
-        const row = this.selectOpenSeaSlugOwner.get({
+        const row = this.selectConflictingOpenSeaSlugOwner.get({
             chainId,
             openseaSlug,
+            contract,
         }) as { collection_id: number } | undefined;
         return row ? { collectionId: row.collection_id } : null;
     }

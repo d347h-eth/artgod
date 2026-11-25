@@ -1,11 +1,16 @@
 import { zeroAddress } from "viem";
 import { logger } from "@artgod/shared/utils";
-import { ERC20_ABI, ERC721_APPROVAL_ABI } from "../../abi/index.js";
+import {
+    ERC20_ABI,
+    ERC721_APPROVAL_ABI,
+    ERC1155_BALANCE_ABI,
+} from "../../abi/index.js";
 import { SEAPORT_VALIDATION_ABI as SEAPORT_ABI } from "../../abi/seaport-validation.js";
 import {
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_STATUS,
     type OrderStatus,
+    type OrderValidationResult,
     type SeaportOrderData,
 } from "../../domain/orders.js";
 import type { OrderRecord } from "../../domain/orders.js";
@@ -85,7 +90,7 @@ export async function validateSeaportOrder(
     conduits: ConduitRegistryPort,
     config: SeaportValidationConfig,
     order: OrderRecord,
-): Promise<{ status: OrderStatus; reason: string }> {
+): Promise<OrderValidationResult> {
     let parsed: ParsedProtocol | null = null;
     try {
         parsed = parseProtocolData(order.seaportData);
@@ -123,7 +128,10 @@ export async function validateSeaportOrder(
         return invalidValidationResult(reason);
     }
 
-    if (orderHash.toLowerCase() !== order.id.toLowerCase()) {
+    if (
+        orderHash.toLowerCase() !==
+        (order.protocolOrderHash ?? order.id).toLowerCase()
+    ) {
         const reason = "order-hash-mismatch";
         logInvalidValidation(order, reason, {
             phase: "compareOrderHash",
@@ -313,12 +321,30 @@ export async function validateSeaportOrder(
         return invalidValidationResult(reason);
     }
 
-    if (order.side === "sell") {
-        return validateSellOrder(rpc, order, approvalTarget);
-    }
-
-    if (order.side === "buy") {
-        return validateBuyOrder(rpc, order, approvalTarget, price);
+    if (order.side === "buy" || order.side === "sell") {
+        const signedQuantity = BigInt(order.quantity ?? "1");
+        if (
+            signedQuantity <= 0n ||
+            (totalSize > 0n &&
+                (signedQuantity * totalFilled) % totalSize !== 0n)
+        )
+            return invalidValidationResult("invalid-fill-fraction");
+        const remaining =
+            totalSize > 0n
+                ? signedQuantity - (signedQuantity * totalFilled) / totalSize
+                : signedQuantity;
+        const result =
+            order.side === "sell"
+                ? await validateSellOrder(rpc, order, approvalTarget, remaining)
+                : await validateBuyOrder(
+                      rpc,
+                      order,
+                      approvalTarget,
+                      (price * remaining) / signedQuantity,
+                  );
+        return order.protocolOrderHash
+            ? { ...result, remainingQuantity: remaining.toString() }
+            : result;
     }
 
     const reason = "unknown-side";
@@ -333,6 +359,7 @@ async function validateSellOrder(
     rpc: RpcProviderPort,
     order: OrderRecord,
     approvalTarget: string,
+    remaining: bigint,
 ): Promise<{ status: OrderStatus; reason: string }> {
     if (!order.tokenId) {
         const reason = "missing-token-id";
@@ -341,33 +368,52 @@ async function validateSellOrder(
         });
         return invalidValidationResult(reason);
     }
-    let owner: string;
+    const multiToken = order.seaportData?.offer[0]?.itemType === "3";
     try {
-        owner = await rpc.readContract<string>({
-            address: order.contract as Hex,
-            abi: ERC721_APPROVAL_ABI,
-            functionName: "ownerOf",
-            args: [BigInt(order.tokenId)],
-        });
+        if (multiToken) {
+            const balance = await rpc.readContract<bigint>({
+                address: order.contract as Hex,
+                abi: ERC1155_BALANCE_ABI,
+                functionName: "balanceOf",
+                args: [order.maker as Hex, BigInt(order.tokenId)],
+            });
+            if (balance < remaining)
+                return {
+                    status: ORDER_STATUS.NoBalance,
+                    reason: "insufficient-balance",
+                };
+        } else {
+            const owner = await rpc.readContract<string>({
+                address: order.contract as Hex,
+                abi: ERC721_APPROVAL_ABI,
+                functionName: "ownerOf",
+                args: [BigInt(order.tokenId)],
+            });
+            if (owner.toLowerCase() !== order.maker.toLowerCase())
+                return {
+                    status: ORDER_STATUS.NoBalance,
+                    reason: "owner-mismatch",
+                };
+        }
     } catch (error) {
         const reason = `protocol-error:${String(error)}`;
-        logger.error("Seaport sell order owner lookup failed", {
-            component: "SeaportOrderValidation",
-            action: "validateSellOrder",
-            chainId: order.chainId,
-            orderId: order.id,
-            error: String(error),
-            phase: "ownerOf",
-        });
-        logInvalidValidation(order, reason, {
-            phase: "ownerOf",
-        });
+        const phase = multiToken ? "balanceOf" : "ownerOf";
+        logger.error(
+            multiToken
+                ? "Seaport sell order balance lookup failed"
+                : "Seaport sell order owner lookup failed",
+            {
+                component: "SeaportOrderValidation",
+                action: "validateSellOrder",
+                chainId: order.chainId,
+                orderId: order.id,
+                error: String(error),
+                phase,
+            },
+        );
+        logInvalidValidation(order, reason, { phase });
         return invalidValidationResult(reason);
     }
-    if (owner.toLowerCase() !== order.maker.toLowerCase()) {
-        return { status: ORDER_STATUS.NoBalance, reason: "owner-mismatch" };
-    }
-
     let approvedForAll = false;
     try {
         approvedForAll = await rpc.readContract<boolean>({
@@ -395,6 +441,8 @@ async function validateSellOrder(
         return { status: ORDER_STATUS.Fillable, reason: "approved" };
     }
 
+    if (multiToken)
+        return { status: ORDER_STATUS.NoApproval, reason: "missing-approval" };
     let approved: string;
     try {
         approved = await rpc.readContract<string>({
