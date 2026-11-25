@@ -2167,7 +2167,6 @@ export class SqliteCollectionsReadModel {
             return 0;
         }
 
-        const placeholders = tokenIds.map(() => "?").join(", ");
         const predicate = params.traitContext
             ? buildCatalogTokenPredicate({
                   ...params,
@@ -2180,14 +2179,14 @@ export class SqliteCollectionsReadModel {
                 "SELECT COUNT(*) AS count " +
                     "FROM tokens " +
                     "WHERE chain_id = ? AND collection_id = ? " +
-                    `AND ${predicate.sql} AND token_id IN (${placeholders}) ` +
+                    `AND ${predicate.sql} AND token_id IN (SELECT value FROM json_each(?)) ` +
                     "AND record_kind = ?",
             )
             .get(
                 params.chainId,
                 params.collectionId,
                 ...predicate.values,
-                ...tokenIds,
+                JSON.stringify(tokenIds),
                 TOKEN_RECORD_KIND.Canonical,
             ) as { count: number };
         return row.count;

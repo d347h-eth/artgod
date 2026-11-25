@@ -279,7 +279,7 @@ export class ListCollectionBiddingBidBookUseCase {
                       selectedView.pinnedTraits,
                       traitContext!.catalog,
                   )
-                : { traits: input.traits, traitRanges: input.traitRanges };
+                : { traits: ordinaryTraits, traitRanges: input.traitRanges };
         // Read the source-selected bid book: bot snapshot for enabled jobs, canonical orders otherwise.
         const persistedBidBook = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.bid_book",
@@ -576,7 +576,8 @@ export class ListCollectionBiddingBidBookUseCase {
             };
         }
 
-        if (!params.traitContext && !hasTokenOfferCardTraitFilters(params)) {
+        // Catalog books have already matched token membership and trait filters in the read snapshot.
+        if (params.traitContext || !hasTokenOfferCardTraitFilters(params)) {
             const counts = countTokenOfferOwnFilters(
                 offersByTokenId,
                 params,

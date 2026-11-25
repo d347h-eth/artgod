@@ -1,7 +1,16 @@
 import {
+    buildCatalogTokenPredicate,
     withTraitReadSnapshot,
     catalogViewIds,
 } from "@artgod/shared/read-models/trait-catalog";
+import {
+    groupTraitFilters,
+    groupTraitRangeFilters,
+} from "@artgod/shared/read-models/trait-filters";
+import type {
+    TraitFilter,
+    TraitRangeFilter,
+} from "@artgod/shared/types/browse";
 import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
 import type { PersistedBiddingJobRecord } from "@artgod/shared/types";
 import { db } from "@artgod/shared/database";
@@ -175,6 +184,47 @@ export function scopeBidsToCollectionView(
         const viewApplicability = matches(row);
         return viewApplicability ? [{ ...row, viewApplicability }] : [];
     });
+}
+
+/** Select known token cards in the same catalog snapshot as the offers, before counting or paging them. */
+export function filterCatalogTokenBids(
+    params: {
+        chainId: number;
+        collectionId: number;
+        traitContext: TraitReadContext;
+        selectedTraits: TraitFilter[];
+        selectedTraitRanges: TraitRangeFilter[];
+    },
+    bids: PersistedBiddingBidBookRow[],
+): PersistedBiddingBidBookRow[] {
+    if (!bids.length) return [];
+    const predicate = buildCatalogTokenPredicate({
+        ...params,
+        tokenColumnSql: "t.token_id",
+        traitFilterGroups: groupTraitFilters(params.selectedTraits),
+        traitRangeFilterGroups: groupTraitRangeFilters(
+            params.selectedTraitRanges,
+        ),
+    });
+    const tokenIds = new Set(bids.map((bid) => bid.tokenId));
+    const matchingIds = new Set(
+        db.raw
+            .prepare(
+                `SELECT t.token_id FROM tokens t WHERE t.chain_id=? AND t.collection_id=?
+         AND t.token_id IN (SELECT value FROM json_each(?)) AND ${predicate.sql}`,
+            )
+            .pluck()
+            .iterate(
+                params.chainId,
+                params.collectionId,
+                JSON.stringify([...tokenIds]),
+                ...predicate.values,
+            ),
+    );
+    const matched = bids.filter((bid) => matchingIds.has(bid.tokenId));
+    return params.traitContext.viewId || params.traitContext.groupId
+        ? matched.map((bid) => ({ ...bid, viewApplicability: RESULT.Matched }))
+        : matched;
 }
 
 /** A view-scoped job-selection preview may preselect only established members. Direct job-ID management remains available. */
