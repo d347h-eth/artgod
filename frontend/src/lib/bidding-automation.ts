@@ -560,6 +560,13 @@ export function canDraftNativeBidScope(scope: ApiBiddingBidBookRow['scope']): bo
 	);
 }
 
+export function canDraftCollectionBid(bid: ApiBiddingBidBookRow): boolean {
+	return (
+		bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection &&
+		canDraftNativeBidScope(bid.scope)
+	);
+}
+
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
 	if (!canDraftNativeBidScope(bid.scope)) return null;
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {

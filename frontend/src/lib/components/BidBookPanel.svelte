@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { canDraftNativeBidScope } from '$lib/bidding-automation';
+	import { canDraftCollectionBid, canDraftNativeBidScope } from '$lib/bidding-automation';
 	import { useCollectionView } from '$lib/collection-view-context';
 	import { createNativeTraitPresentation } from '@artgod/shared/types/trait-catalog';
 	import { selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
@@ -25,7 +25,8 @@
 	import {
 		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
-		TRADING_BIDDING_BID_SCOPE_KIND
+		TRADING_BIDDING_BID_SCOPE_KIND,
+		TRADING_BIDDING_BID_SCOPE_LABEL
 	} from '@artgod/shared/types';
 	import {
 		formatCompactTime,
@@ -317,8 +318,16 @@
 	}
 
 	function formatScope(bid: ApiBiddingBidBookRow): string {
-		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+		if (canDraftCollectionBid(bid)) {
 			return 'C';
+		}
+		if (
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet ||
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection
+		) {
+			return trimBidBookTraitText(
+				`${TRADING_BIDDING_BID_SCOPE_LABEL.TokenSet} ${bid.scope.encodedTokenIds ?? ''}`
+			);
 		}
 		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 			return `#${bid.scope.tokenId}`;
@@ -890,7 +899,7 @@
 				placeBidLabel: canSelectBidRow(bid) ? placeBidLabel(label) : null
 			};
 		}
-		if (shouldRenderScopeBidControl(bid)) {
+		if (showRowActions && shouldRenderScopeBidControl(bid)) {
 			return {
 				kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.PlainAction,
 				label: formatScope(bid),
