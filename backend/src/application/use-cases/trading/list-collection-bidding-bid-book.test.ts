@@ -243,7 +243,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                     },
                 }),
             },
-            repository,
+            { ...repository, withReadSnapshot: (read) => read() },
             { listCollectionPriceTiers: () => [] },
             apm,
         );
@@ -356,7 +356,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                     },
                 }),
             },
-            repository,
+            { ...repository, withReadSnapshot: (read) => read() },
             { listCollectionPriceTiers: () => [] },
         );
 
@@ -430,7 +430,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                     },
                 }),
             },
-            repository,
+            { ...repository, withReadSnapshot: (read) => read() },
             { listCollectionPriceTiers: () => [] },
         );
 
@@ -933,7 +933,7 @@ function buildUseCase(
                 effectiveConfig: { template: "" },
             }),
         },
-        repository,
+        { ...repository, withReadSnapshot: (read) => read() },
         priceTiersReadPort,
     );
 }

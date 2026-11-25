@@ -160,7 +160,13 @@ export class ListCollectionBiddingBidBookUseCase {
                 };
             };
         },
-        readonly bidBookRepositoryPort: BiddingBidBookRepositoryPort,
+        readonly bidBookRepositoryPort: Pick<
+            BiddingBidBookRepositoryPort,
+            "listCollectionBidBook"
+        > & {
+            /** Read catalog membership, offer counts and hydrated cards from one snapshot. */
+            withReadSnapshot<T>(read: () => T): T;
+        },
         readonly priceTiersReadPort: {
             listCollectionPriceTiers(
                 params: Parameters<
@@ -175,7 +181,14 @@ export class ListCollectionBiddingBidBookUseCase {
         input: ListCollectionBiddingBidBookInput,
     ): ListCollectionBiddingBidBookOutput {
         assertBiddingBidBookFiltersAllowed(input);
+        return this.bidBookRepositoryPort.withReadSnapshot(() =>
+            this.readCollectionBiddingBidBook(input),
+        );
+    }
 
+    private readCollectionBiddingBidBook(
+        input: ListCollectionBiddingBidBookInput,
+    ): ListCollectionBiddingBidBookOutput {
         // Resolve the requested chain before reading collection-scoped bid data.
         const chain = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.chain",
