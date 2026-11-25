@@ -829,6 +829,16 @@
 			const bid = buildBidMarketPrice({
 				rawPrice: bidBookPriceEffectiveWei(topOffer.price),
 				currencyAddress: topOffer.currencyAddress,
+				lastSeenMs: topOffer.lastSeenMs,
+				href: topOffer.venue
+					? buildListingHref({
+							venue: topOffer.venue,
+							tokenHref: tokenOfferCardHref(card.tokenId),
+							chainSlug: chain?.slug ?? null,
+							collectionAddress: collection?.address ?? null,
+							tokenId: card.tokenId
+						})
+					: undefined,
 				currencySymbol: topOffer.currencySymbol,
 				title: 'offer'
 			});

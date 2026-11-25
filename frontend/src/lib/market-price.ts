@@ -18,7 +18,8 @@ export function formatMarketPriceLabel(params: {
 }): string | null {
 	const amount = formatWeiAmount(params.rawPrice);
 	if (!amount) return null;
-	const currency = params.currencySymbol ?? currencyLabelFromAddress(params.currencyAddress ?? null);
+	const currency =
+		params.currencySymbol ?? currencyLabelFromAddress(params.currencyAddress ?? null);
 	return currency ? `${amount} ${currency}` : amount;
 }
 
@@ -37,7 +38,7 @@ export function buildAskMarketPrice(params: {
 	if (!label) return null;
 	return {
 		kind: 'ask',
-		label: withListingObservation(label, params.lastSeenMs),
+		label: withMarketObservation(label, params.lastSeenMs),
 		href: params.href ?? null,
 		title: params.title ?? 'ask'
 	};
@@ -45,6 +46,8 @@ export function buildAskMarketPrice(params: {
 
 // Builds the shared token-card bid-price presentation item.
 export function buildBidMarketPrice(params: {
+	lastSeenMs?: number;
+	href?: string | null;
 	rawPrice: string | null;
 	currencyAddress?: string | null;
 	currencySymbol?: string | null;
@@ -58,15 +61,19 @@ export function buildBidMarketPrice(params: {
 	if (!label) return null;
 	return {
 		kind: 'bid',
-		label,
+		label: withMarketObservation(label, params.lastSeenMs),
+		href: params.href,
 		title: params.title ?? 'offer'
 	};
 }
 
-export function withListingObservation(price: string, lastSeenMs?: number | null): string {
+export function withMarketObservation(price: string, lastSeenMs?: number | null): string {
 	if (lastSeenMs == null) return price;
-	const date = new Date(lastSeenMs);
-	return price + ' · last seen ' + date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+	return price + ' · ' + marketLastSeenLabel(lastSeenMs);
+}
+
+export function marketLastSeenLabel(lastSeenMs: number): string {
+	return 'last seen ' + new Date(lastSeenMs).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
 function formatWeiAmount(rawPrice: string | null): string | null {

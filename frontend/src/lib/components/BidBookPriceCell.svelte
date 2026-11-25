@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { marketLastSeenLabel } from '$lib/market-price';
 	import { ORDERBOOK_VENUE } from '@artgod/shared/market-data/orders';
 	import type { ApiBiddingBidBookRow } from '$lib/api-types';
 	import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
@@ -51,6 +52,9 @@
 		</span>
 		<span class="bid-book-price-amount">{price}</span>
 	</span>
+	{#if bid.lastSeenMs != null}
+		<span class="bid-book-last-seen muted">{marketLastSeenLabel(bid.lastSeenMs)}</span>
+	{/if}
 	{#if canShowAction}
 		<button
 			type="button"

@@ -1,4 +1,4 @@
-import { formatMarketPriceLabel, withListingObservation } from '$lib/market-price';
+import { formatMarketPriceLabel, withMarketObservation } from '$lib/market-price';
 
 export function formatListingPrice(
 	rawPrice: string | null,
@@ -6,5 +6,5 @@ export function formatListingPrice(
 	lastSeenMs?: number | null
 ): string | null {
 	const price = formatMarketPriceLabel({ rawPrice, currencyAddress: currency });
-	return price ? withListingObservation(price, lastSeenMs) : null;
+	return price ? withMarketObservation(price, lastSeenMs) : null;
 }

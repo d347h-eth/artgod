@@ -2661,6 +2661,11 @@ th {
 	color: var(--c-yellow);
 }
 
+.bid-book-last-seen {
+	display: block;
+	white-space: normal;
+}
+
 .bid-book-price-value {
 	display: inline-grid;
 	grid-template-columns: minmax(2ch, max-content) auto;

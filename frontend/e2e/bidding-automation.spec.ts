@@ -111,6 +111,10 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(detail).toBeVisible();
 		await detail.scrollIntoViewIfNeeded();
 		await page.screenshot({ path: testInfo.outputPath('token-detail.png') });
+		const offer = page.getByRole('row').filter({ hasText: '0.0905905 WETH' });
+		await expect(offer).toContainText('last seen 2026-11-24 12:00 UTC');
+		await offer.scrollIntoViewIfNeeded();
+		await page.screenshot({ path: testInfo.outputPath('last-seen-offer.png') });
 		await openHarnessPage(
 			page,
 			COLLECTION_PATH + '?' + scenario + BIDDING_E2E_SCENARIO.VvvWithdrawn

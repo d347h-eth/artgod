@@ -1204,6 +1204,21 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	if (scenario === BIDDING_E2E_SCENARIO.LastSeenVvv) {
+		return [
+			{
+				...bidRow({
+					orderId: 'captured-vvv-offer',
+					maker: MARKET_ADDRESS_A,
+					scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+					tokenId: '101',
+					priceEth: '0.0905905'
+				}),
+				venue: ORDERBOOK_VENUE.Vvv,
+				lastSeenMs: Date.UTC(2026, 10, 24, 12)
+			}
+		];
+	}
 	if (isPricingFilterScenario(scenario)) {
 		return [TRADING_BIDDING_BID_SCOPE_KIND.Token, TRADING_BIDDING_BID_SCOPE_KIND.Trait].flatMap(
 			(scopeKind) => {

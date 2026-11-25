@@ -3,6 +3,7 @@
 	import { useCollectionView } from '$lib/collection-view-context';
 	import { createNativeTraitPresentation } from '@artgod/shared/types/trait-catalog';
 	import { selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
+	import { formatMarketPriceLabel } from '$lib/market-price';
 	import {
 		formatTradingTraitCriterionLabel,
 		isTradingNumericTraitRange
@@ -280,6 +281,14 @@
 	function formatPriceAmount(bid: ApiBiddingBidBookRow): string {
 		if (bid.price.kind !== TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
 			return '-';
+		}
+		if (bid.venue) {
+			const price = formatMarketPriceLabel({
+				rawPrice: bid.price.wei,
+				currencyAddress: bid.currencyAddress,
+				currencySymbol: bid.currencySymbol
+			});
+			if (price) return price;
 		}
 		const price = formatUnitPrice(bid);
 		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';

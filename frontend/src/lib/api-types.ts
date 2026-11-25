@@ -609,6 +609,7 @@ export type ApiBiddingBidBookOwnStatus = {
 };
 
 type ApiBiddingBidBookRowBase = {
+	lastSeenMs?: number;
 	venue?: import('@artgod/shared/market-data/orders').OrderbookVenue;
 	ownJob?: TradingBiddingBidBookOwnJob | null;
 	orderId: string;
