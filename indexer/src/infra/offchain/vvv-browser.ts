@@ -1,93 +1,98 @@
 import type { Browser, Page } from "playwright-core";
 import {
     VVV_BOOK_LIMIT_BYTES,
-    VVV_MARKET,
-    consumeVvvBook,
+    VVV_MARKETS,
+    consumeVvvBookStream,
+    type VvvMarketLocation,
 } from "./vvv-orderbook.js";
 import type { BookMarket, BookObservation } from "../../domain/orderbook.js";
 
-const STATE_URL = "https://www.vvv.so/api/111k/state?orders=1";
-const READER_PAGE = new URL("/artgod-orderbook-reader", STATE_URL).href;
 const BOOK_TIMEOUT_MS = 45_000;
-const PAGE_SIZE = 64;
-type BookWindow = Window & { bookRows?: unknown[] };
+const CHUNK_BYTES = 64 * 1024;
+type BookWindow = Window & {
+    bookStream?: {
+        reader: ReadableStreamBYOBReader;
+        decoder: TextDecoder;
+        bytes: number;
+    };
+};
 
-/** Chromium makes one identified anonymous request to the public book. The
- * same-origin reader document is local, so the session runs only our decoder. */
+/** Pull one bounded piece of UTF-8 at a time. The next read waits until the
+ * indexer has validated and staged the finished orders from this piece. */
+async function* readBookChunks(page: Page) {
+    for (;;) {
+        const chunk = await page.evaluate(
+            async ({ size, limit }) => {
+                const stream = (window as BookWindow).bookStream!;
+                const { done, value } = await stream.reader.read(
+                    new Uint8Array(size),
+                );
+                stream.bytes += value?.byteLength ?? 0;
+                if (stream.bytes > limit) {
+                    await stream.reader.cancel();
+                    throw new Error("VVV response exceeds size limit");
+                }
+                return {
+                    done,
+                    text: stream.decoder.decode(value, { stream: !done }),
+                };
+            },
+            { size: CHUNK_BYTES, limit: VVV_BOOK_LIMIT_BYTES },
+        );
+        if (chunk.text) yield chunk.text;
+        if (chunk.done) return;
+    }
+}
+
+/** The catalog's public JSON document establishes the origin for anonymous
+ * in-page book requests. Keep its browser open across scheduled reads. */
 export class VvvBrowserBookReader {
     private browser: Browser | null = null;
     private page: Page | null = null;
 
+    constructor(
+        private readonly markets: readonly VvvMarketLocation[] = VVV_MARKETS,
+    ) {}
+
     async read(market: BookMarket, visit: (record: BookObservation) => void) {
-        if (
-            market.chainId !== VVV_MARKET.chainId ||
-            market.reference !== VVV_MARKET.reference ||
-            market.contract !== VVV_MARKET.contract
-        )
-            throw new Error("Unrecognized VVV market");
-        const page = await this.session();
+        const location = this.markets.find(
+            ({ market: entry }) =>
+                entry.venue === market.venue &&
+                entry.chainId === market.chainId &&
+                entry.reference === market.reference &&
+                entry.contract === market.contract,
+        );
+        if (!location) throw new Error("Unrecognized VVV market");
+        const page = await this.session(location);
         const timeout = setTimeout(() => {
             void page.close().catch(() => {});
         }, BOOK_TIMEOUT_MS);
         try {
-            const header = await page.evaluate(
-                async ({ url, maxBytes }) => {
-                    const response = await fetch(url, {
-                        cache: "no-store",
-                        credentials: "omit",
-                        redirect: "error",
-                        headers: { Accept: "application/json" },
-                    });
-                    if (!response.ok)
-                        throw new Error(
-                            "VVV book unavailable (HTTP " +
-                                response.status +
-                                ")",
-                        );
-                    if (
-                        !response.headers
-                            .get("content-type")
-                            ?.includes("application/json") ||
-                        !response.body
-                    )
-                        throw new Error("Expected VVV book JSON");
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder("utf-8", { fatal: true });
-                    const parts: string[] = [];
-                    let bytes = 0;
-                    for (;;) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        bytes += value.byteLength;
-                        if (bytes > maxBytes) {
-                            await reader.cancel();
-                            throw new Error("VVV response exceeds size limit");
-                        }
-                        parts.push(decoder.decode(value, { stream: true }));
-                    }
-                    parts.push(decoder.decode());
-                    const { chainId, contract, orders } = JSON.parse(
-                        parts.join(""),
+            await page.evaluate(async (url) => {
+                const response = await fetch(url, {
+                    cache: "no-store",
+                    credentials: "omit",
+                    redirect: "error",
+                    headers: { Accept: "application/json" },
+                });
+                if (!response.ok)
+                    throw new Error(
+                        "VVV book unavailable (HTTP " + response.status + ")",
                     );
-                    if (!Array.isArray(orders))
-                        throw new Error("Invalid VVV orders");
-                    (window as BookWindow).bookRows = orders;
-                    return { chainId, contract, length: orders.length };
-                },
-                { url: STATE_URL, maxBytes: VVV_BOOK_LIMIT_BYTES },
-            );
-            await consumeVvvBook(market, { ...header, orders: [] }, visit);
-            for (let start = 0; start < header.length; start += PAGE_SIZE) {
-                const orders = await page.evaluate(
-                    ([offset, count]) =>
-                        (window as BookWindow).bookRows!.slice(
-                            offset,
-                            offset + count,
-                        ),
-                    [start, PAGE_SIZE] as const,
-                );
-                await consumeVvvBook(market, { ...header, orders }, visit);
-            }
+                if (
+                    !response.headers
+                        .get("content-type")
+                        ?.includes("application/json") ||
+                    !response.body
+                )
+                    throw new Error("Expected VVV book JSON");
+                (window as BookWindow).bookStream = {
+                    reader: response.body.getReader({ mode: "byob" }),
+                    decoder: new TextDecoder("utf-8", { fatal: true }),
+                    bytes: 0,
+                };
+            }, location.bookUrl);
+            await consumeVvvBookStream(market, readBookChunks(page), visit);
         } catch (error) {
             await this.close();
             throw error;
@@ -95,29 +100,52 @@ export class VvvBrowserBookReader {
             clearTimeout(timeout);
             if (!page.isClosed())
                 await page.evaluate(() => {
-                    delete (window as BookWindow).bookRows;
+                    delete (window as BookWindow).bookStream;
                 });
         }
     }
 
-    private async session() {
-        if (this.page && !this.page.isClosed() && this.browser?.isConnected())
+    private async session(market: VvvMarketLocation) {
+        if (
+            this.page?.url() === market.readerUrl &&
+            !this.page.isClosed() &&
+            this.browser?.isConnected()
+        )
             return this.page;
-        await this.close();
-        const { chromium } = await import("playwright-core");
-        this.browser = await chromium.launch({ timeout: BOOK_TIMEOUT_MS });
+        if (!this.browser?.isConnected()) {
+            await this.close();
+            const { chromium } = await import("playwright-core");
+            this.browser = await chromium.launch({ timeout: BOOK_TIMEOUT_MS });
+        }
         try {
+            await this.page?.close();
             const page = await this.browser.newPage({
                 serviceWorkers: "block",
-                userAgent: "ArtGod-Orderbook",
+                acceptDownloads: false,
             });
-            await page.route(READER_PAGE, (route) =>
-                route.fulfill({
-                    contentType: "text/html",
-                    body: "<!doctype html><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; connect-src 'self'\"><title>Orderbook</title>",
-                }),
-            );
-            await page.goto(READER_PAGE);
+            await page.route("**/*", (route) => {
+                const request = route.request();
+                return request.method() === "GET" &&
+                    (request.url() === market.readerUrl ||
+                        request.url() === market.bookUrl)
+                    ? route.fallback()
+                    : route.abort();
+            });
+            const response = await page.goto(market.readerUrl, {
+                waitUntil: "domcontentloaded",
+                timeout: BOOK_TIMEOUT_MS,
+            });
+            if (!response?.ok())
+                throw new Error(
+                    "VVV reader unavailable (HTTP " + response?.status() + ")",
+                );
+            if (
+                response.url() !== market.readerUrl ||
+                !response
+                    .headers()
+                    ["content-type"]?.includes("application/json")
+            )
+                throw new Error("Expected the VVV public JSON reader document");
             this.page = page;
             return page;
         } catch (error) {

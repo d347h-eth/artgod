@@ -5,3 +5,7 @@ export const ORDERBOOK_RECONCILE_WORKER_POLICY = {
     ackWaitMs: 30_000,
     extendLeaseMs: 10_000,
 } as const;
+
+// Dispatch and browser startup happen after a tick. Check due times within a
+// minute so this delay cannot push a read out by another full venue interval.
+export const ORDERBOOK_SCHEDULER_POLL_MS = 60_000;

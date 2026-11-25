@@ -1,6 +1,6 @@
 import { scheduleVvvBooks } from "../application/offchain/vvv-reconcile.js";
 import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
-import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import { ORDERBOOK_SCHEDULER_POLL_MS } from "../config/orderbook-reconcile-worker.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -52,15 +52,17 @@ async function main() {
                 | typeof OPENSEA_RECONCILE_REASON.Scheduled
                 | typeof OPENSEA_RECONCILE_REASON.StartupStale,
         ) {
-            await scheduleVvvBooks(books, queue, config.chainId);
-            if (freshness)
-                await scheduleDueReconciles(
-                    queue,
-                    collections,
-                    config.chainId,
-                    freshness,
-                    reason,
-                );
+            await Promise.all([
+                scheduleVvvBooks(books, queue, config.chainId),
+                freshness &&
+                    scheduleDueReconciles(
+                        queue,
+                        collections,
+                        config.chainId,
+                        freshness,
+                        reason,
+                    ),
+            ]);
         }
         await tick(OPENSEA_RECONCILE_REASON.StartupStale);
         const timer = setInterval(
@@ -73,8 +75,10 @@ async function main() {
                     }),
                 );
             },
-            provider?.reconcileIntervalMs ??
-                getSettingDefaultNumber("OPENSEA_RECONCILE_INTERVAL_MS"),
+            Math.min(
+                provider?.reconcileIntervalMs ?? ORDERBOOK_SCHEDULER_POLL_MS,
+                ORDERBOOK_SCHEDULER_POLL_MS,
+            ),
         );
 
         logger.info("Orderbook reconcile scheduler worker ready", {

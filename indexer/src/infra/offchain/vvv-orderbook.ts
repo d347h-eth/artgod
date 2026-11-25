@@ -1,4 +1,5 @@
 import { zeroAddress } from "viem";
+import { JSONParser, TokenType } from "@streamparser/json";
 import {
     asObject,
     assertAddress,
@@ -31,8 +32,35 @@ export const VVV_MARKET: BookMarket = {
     contract: "0x08cded8258730bda384ff198001e47a1b50f7f9d",
 };
 
+/** Locations verified for each public market. Local collection names never supply a URL. */
+export interface VvvMarketLocation {
+    market: BookMarket;
+    readerUrl: string;
+    bookUrl: string;
+}
+
+export const VVV_MARKETS: readonly VvvMarketLocation[] = [
+    {
+        market: VVV_MARKET,
+        readerUrl: "https://www.vvv.so/api/111k/artists",
+        bookUrl: "https://www.vvv.so/api/111k/state?orders=1",
+    },
+];
+
 export const VVV_BOOK_LIMIT_BYTES = 32 * 1024 * 1024;
 const ACTIVE = "active";
+
+function verifyVvvMarket(
+    market: BookMarket,
+    chainId: unknown,
+    contract: unknown,
+) {
+    if (
+        chainId !== market.chainId ||
+        assertAddress(contract, "contract") !== market.contract.toLowerCase()
+    )
+        throw new Error("Invalid VVV book identity");
+}
 
 /** A read must finish with the correct public identity before it can replace membership. */
 export async function consumeVvvBook(
@@ -41,13 +69,9 @@ export async function consumeVvvBook(
     consume: (observation: BookObservation) => void,
 ) {
     const response = asObject(book, "VVV book");
-    if (
-        response.chainId !== market.chainId ||
-        assertAddress(response.contract, "contract") !==
-            market.contract.toLowerCase() ||
-        !Array.isArray(response.orders)
-    )
-        throw new Error("Invalid VVV book identity or orders array");
+    verifyVvvMarket(market, response.chainId, response.contract);
+    if (!Array.isArray(response.orders))
+        throw new Error("Invalid VVV orders array");
     for (const record of response.orders) {
         const observation = await translateOrder(
             market,
@@ -55,6 +79,58 @@ export async function consumeVvvBook(
         );
         if (observation) consume(observation);
     }
+}
+
+/** Only completed public order objects enter private staging. Identity fields
+ * may follow the orders in JSON, so the caller publishes only after EOF. */
+export async function consumeVvvBookStream(
+    market: BookMarket,
+    chunks: AsyncIterable<string>,
+    consume: (observation: BookObservation) => void,
+) {
+    const parser = new JSONParser({
+        paths: ["$.chainId", "$.contract", "$.orders", "$.orders.*"],
+        keepStack: false,
+    });
+    const fields = new Map<string, unknown>();
+    const rows: Record<string, unknown>[] = [];
+    let previousToken: TokenType | undefined;
+    parser.onToken = ({ token }) => {
+        // Discarded object properties cannot distinguish an empty object from
+        // a trailing comma in the streaming parser's retained stack.
+        if (
+            previousToken === TokenType.COMMA &&
+            (token === TokenType.RIGHT_BRACE ||
+                token === TokenType.RIGHT_BRACKET)
+        )
+            throw new Error("Invalid trailing comma in VVV book");
+        previousToken = token;
+    };
+    parser.onValue = ({ key, value, parent, stack }) => {
+        if (stack.length === 2) {
+            if (!Array.isArray(parent) || typeof key !== "number")
+                throw new Error("Invalid VVV orders array");
+            rows.push(asObject(value, "VVV order"));
+            delete parent[key];
+        } else if (typeof key === "string") {
+            if (fields.has(key))
+                throw new Error("Duplicate VVV book field " + key);
+            if (key === "orders" && !Array.isArray(value))
+                throw new Error("Invalid VVV orders array");
+            fields.set(key, key === "orders" ? true : value);
+        }
+    };
+    for await (const chunk of chunks) {
+        parser.write(chunk);
+        for (const row of rows) {
+            const observation = await translateOrder(market, row);
+            if (observation) consume(observation);
+        }
+        rows.length = 0;
+    }
+    if (!parser.isEnded) parser.end();
+    if (!fields.has("orders")) throw new Error("Missing VVV orders array");
+    verifyVvvMarket(market, fields.get("chainId"), fields.get("contract"));
 }
 
 async function translateOrder(

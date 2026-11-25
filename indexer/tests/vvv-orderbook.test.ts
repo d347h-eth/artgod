@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { zeroAddress } from "viem";
 import {
     consumeVvvBook,
+    consumeVvvBookStream,
     VVV_MARKET,
 } from "../src/infra/offchain/vvv-orderbook.js";
 import { openSeaObservation } from "../src/application/offchain/opensea-orderbook-sync.js";
@@ -21,6 +22,49 @@ async function translate(book: unknown) {
     return rows;
 }
 describe("VVV public cash orders", () => {
+    it("stages only public orders across chunks and requires a complete, matching JSON document", async () => {
+        async function* chunks(text: string) {
+            for (let i = 0; i < text.length; i += 37)
+                yield text.slice(i, i + 37);
+        }
+        const book = {
+            myOrders: captured.orders,
+            inventory: [{ orders: captured.orders }],
+            orders: captured.orders,
+            chainId: captured.chainId,
+            contract: captured.contract,
+        };
+        const received: BookObservation[] = [];
+        await consumeVvvBookStream(
+            VVV_MARKET,
+            chunks(JSON.stringify(book)),
+            (row) => received.push(row),
+        );
+        expect(received).toEqual(await translate(captured));
+        const identity = JSON.stringify({
+            chainId: captured.chainId,
+            contract: captured.contract,
+        }).slice(1, -1);
+        for (const text of [
+            `{${identity}}`,
+            `{${identity},"orders":{}}`,
+            `{${identity},"orders":[],}`,
+            `{${identity},"orders":[],"orders":[]}`,
+            `{${identity},"orders":[]`,
+            `{${identity},"orders":[]}extra`,
+            JSON.stringify({ ...book, contract: zeroAddress }),
+        ])
+            await expect(
+                consumeVvvBookStream(VVV_MARKET, chunks(text), () => {}),
+            ).rejects.toThrow();
+        await expect(
+            consumeVvvBookStream(
+                VVV_MARKET,
+                chunks(`{${identity},"orders":[]}`),
+                () => {},
+            ),
+        ).resolves.toBeUndefined();
+    });
     it("verifies both signed orders, retains the unsigned counterparty and shares a settlement identity with OpenSea", async () => {
         const [ask, bid] = await translate(captured);
         expect(ask!.order!.price).toBe("130585000000000000");
@@ -93,7 +137,13 @@ describe("VVV public cash orders", () => {
         ).toBeNull();
         const barter = structuredClone(captured.orders[0]!);
         barter.order.parameters.consideration[0]!.itemType = 2;
-        expect(await translate({ ...captured, orders: [barter] })).toEqual([]);
+        const barterWithWeth = structuredClone(barter);
+        barterWithWeth.order.parameters.offer.push(
+            bid.order.parameters.offer[0]!,
+        );
+        expect(
+            await translate({ ...captured, orders: [barter, barterWithWeth] }),
+        ).toEqual([]);
         for (const book of [
             { ...captured, contract: zeroAddress },
             { ...captured, chainId: 2 },

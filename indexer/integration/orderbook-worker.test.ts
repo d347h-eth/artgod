@@ -29,6 +29,7 @@ import {
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { VVV_MARKET } from "../src/infra/offchain/vvv-orderbook.js";
 import { BOOK_VIEW, VVV_READ_INTERVAL_MS } from "../src/domain/orderbook.js";
+import { ORDERBOOK_SCHEDULER_POLL_MS } from "../src/config/orderbook-reconcile-worker.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
 import { scheduleVvvBooks } from "../src/application/offchain/vvv-reconcile.js";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
@@ -101,9 +102,11 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                     WETH_ADDRESS: weth,
                     OPENSEA_INTEGRATION_MODE: enabled ? "enabled" : "disabled",
                     OPENSEA_API_KEY: enabled ? "fixture" : "",
+                    // VVV keeps its own cadence even when OpenSea runs hourly.
+                    OPENSEA_RECONCILE_INTERVAL_MS: "3600000",
                     ORDERBOOK_FIXTURE_DIR: dir,
                     ORDERBOOK_FIXTURE_SCHEDULER: scheduler
-                        ? String(VVV_READ_INTERVAL_MS)
+                        ? String(ORDERBOOK_SCHEDULER_POLL_MS)
                         : "",
                     ...(process.env.PLAYWRIGHT_BROWSERS_PATH
                         ? {
@@ -277,10 +280,16 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         child = await launch(false);
         scheduler = await launch(false, true);
         await waitForFixture(() => state().generation === 1, "first VVV book");
-        // Age the prior attempt so the next periodic scheduler tick is due.
-        db.prepare(
-            "UPDATE orderbook_feeds SET last_attempt_ms=? WHERE venue=?",
-        ).run(Date.now() - VVV_READ_INTERVAL_MS, feed.venue);
+        const ageBook = () =>
+            db
+                .prepare(
+                    "UPDATE orderbook_feeds SET last_attempt_ms=@due,last_success_ms=@due WHERE venue=@venue",
+                )
+                .run({
+                    due: Date.now() - VVV_READ_INTERVAL_MS,
+                    venue: feed.venue,
+                });
+        ageBook();
         await waitForFixture(
             () => state().generation === 2,
             "periodic VVV book",
@@ -330,6 +339,22 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                 )
                 .all(),
         ).toEqual([]);
+        const recovered = state().generation;
+        ageBook();
+        await waitForFixture(
+            () => state().generation > recovered,
+            "scheduled VVV refresh with an hourly OpenSea cadence",
+        );
+        const closes = async () =>
+            (await readFile(requests, "utf8")).split("closed\n").length - 1;
+        const previousCloses = await closes();
+        store.unbind(feed, 99);
+        await waitForFixture(
+            async () => (await closes()) > previousCloses,
+            "last removed VVV binding releases its browser",
+            35_000,
+        );
+        await refreshOpenSea("after-last-vvv-binding");
     } finally {
         await stopFixtureChild(scheduler);
         await stopFixtureChild(child);
@@ -337,4 +362,4 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         await broker.stop();
         db.raw.close();
     }
-}, 100_000);
+}, 130_000);

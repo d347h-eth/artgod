@@ -5,6 +5,7 @@ export default defineConfig({
         include: [
             "integration/orderbook-worker.test.ts",
             "integration/orderbook-cutover.test.ts",
+            "integration/vvv-bound-markets.test.ts",
         ],
         fileParallelism: false,
     },

@@ -90,6 +90,7 @@ __metadata:
     "@artgod/shared": "workspace:*"
     "@opensea/sdk": "npm:11.1.1"
     "@opensea/stream-js": "npm:0.4.0"
+    "@streamparser/json": "npm:0.0.22"
     better-sqlite3: "npm:12.11.1"
     dotenv: "npm:17.4.2"
     execa: "npm:9.6.1"
@@ -1986,6 +1987,13 @@ __metadata:
   version: 1.1.0
   resolution: "@standard-schema/spec@npm:1.1.0"
   checksum: 10/a209615c9e8b2ea535d7db0a5f6aa0f962fd4ab73ee86a46c100fb78116964af1f55a27c1794d4801e534a196794223daa25ff5135021e03c7828aa3d95e1763
+  languageName: node
+  linkType: hard
+
+"@streamparser/json@npm:0.0.22":
+  version: 0.0.22
+  resolution: "@streamparser/json@npm:0.0.22"
+  checksum: 10/46ae2dbb2ff9e932479b9073b8af18e5f2348739581f2fd238ad452047e0d19adc8730a9f0ba77b42ceb30322a192a3e271bf5682269df57024c717e07f6b625
   languageName: node
   linkType: hard
 

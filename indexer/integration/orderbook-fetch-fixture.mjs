@@ -19,9 +19,19 @@ const launch = chromium.launch.bind(chromium);
 chromium.launch = async (options) => {
     await appendFile(directory + "/requests", "browser\n");
     const browser = await launch(options);
+    browser.on("disconnected", () => {
+        void appendFile(directory + "/requests", "closed\n");
+    });
     const newPage = browser.newPage.bind(browser);
     browser.newPage = async (options) => {
         const page = await newPage(options);
+        await page.route(
+            "https://www.vvv.so/api/111k/artists",
+            async (route) => {
+                await appendFile(directory + "/requests", "reader\n");
+                return route.fulfill({ json: [] });
+            },
+        );
         await page.route(
             "https://www.vvv.so/api/111k/state?orders=1",
             async (route) => {
