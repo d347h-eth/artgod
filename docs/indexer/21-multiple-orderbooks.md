@@ -6,8 +6,32 @@ withdraws a 0.8 ETH listing and OpenSea still offers the token for 1 ETH, the
 card shows 1 ETH as soon as ArtGod publishes that refresh. The bidding bot and
 its selected bid-book snapshot use OpenSea.
 
-The alpha cutover resets SQLite and the queues, then rebuilds the book with a
-fresh bootstrap.
+At the alpha cutover, ArtGod rebuilds the passive orderbook for the collections
+already tracked in the existing database.
+
+**What gets reset.** Start the new book with empty orders, publication and
+observation state. Clear the old market run history and refresh positions, order
+retirement markers, and pending validation and maker scans for those orders.
+Reset the market sync status on each collection while keeping its registration,
+declared token scope, venue settings and enablement. Bootstrap each enabled
+market from its current book.
+[Order storage and retention](07-domain-orders.md#current-state-retention-and-replay)
+
+Pause market producers. Let the raw offchain worker dispatch the activity and
+metadata work in mixed messages it already received. Stop the old order workers
+and retire their pending jobs on the broker and in the SQLite queue outbox by
+subject and job kind before starting the new book. Shared queues and outbox rows
+for other domains keep their progress.
+[Offchain dispatch](../../indexer/src/application/offchain/dispatch.ts) ·
+[Queue outbox](05-storage-and-schema.md#metadata-refresh-follow-ups-and-queue-outbox)
+
+The same database keeps chain history and fills, NFT metadata and ownership,
+permanent activity (including daily listing prices), settings, and the bot’s
+jobs, own orders and cancellations. A daily listing records the historical price
+even after its order leaves the live book. The bot’s OpenSea snapshot has its
+own writer. These storage boundaries allow a market-only reset.
+[Storage ownership](../development/03-sqlite-storage-and-recovery.md) ·
+[Daily listings](09-domain-activities.md#permanent-daily-listings)
 
 ```mermaid
 flowchart LR
@@ -317,9 +341,13 @@ same maker or signed order remains independent.
 
 ## Acceptance before enabling additional feeds
 
-- Bootstrap clean SQLite and empty queues. Test two unrelated collections, two
-  local ranges on one contract, one shared market fetched once, a scope change
-  or purge during a read, and a VVV-only collection with OpenSea disabled.
+- Start with a populated database and outstanding order and metadata jobs. Reset
+  only the passive book and its work. Verify an old order delivery cannot
+  recreate a quote, unrelated jobs still complete, and chain history, daily
+  listings and bot state survive. Bootstrap the existing tracked collections.
+  Test two unrelated collections, two local ranges on one contract, one shared
+  market fetched once, a scope change or purge during a read, and a VVV-only
+  collection with OpenSea disabled.
 - Replay smaller, equal-sized and empty VVV books, unchanged timestamps with
   changed availability, a failed read followed by a valid empty read, removal
   then reappearance, and a delayed upsert. Exercise a bounded window, search
