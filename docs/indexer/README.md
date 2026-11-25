@@ -38,6 +38,8 @@ and [operator procedure](18-order-queue-recovery.md).
   read its public book and compare its prices with OpenSea.
 - [Orderbook discovery notes](23-orderbook-discovery.md) — user requirements,
   current OpenSea behavior and differences measured in saved VVV books.
+- [Multi-orderbook implementation prompt](24-multiple-orderbooks-implementation-prompt.md)
+  — starting instructions and verification for the implementation session.
 - [Metadata and traits](08-domain-metadata.md)
 - [Permanent pending metadata](20-metadata-pending-backlog.md)
 - [Activities](09-domain-activities.md)
