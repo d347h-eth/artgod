@@ -107,6 +107,7 @@
 		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
+		canDraftCollectionBid,
 		canDraftTraitJobFromSnapshot,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
@@ -244,6 +245,11 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeBidBook = $state<ApiBiddingBidBook>(bidBook);
+	const topCollectionBid = $derived(activeBidBook.bids.find(canDraftCollectionBid));
+	const showBidBookScope = $derived(
+		bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection ||
+		activeBidBook.bids.some((bid) => !canDraftCollectionBid(bid))
+	);
 	let activeOwnPriceTierCounts = $state<TradingBiddingBidBookPriceTierCounts | null>(ownPriceTierCounts);
 	let activeOwnBidStateCounts = $state<TradingBiddingBidBookOwnStateCounts | null>(ownBidStateCounts);
 	let activeTokenOfferCardsPage = $state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
@@ -969,9 +975,7 @@
 	}
 
 	function placeCollectionBid(): void {
-		const topBid = activeBidBook.bids[0];
-		if (!topBid) return;
-		onBidBookSelectBid(topBid);
+		if (topCollectionBid) onBidBookSelectBid(topCollectionBid);
 	}
 
 	function closeBiddingAutomationPanel(): void {
@@ -1103,7 +1107,7 @@
 		traitBindings={facets}
 		bidBook={activeBidBook}
 		nextUpdateAtMs={bidBookNextUpdateAtMs}
-		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		showScope={showBidBookScope}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		ownStateFilterControls={ownStateFilterRow}
 		{showMuted}
@@ -1248,7 +1252,7 @@
 						showCollectionAction={biddingSelectionControlPolicy.showCollectionAction}
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
-						collectionActionDisabled={activeBidBook.bids.length === 0}
+						collectionActionDisabled={!topCollectionBid}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}

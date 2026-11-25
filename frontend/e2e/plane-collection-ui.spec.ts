@@ -14,6 +14,7 @@ import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	TRAIT_FILTER_DISPLAY_KIND,
 	TRAIT_FILTER_QUERY_PARAMS,
+	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	formatTradingBiddingBidScopeLabel
@@ -1393,3 +1394,62 @@ for (const entry of ['All', 'Artworks'] as const) {
 		await page.screenshot({ path: info.outputPath('preview-block-summary-editor.png') });
 	});
 }
+
+test('drafts a collection bid from the highest contract-wide offer in a mixed book', async ({
+	page
+}, info) => {
+	const query = new URLSearchParams({
+		[BID_SCOPE_QUERY_PARAM]: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
+	});
+	const market = buildBiddingE2eCollectionBiddingData(query).bidBook.bids.find(
+		(bid): bid is ApiBiddingMarketBidBookRow =>
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid
+	)!;
+	const encodedTokenIds = tokens
+		.slice(0, 2)
+		.map((token) => token.id)
+		.join(',');
+	const finite = {
+		...market,
+		orderId: 'finite-collection-offer',
+		scope: {
+			...market.scope,
+			kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+			label: formatTradingBiddingBidScopeLabel({ kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet }),
+			encodedTokenIds
+		},
+		price: {
+			kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+			eth: '1',
+			wei: parseEther('1').toString()
+		}
+	};
+	let onlyFinite = false;
+	const { path } = await installPlaneFixture(page, (params) => {
+		const data = buildBiddingE2eCollectionBiddingData(params);
+		const bids = onlyFinite ? [finite] : [finite, market];
+		return {
+			...data,
+			bidBook: { ...data.bidBook, bids, state: { ...data.bidBook.state, rowCount: bids.length } }
+		};
+	});
+	const destination = selectCollectionViewHref(path + '/bidding', query, plane);
+	const button = page.getByRole('button', { name: 'place collection bid', exact: true });
+	await enter(page, destination);
+	const order = page.locator('tr:has([data-open-sea-order-hash="finite-collection-offer"])');
+	await expect(
+		order.getByRole('cell', { name: 'token set ' + encodedTokenIds, exact: true })
+	).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: 'place bid on collection', exact: true })
+	).toHaveCount(0);
+	await page.screenshot({ path: info.outputPath('mixed-collection-offers.png') });
+	await button.click();
+	await expect(page.getByRole('dialog', { name: 'bidding automation' })).toBeVisible();
+
+	onlyFinite = true;
+	await enter(page, destination);
+	await expect(order).toBeVisible();
+	await expect(button).toBeDisabled();
+	await page.screenshot({ path: info.outputPath('finite-only-collection-offers.png') });
+});
