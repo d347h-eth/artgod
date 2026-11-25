@@ -549,6 +549,10 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         }>;
     }
 
+    withReadSnapshot<T>(read: () => T): T {
+        return db.raw.transaction(read)();
+    }
+
     listCollectionBidBook(params: {
         traitContext?: TraitReadContext;
         chainId: number;
@@ -571,9 +575,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                           { ...params, traitContext: params.traitContext },
                           () => this.listCollectionBidBookInner(params),
                       )
-                    : db.raw.transaction(() =>
+                    : this.withReadSnapshot(() =>
                           this.listCollectionBidBookInner(params),
-                      )(),
+                      ),
         );
     }
 
@@ -584,7 +588,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         readCanonicalTraits(): TradingTraitCriterion[];
         includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook {
-        return db.raw.transaction(() => {
+        return this.withReadSnapshot(() => {
             const tokenTraits = params.readCanonicalTraits();
             return this.apm.withSyncSpan(
                 "backend.bidding.repository.token_bid_book",
@@ -596,7 +600,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 },
                 () => this.listTokenBidBookInner({ ...params, tokenTraits }),
             );
-        })();
+        });
     }
 
     private listCollectionBidBookInner(params: {
