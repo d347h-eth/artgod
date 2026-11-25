@@ -243,6 +243,7 @@ export type TokenCard = TokenPresentationSummary & {
 
 export type TokenDetailTrait = TraitMarketplaceBiddingSupport & {
     native?: TraitFilter | null;
+    nativeKey?: string | null;
     key: string;
     value: string;
     tokenCount: number | null;

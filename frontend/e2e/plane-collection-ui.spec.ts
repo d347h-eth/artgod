@@ -26,7 +26,7 @@ import {
 	BID_SCOPE_QUERY_PARAM,
 	parseCollectionBiddingTraitFilterJoinMode
 } from '../src/lib/bidding-query';
-import { parseSelectedTraits } from '../src/lib/trait-filters';
+import { parseSelectedTraitRanges, parseSelectedTraits } from '../src/lib/trait-filters';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
 import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
 import {
@@ -384,14 +384,17 @@ async function installPlaneFixture(
 							}),
 							image: token.image,
 							traitTree: token.projected.tree,
-							attributes: token.projected.values.map(({ fieldId, value, native }) => ({
-								key: fieldId,
-								value,
-								native,
-								marketplaceBiddingSupported: true,
-								tokenCount: 1,
-								rarityPercent: 50
-							}))
+							attributes: token.projected.values.map(
+								({ fieldId, value, native, nativeFieldKey }) => ({
+									key: fieldId,
+									nativeKey: nativeFieldKey,
+									value,
+									native,
+									marketplaceBiddingSupported: true,
+									tokenCount: 1,
+									rarityPercent: 50
+								})
+							)
 						}
 					}
 				});
@@ -1118,6 +1121,44 @@ test('jumps across blocks and restores a bookmarked token in its current block',
 	);
 	await back.click();
 	await expect(block).toHaveValue(film.id);
+});
+
+test('opens numeric trait offers from a token in its current block', async ({ page }, info) => {
+	const { path } = await installPlaneFixture(page);
+	const token = tokens[1];
+	const book = buildBiddingE2eCollectionBiddingData(
+		new URLSearchParams({
+			[BID_SCOPE_QUERY_PARAM]: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+		})
+	).bidBook;
+	const bid = book.bids.find((row) => row.scope.traits.length)!;
+	const scope = {
+		...bid.scope,
+		encodedTokenIds: null,
+		traits: [{ type: MARK_COUNT, min: 5, max: 8 }]
+	};
+	await page.route('**/' + token.id + '/bidding/bids*', (route) =>
+		route.fulfill({
+			json: {
+				bidBook: {
+					...book,
+					bids: [{ ...bid, scope: { ...scope, label: formatTradingBiddingBidScopeLabel(scope) } }]
+				}
+			}
+		})
+	);
+	await enter(page, path + '/' + token.id);
+	const filter = page.getByTestId(TEST_IDS.BidBookRowFilter);
+	await expect(filter).toBeVisible();
+	await filter.scrollIntoViewIfNeeded();
+	await page.screenshot({ path: info.outputPath('token-range-offer.png') });
+	await filter.click();
+	await expect(page).toHaveURL((url) => url.pathname === path + '/bidding');
+	const query = new URL(page.url()).searchParams;
+	expect(query.get(TRAIT_CATALOG_QUERY.View)).toBe(plane.id);
+	expect(parseSelectedTraitRanges(query)).toEqual([
+		{ key: MARK_COUNT, fromValue: '5', toValue: '8' }
+	]);
 });
 
 test('fits adjacent landscape and portrait images in fullscreen', async ({ page }, info) => {

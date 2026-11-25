@@ -375,7 +375,12 @@ export function readCatalogFacets(
         options.keys !== undefined && scope.traitContext.viewId === null,
     );
     const where = ["1"];
+    const bindingToken =
+        scope.traitContext.catalog === TRAIT_CATALOG.Derived
+            ? options.tokenId
+            : undefined;
     const args = [...relation.values];
+    if (bindingToken !== undefined) args.push(bindingToken);
     if (options.keys || options.excludeKeys?.length) {
         where.push(
             `key ${options.keys ? "IN" : "NOT IN"} (SELECT value FROM json_each(?))`,
@@ -405,16 +410,31 @@ export function readCatalogFacets(
     }
     // A canonical pair has one link per token for the metadata source. Projected fields
     // can instead share a label or a native binding across different source fields.
+    const uniformFieldKey =
+        "CASE WHEN COUNT(native_field_key)=COUNT(*) AND MIN(native_field_key)=MAX(native_field_key) THEN MIN(native_field_key) END";
+    // A token supplies the list of fields. Every value in that field must agree
+    // on the native key before a range link can represent the whole field.
+    const fieldBindings =
+        bindingToken !== undefined
+            ? `, field_bindings AS MATERIALIZED (
+            SELECT key, ${uniformFieldKey} AS native_key FROM facts
+            WHERE key IN (SELECT key FROM facts WHERE token_id=?) GROUP BY key
+        )`
+            : "";
+    const fieldKey =
+        bindingToken !== undefined
+            ? "(SELECT native_key FROM field_bindings WHERE key=facts.key)"
+            : uniformFieldKey;
     const columns =
         scope.traitContext.catalog === TRAIT_CATALOG.Canonical
             ? "COUNT(*) n,key AS native_key,value AS native_value,key AS native_field_key"
             : `COUNT(DISTINCT token_id) n,
            CASE WHEN COUNT(native_key)=COUNT(*) AND MIN(native_key)=MAX(native_key) AND COUNT(native_value)=COUNT(*) AND MIN(native_value)=MAX(native_value)
                 THEN MIN(native_key) END native_key, MIN(native_value) native_value,
-           CASE WHEN COUNT(native_field_key)=COUNT(*) AND MIN(native_field_key)=MAX(native_field_key) THEN MIN(native_field_key) END native_field_key`;
+           ${fieldKey} AS native_field_key`;
     const rows = db.raw
         .prepare(
-            `WITH facts AS NOT MATERIALIZED (${relation.sql}) SELECT key,value,${columns}
+            `WITH facts AS NOT MATERIALIZED (${relation.sql}) ${fieldBindings} SELECT key,value,${columns}
         FROM facts WHERE ${where.join(" AND ")} GROUP BY key,value ORDER BY key,n,value`,
         )
         .iterate(...args) as Iterable<{
@@ -507,6 +527,7 @@ export function readCatalogTokenDetailTraits(
         facet.values.map((value) => ({
             ...value,
             key: facet.key,
+            nativeKey: facet.nativeKey,
             rarityPercent: total > 0 ? (100 * value.tokenCount) / total : null,
         })),
     );

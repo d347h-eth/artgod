@@ -223,6 +223,30 @@ describe("SqliteCollectionsReadModel observability", () => {
                 traitContext: { ...traitContext, generation: 2 },
             }),
         ).toThrow("Reload");
+        // The token's exact value can remain bound even when another value in
+        // the same field makes navigation by native range ambiguous.
+        const insertLevel = db.prepare(
+            `INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value,native_key,native_value,native_field_key)
+             VALUES(1,1,?,1,?,'level','Level',?,'Level',?,?)`,
+        );
+        insertLevel.run(viewId, "1", "1", "1", "Level");
+        const levelOnFirstToken = () =>
+            reader
+                .getCollectionTokenDetail({ ...params, tokenId: "1" })
+                .attributes.find((trait) => trait.key === "level");
+        const exactBinding = { key: "Level", value: "1" };
+        expect(levelOnFirstToken()).toMatchObject({
+            native: exactBinding,
+            nativeKey: "Level",
+        });
+        db.prepare(
+            "INSERT INTO trait_catalog_projections VALUES(1,1,?,1,'2',1,'[]')",
+        ).run(viewId);
+        insertLevel.run(viewId, "2", "2", "2", null);
+        expect(levelOnFirstToken()).toMatchObject({
+            native: exactBinding,
+            nativeKey: null,
+        });
         const groupContext = {
             viewId: null,
             generation: null,
@@ -240,6 +264,9 @@ describe("SqliteCollectionsReadModel observability", () => {
         db.prepare(
             "INSERT INTO trait_catalog_generations(generation,chain_id,collection_id,view_id,mapper_version) VALUES(2,1,1,?,?)",
         ).run(second.id, version);
+        db.prepare(
+            "DELETE FROM trait_catalog_projections WHERE generation=1 AND token_id='2'",
+        ).run();
         db.prepare(
             "UPDATE trait_catalog_members SET view_id=? WHERE token_id='2'",
         ).run(second.id);
