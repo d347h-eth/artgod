@@ -65,6 +65,7 @@ type Scope = {
     maker: string;
 };
 const BATCH = POLICY.maintenanceBatchRows;
+class ListingPriceTimeChanged extends Error {}
 
 /** The SQLite writer lock covers the final eligibility decision, daily price and
  * generation switch. Private pages are bounded and disappear on process exit. */
@@ -79,7 +80,7 @@ export class SqliteOrderSourceStateStore {
     private readonly clearOfferScopes;
     private readonly addOfferScope;
     private readonly withdrawMember;
-    private readonly finishSeller;
+    private readonly crossedAskBoundary;
     private readonly markSeller;
     private readonly winningRoute;
     private readonly deactivateOrder;
@@ -121,8 +122,13 @@ export class SqliteOrderSourceStateStore {
         this.withdrawMember = db.prepare(
             "UPDATE orderbook_members SET present=0,eligible=0,withdrawn=authority*?,record_json=NULL,revision=?,observed_ms=? WHERE feed_id=? AND native_id=?",
         );
-        this.finishSeller = db.prepare(
-            "DELETE FROM book_sellers WHERE run=? AND chain_id=? AND collection_id=? AND token_id=? AND maker=?",
+        this.crossedAskBoundary = db.prepare(
+            `SELECT 1 FROM book_sellers s
+             JOIN activities a USING(chain_id,collection_id,token_id,maker)
+             JOIN orders o USING(chain_id,collection_id,token_id,maker)
+             WHERE s.run=@run AND a.listing_day=@day AND o.side=@sell AND
+                 (o.valid_from>@start AND o.valid_from<=@end OR o.valid_until>@start AND o.valid_until<=@end)
+             LIMIT 1`,
         );
         this.markSeller = db.prepare(
             "INSERT OR IGNORE INTO book_sellers SELECT ?,chain_id,collection_id,token_id,maker FROM orders WHERE id=? AND side=? AND token_id IS NOT NULL",
@@ -623,7 +629,7 @@ export class SqliteOrderSourceStateStore {
                             ).run(stream.feed_id, received);
                         }
                     }
-                    this.projectChanges(run, feed.chainId, generation, id);
+                    this.projectOrders(run, feed.chainId, generation, id);
                     db.prepare(
                         "UPDATE orderbook_feeds SET generation=?,accepted_binding_revision=binding_revision,last_success_ms=MAX(COALESCE(last_success_ms,0),?),last_error=NULL,sequence=? WHERE feed_id=?",
                     ).run(
@@ -635,6 +641,7 @@ export class SqliteOrderSourceStateStore {
                         id,
                     );
                     this.invalidateCollections(id);
+                    this.refreshDailyPrices(run);
                     return { activeOrders, deactivatedOrders };
                 })();
                 clear();
@@ -643,7 +650,7 @@ export class SqliteOrderSourceStateStore {
         };
     }
 
-    private projectChanges(
+    private projectOrders(
         run: string,
         chainId: number,
         generation: number,
@@ -657,22 +664,47 @@ export class SqliteOrderSourceStateStore {
             (row) =>
                 this.project(run, chainId, row.id, now, generation, feedId),
         );
-        const sellers = db.raw.prepare(
-            "SELECT chain_id,collection_id,token_id,maker FROM book_sellers WHERE run=? LIMIT ?",
-        );
-        for (;;) {
-            const batch = sellers.all(run, BATCH) as Scope[];
-            if (!batch.length) break;
-            for (const seller of batch) {
-                this.history.refreshSeller(seller, now);
-                this.finishSeller.run(
-                    run,
-                    seller.chain_id,
-                    seller.collection_id,
-                    seller.token_id,
-                    seller.maker,
+    }
+
+    private refreshDailyPrices(run: string) {
+        // The writer lock freezes competing publications and chain updates. Time
+        // can still cross midnight or the validity boundary of a competing ask.
+        const writeDailyPrices = db.writeTransaction(() => {
+            const start = Math.floor(this.clock() / 1000);
+            const day = Math.floor(start / POLICY.utcDaySeconds);
+            eachPage<Scope & { id: number }>(
+                `SELECT a.id,s.chain_id,s.collection_id,s.token_id,s.maker
+                 FROM activities a JOIN book_sellers s USING(chain_id,collection_id,token_id,maker)
+                 WHERE s.run=? AND a.listing_day=? AND a.id>? ORDER BY a.id LIMIT ?`,
+                [run, day],
+                "id",
+                (seller) => this.history.refreshSeller(seller, start),
+                0,
+            );
+            const end = Math.floor(this.clock() / 1000);
+            if (
+                end !== start &&
+                (end < start ||
+                    Math.floor(end / POLICY.utcDaySeconds) !== day ||
+                    this.crossedAskBoundary.get({
+                        run,
+                        day,
+                        start,
+                        end,
+                        sell: ORDER_SIDE.Sell,
+                    }))
+            )
+                throw new ListingPriceTimeChanged(
+                    "Listing price validity changed during publication",
                 );
-            }
+        });
+        try {
+            writeDailyPrices();
+        } catch (error) {
+            if (!(error instanceof ListingPriceTimeChanged)) throw error;
+            // One savepoint retry keeps the staged membership. A second crossing
+            // releases the writer and lets the normal venue retry start fresh.
+            writeDailyPrices();
         }
     }
 
@@ -693,7 +725,7 @@ export class SqliteOrderSourceStateStore {
             db.prepare(
                 "UPDATE orderbook_members SET collection_id=NULL,eligible=0 WHERE feed_id=? AND collection_id=?",
             ).run(state.feed_id, collectionId);
-            this.projectChanges(
+            this.projectOrders(
                 run,
                 feed.chainId,
                 state.generation,
@@ -703,6 +735,8 @@ export class SqliteOrderSourceStateStore {
             db.prepare(
                 "UPDATE collections SET market_revision=market_revision+1 WHERE collection_id=?",
             ).run(collectionId);
+            this.refreshDailyPrices(run);
+            db.prepare("DELETE FROM book_sellers WHERE run=?").run(run);
         })();
     }
 
@@ -804,9 +838,10 @@ function eachPage<T>(
     args: (string | number)[],
     key: keyof T,
     visit: (row: T) => void,
+    start: string | number = "",
 ) {
     const select = db.raw.prepare(sql);
-    let after = "";
+    let after = start;
     for (;;) {
         const rows = select.all(...args, after, BATCH) as T[];
         if (!rows.length) return;

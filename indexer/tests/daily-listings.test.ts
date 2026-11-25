@@ -391,9 +391,7 @@ describe("permanent daily listings and current asks", () => {
         ).toEqual({ listing_price_at: observedAt });
     });
 
-    it("refreshes a seller price when REST marks the cheaper ask absent, before midnight freezes the row", async () => {
-        now = FIRST - 10 + POLICY.utcDaySeconds - 1;
-        vi.setSystemTime(now * 1000);
+    function sellerBook() {
         const feed = {
             chainId: 1,
             venue: OFFCHAIN_ORDER_SOURCE.OpenSea,
@@ -431,6 +429,88 @@ describe("permanent daily listings and current asks", () => {
                 },
             };
         }
+        return { feed, books, listing };
+    }
+
+    it.each(["expiry", "midnight"])(
+        "rechecks daily history when publication crosses %s",
+        async (boundary) => {
+            if (boundary === "midnight") now = FIRST - 11;
+            vi.setSystemTime(now * 1000);
+            const { feed, books, listing } = sellerBook();
+            const soon = listing("soon", "20");
+            soon.order!.validUntil = now + 1;
+            const survivor = listing("survivor", "30");
+            const prior = books.begin(feed);
+            for (const item of [listing("cheapest", "10"), soon, survivor])
+                prior.record(item);
+            prior.publish();
+            await event("cheapest", now);
+            const pinned = list().items[0]!;
+            expect(pinned.price).toBe("10");
+
+            const refresh = SqliteDailyListingPrices.prototype.refreshSeller;
+            vi.spyOn(
+                SqliteDailyListingPrices.prototype,
+                "refreshSeller",
+            ).mockImplementationOnce(function (seller, at) {
+                refresh.call(this, seller, at);
+                now++;
+                vi.setSystemTime(now * 1000);
+            });
+            const replacement = books.begin(feed);
+            replacement.record(soon);
+            replacement.record(survivor);
+            expect(replacement.publish().deactivatedOrders).toBe(1);
+            expect(list().items).toMatchObject([
+                { id: pinned.id, price: boundary === "midnight" ? "10" : "30" },
+            ]);
+            expect(
+                db.prepare("SELECT generation FROM orderbook_feeds").get(),
+            ).toEqual({ generation: 2 });
+        },
+    );
+
+    it("rolls back the whole publication if a second ask expires during the price retry", async () => {
+        const { feed, books, listing } = sellerBook();
+        const prior = books.begin(feed);
+        prior.record(listing("old", "10"));
+        prior.publish();
+        await event("old", now);
+        const replacement = books.begin(feed);
+        for (const [id, price, lifetime] of [
+            ["first", "20", 1],
+            ["second", "30", 2],
+            ["last", "40", 60],
+        ] as const) {
+            const row = listing(id, price);
+            row.order!.validUntil = now + lifetime;
+            replacement.record(row);
+        }
+        const refresh = SqliteDailyListingPrices.prototype.refreshSeller;
+        const advancing = vi
+            .spyOn(SqliteDailyListingPrices.prototype, "refreshSeller")
+            .mockImplementation(function (seller, at) {
+                refresh.call(this, seller, at);
+                now++;
+                vi.setSystemTime(now * 1000);
+            });
+        expect(() => replacement.publish()).toThrow(
+            "Listing price validity changed",
+        );
+        expect(
+            db.prepare("SELECT generation FROM orderbook_feeds").get(),
+        ).toEqual({ generation: 1 });
+        expect(list().items[0]?.price).toBe("10");
+        advancing.mockRestore();
+        expect(replacement.publish().deactivatedOrders).toBe(1);
+        expect(list().items[0]?.price).toBe("40");
+    });
+
+    it("refreshes a seller price when REST marks the cheaper ask absent, before midnight freezes the row", async () => {
+        now = FIRST - 10 + POLICY.utcDaySeconds - 1;
+        vi.setSystemTime(now * 1000);
+        const { feed, books, listing } = sellerBook();
         const prior = books.begin(feed);
         prior.record(listing("cheaper", "10"));
         prior.record(listing("remaining", "20"));
