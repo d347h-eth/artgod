@@ -5,21 +5,15 @@ Notable changes for ArtGod users, following
 Earlier releases are available in
 [GitHub Releases](https://github.com/d347h-eth/artgod/releases).
 
-## Unreleased
-
-### Added
-
-- Native 111k support for collection bootstrap and new mints. Better structured
-  filtering and other collection-specific features are still coming.
-  **Warning: the 111k trait filter sidebar currently lags and is barely usable.**
-
-## 0.1.3-alpha - 2026-10-31 (pre-release)
+## 0.1.3-alpha - 2026-11-26 (pre-release)
 
 Changes since
 [v0.1.1-alpha.3](https://github.com/d347h-eth/artgod/releases/tag/v0.1.1-alpha.3).
 
 ### Release summary
 
+- Browse 111K by token type, with separate artwork views for each block and
+  trait filters specific to that block.
 - Easier collection setup with metadata previews and Art Blocks token ranges.
 - Extra target presets for trait-scoped bidding.
 - Explore collection sale prices with interactive charts and trait filters.
@@ -46,6 +40,11 @@ automatically when it starts.
 
 ### Added
 
+- The built-in 111K extension indexes existing NFTs and tracks new mints.
+  Browse all artwork blocks together or select one to filter and bid on
+  supported traits. Each NFT shows its full traits, including character and
+  scene details for Plane of Existence and painting titles and artists for
+  Backrooms 2.
 - Explore collection sale prices on an interactive chart with trait filters,
   token previews, bundle averages, and NFT quantity and ETH volume.
 - Preview token metadata and estimate image storage before adding a collection.
