@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     LookupBatchTokenBiddingJobsInput,
@@ -40,6 +41,7 @@ export class LookupBatchTokenBiddingJobsHttpAdapter {
         request: FastifyRequest<LookupBatchTokenBiddingJobsRoute>,
     ): LookupBatchTokenBiddingJobsInput {
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             includeOwnJobContext: this.includeOwnJobContext,

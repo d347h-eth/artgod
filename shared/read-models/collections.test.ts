@@ -1,4 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { NFT111K_METADATA, nft111kTraitCatalog } from "../extensions/111k.js";
+import { TRAIT_CATALOG } from "../types/trait-catalog.js";
+import { readViewStatus } from "./trait-catalog.js";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -63,6 +66,242 @@ describe("SqliteCollectionsReadModel observability", () => {
     afterEach(() => {
         setDbPath(join(tmpdir(), "artgod-collections-read-closed.sqlite"));
         rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("keeps pending members visible, uses scoped rarity and keeps canonical and derived values independent", () => {
+        const reader = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+        db.exec(
+            "CREATE TABLE collection_extension_installs(chain_id INTEGER,collection_id INTEGER,enabled INTEGER,PRIMARY KEY(chain_id,collection_id)); INSERT INTO collection_extension_installs VALUES(1,1,1)",
+        );
+        db.exec(
+            readFileSync(
+                new URL(
+                    "../../database/migrations/078_trait_catalogs.sql",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        );
+        db.exec(
+            readFileSync(
+                new URL(
+                    "../../database/migrations/047_token_attributes_source_attribute_index.sql",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        );
+        const block = { key: NFT111K_METADATA.CollectionBlock, value: "DriMi" };
+        const descriptor = nft111kTraitCatalog.classify([block]);
+        const version = nft111kTraitCatalog.availableVersion(descriptor);
+        const viewId = descriptor.id;
+        db.prepare("INSERT INTO trait_catalog_views VALUES(1,1,?,?,1)").run(
+            viewId,
+            JSON.stringify(descriptor),
+        );
+        db.prepare(
+            "INSERT INTO trait_catalog_generations(generation,chain_id,collection_id,view_id,mapper_version) VALUES(1,1,1,?,?)",
+        ).run(viewId, version);
+        const native = { key: "01 Background", value: "blue" };
+        for (const id of ["1", "2", "3"]) {
+            insertToken(id, id);
+            insertBalance(id, id === "1" ? OWNER_A : OWNER_B);
+            insertTokenTrait(id, native.key, native.value);
+            insertTokenTrait(
+                id,
+                "Extension",
+                "Value",
+                TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                "fixture",
+            );
+            if (id !== "3")
+                db.prepare(
+                    "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision,scope_key) VALUES(1,1,?,?,1,?)",
+                ).run(viewId, id, block.key);
+        }
+        const projection = nft111kTraitCatalog.project(descriptor, version, [
+            native,
+        ]);
+        db.prepare(
+            "INSERT INTO trait_catalog_projections VALUES(1,1,?,1,'1',1,?)",
+        ).run(viewId, JSON.stringify(projection.tree));
+        db.prepare(
+            "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value,native_key,native_value,native_field_key) VALUES(1,1,?,1,'1',?,?,?,?,?,?)",
+        ).run(
+            viewId,
+            "background",
+            "Background",
+            "Blue",
+            native.key,
+            native.value,
+            null,
+        );
+        const traitContext = {
+            catalog: TRAIT_CATALOG.Derived,
+            generation: 1,
+            viewId,
+        };
+        const params = { chainId: 1, collectionId: 1, traitContext, limit: 4 };
+        expect(readViewStatus(1, 1, nft111kTraitCatalog)).toMatchObject([
+            { id: viewId, classified: 2, ready: 1, pinnedTraits: [block] },
+        ]);
+        db.prepare(
+            "UPDATE trait_catalog_members SET scope_key=? WHERE token_id='2'",
+        ).run(NFT111K_METADATA.CollectionBlockAlias);
+        expect(
+            readViewStatus(1, 1, nft111kTraitCatalog)[0].pinnedTraits,
+        ).toEqual([]);
+        for (const tokenStatus of [
+            TOKEN_BROWSER_STATUS.All,
+            TOKEN_BROWSER_STATUS.Listed,
+            TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+        ]) {
+            const page = reader.listCollectionTokens({
+                ...params,
+                tokenStatus,
+            });
+            expect(page.totalItems).toBe(2);
+            expect(page.items.map((x) => x.tokenId)).toEqual(["1", "2"]);
+            expect(page.items[1].attributes).toEqual([]);
+            expect(
+                reader.listCollectionTokens({
+                    ...params,
+                    tokenStatus,
+                    traitFilters: [{ key: "background", value: "Blue" }],
+                }).totalItems,
+            ).toBe(1);
+        }
+        expect(
+            reader.getCollectionTokenDetail({ ...params, tokenId: "1" })
+                .attributes,
+        ).toMatchObject([{ key: "background", native, rarityPercent: 50 }]);
+        expect(
+            reader.getCollectionTokenDetail({ ...params, tokenId: "2" })
+                .traitTree,
+        ).toBeNull();
+        expect(() =>
+            reader.getCollectionTokenPreview({ ...params, tokenId: "3" }),
+        ).toThrow("outside this view");
+        expect(
+            reader
+                .listCollectionHolders(params)
+                .items.map((x) => x.heldPercent),
+        ).toEqual([50, 50]);
+        expect(
+            reader
+                .listCollectionTokenCardsByIds({
+                    ...params,
+                    tokenIds: ["1", "3"],
+                })
+                .map((x) => x.tokenId),
+        ).toEqual(["1"]);
+        expect(
+            reader.listCollectionTraitCatalog({
+                ...params,
+                keys: ["background"],
+            }),
+        ).toMatchObject([
+            { nativeKey: null, values: [{ native, tokenCount: 1 }] },
+        ]);
+        expect(
+            reader.listCollectionTraitFacets(1, 1, undefined, {
+                traitContext: {
+                    ...traitContext,
+                    catalog: TRAIT_CATALOG.Canonical,
+                },
+            }),
+        ).toMatchObject([
+            {
+                key: native.key,
+                nativeKey: native.key,
+                values: [{ native, tokenCount: 2 }],
+            },
+        ]);
+        expect(() =>
+            reader.listCollectionHolders({
+                ...params,
+                traitContext: { ...traitContext, generation: 2 },
+            }),
+        ).toThrow("Reload");
+        // The token's exact value can remain bound even when another value in
+        // the same field makes navigation by native range ambiguous.
+        const insertLevel = db.prepare(
+            `INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value,native_key,native_value,native_field_key)
+             VALUES(1,1,?,1,?,'level','Level',?,'Level',?,?)`,
+        );
+        insertLevel.run(viewId, "1", "1", "1", "Level");
+        const levelOnFirstToken = () =>
+            reader
+                .getCollectionTokenDetail({ ...params, tokenId: "1" })
+                .attributes.find((trait) => trait.key === "level");
+        const exactBinding = { key: "Level", value: "1" };
+        expect(levelOnFirstToken()).toMatchObject({
+            native: exactBinding,
+            nativeKey: "Level",
+        });
+        db.prepare(
+            "INSERT INTO trait_catalog_projections VALUES(1,1,?,1,'2',1,'[]')",
+        ).run(viewId);
+        insertLevel.run(viewId, "2", "2", "2", null);
+        expect(levelOnFirstToken()).toMatchObject({
+            native: exactBinding,
+            nativeKey: null,
+        });
+        const groupContext = {
+            viewId: null,
+            generation: null,
+            catalog: TRAIT_CATALOG.Canonical,
+            groupId: descriptor.parent!.id,
+        };
+        // A group combines canonical facts from all child blocks regardless of projection readiness.
+        const second = nft111kTraitCatalog.classify([
+            { ...block, value: "another block" },
+        ]);
+        db.prepare("INSERT INTO trait_catalog_views VALUES(1,1,?,?,2)").run(
+            second.id,
+            JSON.stringify(second),
+        );
+        db.prepare(
+            "INSERT INTO trait_catalog_generations(generation,chain_id,collection_id,view_id,mapper_version) VALUES(2,1,1,?,?)",
+        ).run(second.id, version);
+        db.prepare(
+            "DELETE FROM trait_catalog_projections WHERE generation=1 AND token_id='2'",
+        ).run();
+        db.prepare(
+            "UPDATE trait_catalog_members SET view_id=? WHERE token_id='2'",
+        ).run(second.id);
+        insertTokenTrait("1", block.key, block.value);
+        insertTokenTrait("2", block.key, "another block");
+        const groupTokens = reader.listCollectionTokens({
+            ...params,
+            traitContext: groupContext,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+        });
+        expect(groupTokens.items.map((token) => token.tokenId).sort()).toEqual([
+            "1",
+            "2",
+        ]);
+        expect(
+            reader.listCollectionTokens({
+                ...params,
+                traitContext: { ...groupContext, groupId: undefined },
+                tokenStatus: TOKEN_BROWSER_STATUS.All,
+            }).totalItems,
+        ).toBe(3);
+        expect(
+            reader.listCollectionTraitFacets(1, 1, undefined, {
+                traitContext: groupContext,
+                keys: nft111kTraitCatalog.aggregateFacetKeys,
+            }),
+        ).toMatchObject([
+            {
+                key: block.key,
+                values: [
+                    { value: block.value, tokenCount: 1 },
+                    { value: "another block", tokenCount: 1 },
+                ],
+            },
+        ]);
     });
 
     it("exposes durable OpenSea readiness while current synchronization retries", () => {

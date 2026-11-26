@@ -782,5 +782,6 @@ describe("trading HTTP adapters", () => {
 function request<T extends object>(
     value: T,
 ): T & FastifyRequest<RouteGenericInterface> {
-    return value as T & FastifyRequest<RouteGenericInterface>;
+    return { raw: { url: "/" }, ...value } as T &
+        FastifyRequest<RouteGenericInterface>;
 }

@@ -36,6 +36,7 @@ export type TokenPreviewWarmupPort = {
 };
 
 type CachedGetTokenPreviewOptions = {
+    requiresView?: () => boolean;
     freshMs: number;
     staleMs: number;
     warmupConcurrency: number;
@@ -53,7 +54,7 @@ export class CachedGetTokenPreview
     constructor(
         private readonly cache: QueryCachePort,
         private readonly inner: GetTokenPreviewPort,
-        options: CachedGetTokenPreviewOptions,
+        private readonly options: CachedGetTokenPreviewOptions,
     ) {
         this.freshMs = Math.max(1, options.freshMs);
         this.staleMs = Math.max(this.freshMs, options.staleMs);
@@ -63,6 +64,14 @@ export class CachedGetTokenPreview
     getTokenPreview(
         input: GetTokenPreviewInput,
     ): MaybePromise<GetTokenPreviewOutput> {
+        if (
+            this.options.requiresView?.() ||
+            input.view ||
+            input.viewGroup ||
+            input.traitCatalog ||
+            input.generation !== undefined
+        )
+            return this.inner.getTokenPreview(input);
         const key = buildTokenPreviewDefaultQueryCacheKey(input);
         const cached = this.cache.getEntry<GetTokenPreviewOutput>(
             QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
@@ -254,6 +263,7 @@ export function isTokenPreviewDefaultCacheEligible(
     output: GetTokenPreviewOutput,
 ): boolean {
     return (
+        output.token.catalogScope === undefined &&
         output.media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot &&
         output.media.selectedMode === output.media.defaultMode &&
         output.media.selectedVariant === output.media.defaultVariant

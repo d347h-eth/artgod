@@ -1,3 +1,5 @@
+import type { MetadataAttribute } from "./metadata.js";
+
 export type NormalizedAttribute = {
     key: string;
     value: string;
@@ -38,10 +40,22 @@ export function dedupeAttributePairs(
     const seen = new Set<string>();
     const deduplicated: NormalizedAttribute[] = [];
     for (const pair of pairs) {
-        const signature = `${pair.key}:${pair.value}`;
+        const signature = JSON.stringify([pair.key, pair.value]);
         if (seen.has(signature)) continue;
         seen.add(signature);
         deduplicated.push(pair);
     }
     return deduplicated;
+}
+
+/** Canonical source and classification share these normalized keys and values. */
+export function normalizeMetadataAttributes(
+    attributes: readonly MetadataAttribute[],
+): NormalizedAttribute[] {
+    return normalizeUniqueAttributeList(
+        attributes.map((attribute) => ({
+            key: attribute.traitType,
+            value: attribute.value,
+        })),
+    );
 }

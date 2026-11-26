@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetCollectionCustomizationInput,
@@ -28,6 +29,7 @@ export class GetCollectionCustomizationHttpAdapter {
         const output =
             await this.getCollectionCustomizationPort.getCollectionCustomization(
                 {
+                    ...catalogRequest(request),
                     chainRef: request.params.chain_ref,
                     collectionRef: request.params.collection_ref,
                 },

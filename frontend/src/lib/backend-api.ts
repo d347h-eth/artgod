@@ -1,3 +1,14 @@
+import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
+import type {
+	CollectionViewsResponse,
+	TraitCatalogRebuild
+} from '@artgod/shared/types/trait-catalog';
+import { TRAIT_CATALOG_QUERY } from '@artgod/shared/types/trait-catalog';
+import {
+	buildCollectionViewsPath,
+	buildTraitCatalogRebuildsPath
+} from '@artgod/shared/http/collection-routes';
+import { withQuery } from '$lib/route-paths';
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import {
 	buildCompetitionPresetsPath,
@@ -153,6 +164,55 @@ export class BackendApiError extends Error {
 	}
 }
 
+export function getCollectionViewsWithHeaders(
+	fetchFn: typeof fetch,
+	chain: string,
+	collection: string,
+	query = new URLSearchParams()
+) {
+	return requestJsonResponse<
+		CollectionViewsResponse & { collection: import('$lib/api-types').ApiCollection }
+	>(fetchFn, withQuery(buildCollectionViewsPath(chain, collection), query));
+}
+
+export async function getCollectionViews(
+	...args: Parameters<typeof getCollectionViewsWithHeaders>
+) {
+	return (await getCollectionViewsWithHeaders(...args)).payload;
+}
+
+export function getTraitCatalogRebuild(
+	fetchFn: typeof fetch,
+	chain: string,
+	collection: string,
+	runId: number
+) {
+	return requestJson<{ rebuild: TraitCatalogRebuild }>(
+		fetchFn,
+		buildTraitCatalogRebuildsPath(chain, collection) + '/' + encodeURIComponent(runId)
+	);
+}
+
+export async function startTraitCatalogRebuild(
+	fetchFn: typeof fetch,
+	chain: string,
+	collection: string,
+	view: string,
+	mapperVersion: string,
+	retryRunId?: number
+) {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<{ rebuild: TraitCatalogRebuild }>(
+		fetchFn,
+		withQuery(
+			buildTraitCatalogRebuildsPath(chain, collection),
+			new URLSearchParams([[TRAIT_CATALOG_QUERY.View, view]])
+		),
+		'POST',
+		{ mapperVersion, retryRunId }
+	);
+}
+
 export async function getDefaultChain(fetchFn: typeof fetch): Promise<DefaultChainResponse> {
 	return requestJson<DefaultChainResponse>(fetchFn, RUNTIME_API_ROUTES.DefaultChain);
 }
@@ -162,11 +222,18 @@ export async function getPriceHistory(
 	chainRef: string,
 	collectionRef: string,
 	input: PriceHistoryRequest,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	catalogScope?: CatalogScope | null
 ): Promise<PriceHistory> {
-	return requestJson<PriceHistory>(fetchFn, buildPriceHistoryPath(chainRef, collectionRef, input), {
-		signal
-	});
+	const path = buildPriceHistoryPath(chainRef, collectionRef, input);
+	const [pathname, rawQuery] = path.split('?');
+	return requestJson<PriceHistory>(
+		fetchFn,
+		withQuery(pathname, appendCatalogScope(new URLSearchParams(rawQuery), catalogScope)),
+		{
+			signal
+		}
+	);
 }
 
 export async function getPriceChartContext(
@@ -359,11 +426,15 @@ export async function resolveOwnerRef(
 export async function getCollectionCustomization(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	collectionRef: string
+	collectionRef: string,
+	query = new URLSearchParams()
 ): Promise<CollectionCustomizationApiResponse> {
 	return requestJson<CollectionCustomizationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`
+		withQuery(
+			`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`,
+			query
+		)
 	);
 }
 
@@ -481,11 +552,15 @@ export async function getTokenBiddingBidBook(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
-	tokenRef: string
+	tokenRef: string,
+	query = new URLSearchParams()
 ): Promise<TokenBiddingBidBookApiResponse> {
 	return requestJson<TokenBiddingBidBookApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/bids`
+		withQuery(
+			`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/bids`,
+			query
+		)
 	);
 }
 
@@ -598,10 +673,12 @@ export async function upsertTraitBiddingJob(
 export type BatchTokenBiddingJobSelectionRequest =
 	| {
 			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
+			catalogScope?: CatalogScope;
 			tokenIds: string[];
 	  }
 	| {
 			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
+			catalogScope?: CatalogScope;
 			tokenStatus: TokenBrowserStatus;
 			traits: { key: string; value: string }[];
 			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
@@ -609,6 +686,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 	  }
 	| {
 			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
+			catalogScope?: CatalogScope;
 			traits: { key: string; value: string }[];
 			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
 			traitJoinMode: CollectionBiddingTraitFilterJoinMode;
@@ -618,6 +696,15 @@ export type BatchTokenBiddingJobSelectionRequest =
 			priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 	  };
 
+// Batch lookups and writes carry the originating catalog scope in the query.
+function batchSelectionRequest(selection: BatchTokenBiddingJobSelectionRequest) {
+	if ('catalogScope' in selection) {
+		const { catalogScope, ...filter } = selection;
+		return { query: appendCatalogScope(new URLSearchParams(), catalogScope), selection: filter };
+	}
+	return { query: new URLSearchParams(), selection };
+}
+
 export async function lookupBatchTokenBiddingJobs(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -626,12 +713,13 @@ export async function lookupBatchTokenBiddingJobs(
 		selection: BatchTokenBiddingJobSelectionRequest;
 	}
 ): Promise<BatchTokenBiddingJobLookupApiResponse> {
+	const { query, selection } = batchSelectionRequest(body.selection);
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BatchTokenBiddingJobLookupApiResponse>(
 		fetchFn,
-		buildLookupBatchTokenBiddingJobsPath({ chainRef, collectionRef }),
+		withQuery(buildLookupBatchTokenBiddingJobsPath({ chainRef, collectionRef }), query),
 		'POST',
-		body
+		{ ...body, selection }
 	);
 }
 
@@ -648,12 +736,16 @@ export async function upsertBatchTokenBiddingJobs(
 		selection: BatchTokenBiddingJobSelectionRequest;
 	}
 ): Promise<BatchTokenBiddingJobMutationApiResponse> {
+	const { query, selection } = batchSelectionRequest(body.selection);
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BatchTokenBiddingJobMutationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
+		withQuery(
+			`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
+			query
+		),
 		'PUT',
-		body
+		{ ...body, selection }
 	);
 }
 
@@ -754,11 +846,15 @@ export async function previewBiddingPriceTierReapply(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
-	tierId: string
+	tierId: string,
+	catalogScope?: CatalogScope | null
 ): Promise<BiddingPriceTierReapplyPreviewApiResponse> {
 	return requestJson<BiddingPriceTierReapplyPreviewApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`
+		withQuery(
+			`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`,
+			appendCatalogScope(new URLSearchParams(), catalogScope)
+		)
 	);
 }
 
@@ -818,12 +914,16 @@ export async function updateCollectionCustomization(
 				tokenDetail: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['tokenDetail'];
 			};
 		};
-	}
+	},
+	query = new URLSearchParams()
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionCustomizationApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`,
+		withQuery(
+			`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`,
+			query
+		),
 		'PUT',
 		body
 	);
@@ -1423,11 +1523,15 @@ export async function previewCompetitionPresetReapply(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
-	presetId: string
+	presetId: string,
+	catalogScope?: CatalogScope | null
 ): Promise<CompetitionPresetReapplyPreviewApiResponse> {
 	return requestJson<CompetitionPresetReapplyPreviewApiResponse>(
 		fetchFn,
-		buildCompetitionPresetReapplyPreviewPath(chainRef, collectionRef, presetId)
+		withQuery(
+			buildCompetitionPresetReapplyPreviewPath(chainRef, collectionRef, presetId),
+			appendCatalogScope(new URLSearchParams(), catalogScope)
+		)
 	);
 }
 export async function applyCompetitionPresetReapply(

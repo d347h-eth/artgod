@@ -1,3 +1,12 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    withTraitReadSnapshot,
+    catalogViewIds,
+} from "@artgod/shared/read-models/trait-catalog";
+import {
+    filterCatalogTokenBids,
+    scopeBidsToCollectionView,
+} from "./sqlite-view-bid-applicability.js";
 import {
     biddingTraitsMatchToken,
     biddingTraitCriteriaKey,
@@ -541,6 +550,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
     }
 
     listCollectionBidBook(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeOwnJobContext: boolean;
@@ -556,9 +566,14 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             collectionBidBookSpanAttributes(params),
             // Keep declarations, runtime evidence, and cancellations on one database snapshot.
             () =>
-                db.raw.transaction(() =>
-                    this.listCollectionBidBookInner(params),
-                )(),
+                params.traitContext
+                    ? withTraitReadSnapshot(
+                          { ...params, traitContext: params.traitContext },
+                          () => this.listCollectionBidBookInner(params),
+                      )
+                    : db.raw.transaction(() =>
+                          this.listCollectionBidBookInner(params),
+                      )(),
         );
     }
 
@@ -566,24 +581,26 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         chainId: number;
         collectionId: number;
         tokenId: string;
-        tokenTraits: TradingTraitCriterion[];
+        readCanonicalTraits(): TradingTraitCriterion[];
         includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook {
-        return this.apm.withSyncSpan(
-            "backend.bidding.repository.token_bid_book",
-            {
-                [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
-                [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
-                [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
-                    params.tokenTraits.length,
-            },
-            // Token detail must observe the same lifecycle consistency as collection offers.
-            () =>
-                db.raw.transaction(() => this.listTokenBidBookInner(params))(),
-        );
+        return db.raw.transaction(() => {
+            const tokenTraits = params.readCanonicalTraits();
+            return this.apm.withSyncSpan(
+                "backend.bidding.repository.token_bid_book",
+                {
+                    [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                    [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
+                        tokenTraits.length,
+                },
+                () => this.listTokenBidBookInner({ ...params, tokenTraits }),
+            );
+        })();
     }
 
     private listCollectionBidBookInner(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeOwnJobContext: boolean;
@@ -684,18 +701,50 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 ...bidSummarySpanAttributes(bidBook.bids),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
-            () =>
-                sortBidsDesc(
-                    bidBook.bids.filter((bid) =>
+            () => {
+                const views = catalogViewIds(
+                    params.chainId,
+                    params.collectionId,
+                    params.traitContext,
+                );
+                const rows = bidBook.bids.filter(
+                    (bid) =>
                         collectionBidMatchesFilters(
                             bid,
                             params.scopeFilter,
                             params.traitFilterJoinMode,
                             params.selectedTraits,
                             params.selectedTraitRanges,
+                        ) ||
+                        (views &&
+                            params.scopeFilter ===
+                                COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection &&
+                            bid.scopeKind ===
+                                TRADING_BIDDING_BID_SCOPE_KIND.TokenSet),
+                );
+                if (
+                    params.traitContext &&
+                    params.scopeFilter ===
+                        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                ) {
+                    return sortBidsDesc(
+                        filterCatalogTokenBids(
+                            { ...params, traitContext: params.traitContext },
+                            rows,
                         ),
-                    ),
-                ),
+                    );
+                }
+                return sortBidsDesc(
+                    views
+                        ? scopeBidsToCollectionView(
+                              params.chainId,
+                              params.collectionId,
+                              views,
+                              rows,
+                          )
+                        : rows,
+                );
+            },
         );
         const signaledBids = this.apm.withSyncSpan(
             "backend.bidding.repository.own_signals",
@@ -2623,24 +2672,18 @@ function tokenBidApplies(
     tokenId: string,
     tokenTraits: TradingTraitCriterion[],
 ): boolean {
-    if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
-        return true;
-    }
-
     if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token) {
         return bid.tokenId === tokenId;
     }
 
-    if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet) {
-        return bid.encodedTokenIds
-            ? openSeaEncodedTokenIdsContain(bid.encodedTokenIds, tokenId)
-            : false;
-    }
+    if (bid.encodedTokenIds !== null && bid.encodedTokenIds !== "*")
+        return openSeaEncodedTokenIdsContain(bid.encodedTokenIds, tokenId);
+    if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Collection)
+        return true;
+    if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet)
+        return bid.encodedTokenIds === "*";
 
     if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
-        if (bid.encodedTokenIds !== null && bid.encodedTokenIds !== "*") {
-            return openSeaEncodedTokenIdsContain(bid.encodedTokenIds, tokenId);
-        }
         return (
             bid.scopeTraits.length > 0 &&
             biddingTraitsMatchToken(bid.scopeTraits, tokenTraits)

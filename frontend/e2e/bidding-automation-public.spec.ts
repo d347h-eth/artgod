@@ -1,8 +1,11 @@
 import {
 	BIDDING_E2E_SCENARIO,
-	BIDDING_E2E_SCENARIO_QUERY_PARAM
+	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	buildBiddingE2eCollectionDetailData,
+	buildBiddingE2eTokenDetailData
 } from '../src/lib/e2e/bidding-automation-fixtures';
 import { expect, test, type Page } from 'playwright/test';
+import { PRICE_HISTORY_QUERY } from '@artgod/shared/http/collection-routes';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
@@ -169,3 +172,147 @@ async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
 }
+
+test('public collection entry opens All and preserves read-only browsing in a selected view', async ({
+	page
+}, info) => {
+	const path = '/api/ethereum/e2e-bidding';
+	const tokenId = '101';
+	const { TRAIT_CATALOG_QUERY } = await import('@artgod/shared/types/trait-catalog');
+	const view = {
+		id: 'egg',
+		label: 'Eggs',
+		parent: null,
+		pinnedTraits: [{ key: 'type', value: 'egg' }],
+		generation: 1,
+		activeMapperVersion: 'test',
+		availableMapperVersion: 'test',
+		ready: 1,
+		classified: 1
+	};
+	const reads: string[] = [];
+	const identity = buildBiddingE2eCollectionDetailData(new URLSearchParams()).collection;
+	const collection = { ...identity, extensions: [], activityEventFeeds: [] };
+	await page.route('**/api/**', (route) =>
+		route.fulfill({ status: 404, json: { message: 'Unexpected fixture request' } })
+	);
+	await page.route('**/collection-views*', (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		const requestedToken = query.get(PRICE_HISTORY_QUERY.TokenId);
+		const requestedView = query.get(TRAIT_CATALOG_QUERY.View);
+		if (requestedToken && requestedToken !== tokenId) return route.fulfill({ status: 404 });
+		if (requestedView && requestedView !== view.id) return route.fulfill({ status: 400 });
+		return route.fulfill({
+			json: {
+				required: true,
+				selectedViewId: requestedToken ? view.id : requestedView,
+				collection,
+				views: [view]
+			}
+		});
+	});
+	await page.route('**/api/runtime/config', (route) => route.fulfill({ json: {} }));
+	await page.route(
+		(url) => url.pathname === path,
+		(route) => {
+			const query = new URL(route.request().url()).searchParams;
+			reads.push(query.get(TRAIT_CATALOG_QUERY.View) ?? '');
+			const fixture = buildBiddingE2eCollectionDetailData(query);
+			return route.fulfill({
+				json: {
+					...fixture,
+					collection,
+					tokens: {
+						...fixture.tokens,
+						items: [],
+						totalItems: 0,
+						totalPages: 0,
+						rangeStart: 0,
+						rangeEnd: 0,
+						prevCursor: null,
+						nextCursor: null
+					},
+					traits: { facets: [], selected: [], selectedRanges: [] }
+				}
+			});
+		}
+	);
+	const detail = buildBiddingE2eTokenDetailData(tokenId, new URLSearchParams());
+	const tokenPath = path + '/' + tokenId;
+	await page.route(
+		(url) => url.pathname === tokenPath,
+		(route) => {
+			const query = new URL(route.request().url()).searchParams;
+			expect(query.get(TRAIT_CATALOG_QUERY.View)).toBe(view.id);
+			expect(query.get(TRAIT_CATALOG_QUERY.Generation)).toBe(String(view.generation));
+			return route.fulfill({
+				json: {
+					chain: detail.chain,
+					collection,
+					media: detail.media,
+					token: {
+						...detail.token,
+						attributes: view.pinnedTraits.map((pair) => ({
+							...pair,
+							native: pair,
+							tokenCount: 1,
+							rarityPercent: 100,
+							marketplaceBiddingSupported: true
+						}))
+					}
+				}
+			});
+		}
+	);
+	await page.route(
+		(url) => url.pathname === tokenPath + '/bidding/bids',
+		(route) => route.fulfill({ json: { bidBook: detail.tokenBiddingBidBook } })
+	);
+	await page.goto(COLLECTION_PATH);
+	await expect(page.locator('html')).toHaveAttribute('data-artgod-hydrated', '1');
+	await page.evaluate(() => {
+		const link = document.createElement('a');
+		link.href = '/';
+		document.body.append(link);
+		link.click();
+		link.remove();
+	});
+	await expect(page.getByLabel('Token kind')).toBeVisible();
+	const kinds = page.getByRole('group', { name: 'Token kind' });
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('All');
+	await expect.poll(() => reads).toContain('');
+	await expect(page.getByRole('link', { name: 'offers', exact: true })).toBeVisible();
+	await page.screenshot({ path: info.outputPath('public-all.png') });
+	await kinds.getByRole('link', { name: 'Eggs' }).click();
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
+	await expect(page).toHaveURL(
+		(url) => url.pathname === '/' && url.searchParams.get(TRAIT_CATALOG_QUERY.View) === view.id
+	);
+	await expect(page.getByText('type = egg', { exact: true })).toHaveCount(0);
+	await page.screenshot({ path: info.outputPath('public-eggs.png') });
+	expect(new URL(page.url()).pathname).toBe('/');
+	expect(reads.at(-1)).toBe(view.id);
+	await expect(page.getByRole('link', { name: 'customization', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Rebuild traits' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'bid on traits' })).toHaveCount(0);
+
+	const jump = page.getByRole('textbox', { name: 'Jump to token, owner, or ENS name' });
+	await jump.fill(tokenId);
+	await jump.press('Enter');
+	await expect(page).toHaveURL((url) => url.pathname === '/' + tokenId);
+	await expect(page.getByRole('heading', { level: 1 })).toContainText(tokenId);
+	await expect(page.locator('.token-detail-media-region')).toBeInViewport();
+	await expect(page.getByLabel('Token kind')).toHaveCount(0);
+	await expect(page.getByLabel('Collection block')).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'egg', exact: true })).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnToken })
+	).toHaveCount(0);
+	await page.getByRole('heading', { level: 1 }).scrollIntoViewIfNeeded();
+	await page.screenshot({ path: info.outputPath('public-token-detail.png'), scale: 'css' });
+	await page.getByRole('link', { name: 'back to collection' }).click();
+	await expect(page).toHaveURL(
+		(url) => url.pathname === '/' && url.searchParams.get(TRAIT_CATALOG_QUERY.View) === view.id
+	);
+	await expect(kinds.locator('[aria-current="true"]')).toHaveText('Eggs');
+});

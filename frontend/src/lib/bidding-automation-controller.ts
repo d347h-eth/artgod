@@ -3,6 +3,7 @@ import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	biddingSelectionCatalogScope,
 	type BiddingAutomationSelectedBidSelection,
 	type BiddingAutomationFilterTargetIntent,
 	type BiddingAutomationSelection,
@@ -15,6 +16,7 @@ import type {
 	TokenCardSelectionToggleRequest
 } from '$lib/token-card-selection';
 import type { ApiBiddingJob } from '$lib/api-types';
+import type { CatalogScope } from '$lib/collection-view';
 
 export type BiddingAutomationControllerState = {
 	selection: BiddingAutomationSelection | null;
@@ -83,7 +85,9 @@ export function isCleanFilteredTokenBatchSelection(
 	);
 }
 
-export function createBiddingAutomationController(): BiddingAutomationController {
+export function createBiddingAutomationController(
+	readCatalogScope?: () => CatalogScope | null
+): BiddingAutomationController {
 	const state = writable<BiddingAutomationControllerState>({
 		selection: null
 	});
@@ -102,9 +106,25 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		});
 	}
 
+	// Keep the scope captured when selection began, including when a filter is narrowed to page IDs.
+	function originatingScope(
+		selection: BiddingAutomationSelection | null
+	): CatalogScope | undefined {
+		if (selection && selection.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid)
+			return biddingSelectionCatalogScope(selection);
+		const scope = readCatalogScope?.();
+		return scope && 'id' in scope
+			? { id: scope.id, generation: scope.generation }
+			: (scope ?? undefined);
+	}
+
 	function toggleToken(input: ToggleBiddingTokenInput): void {
 		state.update((current) => ({
-			selection: nextSelectionAfterTokenToggle(current.selection, input)
+			selection: nextSelectionAfterTokenToggle(
+				current.selection,
+				input,
+				originatingScope(current.selection)
+			)
 		}));
 	}
 
@@ -115,15 +135,9 @@ export function createBiddingAutomationController(): BiddingAutomationController
 	}
 
 	function selectExplicitTokens(tokenIds: string[]): void {
-		state.set({
-			selection:
-				tokenIds.length > 0
-					? {
-							type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
-							tokenIds
-						}
-					: null
-		});
+		state.update(({ selection }) => ({
+			selection: explicitTokenSelection(tokenIds, originatingScope(selection))
+		}));
 	}
 
 	function selectBid(selection: Omit<BiddingAutomationSelectedBidSelection, 'type'>): void {
@@ -187,7 +201,7 @@ export function describeBiddingAutomationSelection(
 	if (!selection) return null;
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
 		if (selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob) {
-			const count = selection.filter.selectedTraits.length;
+			const count = (selection.filter.nativeSelection ?? selection.filter.selectedTraits).length;
 			return count === 1 ? '1 trait selected' : `${count} traits selected`;
 		}
 		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
@@ -323,13 +337,11 @@ export function isBiddingAutomationTokenSelected(
 
 function nextSelectionAfterTokenToggle(
 	selection: BiddingAutomationSelection | null,
-	input: ToggleBiddingTokenInput
+	input: ToggleBiddingTokenInput,
+	catalogScope?: CatalogScope
 ): BiddingAutomationSelection | null {
 	if (isExclusiveTokenCardSelectionGesture(input.gesture)) {
-		return {
-			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
-			tokenIds: [input.tokenId]
-		};
+		return explicitTokenSelection([input.tokenId], catalogScope);
 	}
 	const nextTokenIds = selectedTokenIds(selection, input.visibleTokenIds);
 	if (input.selected) {
@@ -343,12 +355,18 @@ function nextSelectionAfterTokenToggle(
 			ordered.push(tokenId);
 		}
 	}
-	if (ordered.length === 0) {
-		return null;
-	}
+	return explicitTokenSelection(ordered, catalogScope);
+}
+
+function explicitTokenSelection(
+	tokenIds: string[],
+	catalogScope?: CatalogScope
+): BiddingAutomationSelection | null {
+	if (!tokenIds.length) return null;
 	return {
 		type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
-		tokenIds: ordered
+		tokenIds,
+		...(catalogScope && { catalogScope })
 	};
 }
 

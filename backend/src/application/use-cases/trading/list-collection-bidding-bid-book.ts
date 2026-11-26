@@ -1,3 +1,16 @@
+import {
+    resolveNativeOfferFilters,
+    TRAIT_CATALOG,
+} from "@artgod/shared/types/trait-catalog";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    ordinaryViewTraits,
+    wrapCatalogPage,
+    unwrapCatalogCursor,
+} from "../collections/collection-views.js";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -51,6 +64,7 @@ import {
 import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import {
     buildPersistedTokenOfferCards,
+    tokenCardIdBatches,
     buildTokenOfferGroups,
     countTokenOfferOwnFilters,
     filterTokenOfferGroupsByOwnFilters,
@@ -63,7 +77,7 @@ import { assertBiddingBidBookFiltersAllowed } from "./bidding-bid-book-filter-va
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
-export type ListCollectionBiddingBidBookInput = {
+export type ListCollectionBiddingBidBookInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     includeOwnJobContext: boolean;
@@ -90,7 +104,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
@@ -106,10 +120,13 @@ export class ListCollectionBiddingBidBookUseCase {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    keys?: readonly string[];
+                    traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
             ): TraitFacet[];
             listCollectionTokenCardsByIds(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
@@ -125,6 +142,7 @@ export class ListCollectionBiddingBidBookUseCase {
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 availableTraitKeys?: string[];
@@ -134,6 +152,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 };
             };
             getTokenCardTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): {
@@ -180,6 +199,15 @@ export class ListCollectionBiddingBidBookUseCase {
                     input.collectionRef,
                 ),
         );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collectionReadPort, collection, input);
+        const ordinaryTraits = ordinaryViewTraits(
+            selectedView?.pinnedTraits ?? [],
+            input.traits,
+        );
         const attributes = {
             [BIDDING_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
             [BIDDING_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
@@ -202,6 +230,7 @@ export class ListCollectionBiddingBidBookUseCase {
             attributes,
             () =>
                 this.customizationReadPort.getTraitFilterPresentationState({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                 }),
@@ -220,6 +249,8 @@ export class ListCollectionBiddingBidBookUseCase {
                     collection.collectionId,
                     undefined,
                     {
+                        traitContext,
+                        keys: aggregateFacetKeys,
                         rangeOnlyKeys:
                             traitFilterPresentation.effectiveConfig.rangeKeys,
                     },
@@ -239,6 +270,17 @@ export class ListCollectionBiddingBidBookUseCase {
                     config: traitFilterPresentation.effectiveConfig,
                 }),
         );
+        // The view constrains NFTs. Only explicit native bindings can constrain a native order search.
+        const nativeSelection =
+            selectedView &&
+            input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+                ? translateTraitBookSelection(
+                      input,
+                      rawFacets,
+                      selectedView.pinnedTraits,
+                      traitContext!.catalog,
+                  )
+                : { traits: ordinaryTraits, traitRanges: input.traitRanges };
         // Read the source-selected bid book: bot snapshot for enabled jobs, canonical orders otherwise.
         const persistedBidBook = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.bid_book",
@@ -250,8 +292,9 @@ export class ListCollectionBiddingBidBookUseCase {
                     includeOwnJobContext: input.includeOwnJobContext,
                     scopeFilter: input.scopeFilter,
                     traitFilterJoinMode: input.traitFilterJoinMode,
-                    selectedTraits: input.traits,
-                    selectedTraitRanges: input.traitRanges,
+                    traitContext,
+                    selectedTraits: nativeSelection.traits,
+                    selectedTraitRanges: nativeSelection.traitRanges,
                     makerAddress: input.makerAddress ?? null,
                     ownershipFilter: input.ownershipFilter ?? null,
                 }),
@@ -260,6 +303,7 @@ export class ListCollectionBiddingBidBookUseCase {
             input.scopeFilter,
         )
             ? this.listCollectionFloorBidBook({
+                  traitContext,
                   chainId: chain.publicChainId,
                   collectionId: collection.collectionId,
                   includeOwnJobContext: input.includeOwnJobContext,
@@ -337,6 +381,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 },
                 () =>
                     this.buildTokenOfferCardsPage({
+                        traitContext,
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
                         mediaMode: media.selectedMode,
@@ -345,10 +390,12 @@ export class ListCollectionBiddingBidBookUseCase {
                         collectionBidBook:
                             collectionFloorBidBook ??
                             emptyBidBook(persistedBidBook),
-                        selectedTraits: input.traits,
+                        selectedTraits: ordinaryTraits,
                         selectedTraitRanges: input.traitRanges,
                         limit: input.limit,
-                        cursor: input.cursor ?? null,
+                        cursor:
+                            unwrapCatalogCursor(input.cursor, traitContext) ??
+                            null,
                         ownStateFilter: input.ownStateFilter ?? null,
                         priceTierFilter: input.priceTierFilter ?? null,
                         priceTiers,
@@ -378,6 +425,7 @@ export class ListCollectionBiddingBidBookUseCase {
                         kind: bid.scopeKind,
                         label: bid.scopeLabel,
                         tokenId: bid.tokenId,
+                        encodedTokenIds: bid.encodedTokenIds,
                         traits: bid.scopeTraits,
                     }),
             );
@@ -420,18 +468,22 @@ export class ListCollectionBiddingBidBookUseCase {
             media,
             scopeFilter: input.scopeFilter,
             traits: {
-                selected: input.traits,
+                selected: ordinaryTraits,
                 selectedRanges: input.traitRanges,
                 facets,
             },
             bidBook: view.bidBook,
-            tokenOfferCards: view.tokenOfferCards,
+            tokenOfferCards: wrapCatalogPage(
+                view.tokenOfferCards,
+                traitContext,
+            ),
             ownBidStateCounts,
             ownPriceTierCounts,
         };
     }
 
     private listCollectionFloorBidBook(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         includeOwnJobContext: boolean;
@@ -451,6 +503,7 @@ export class ListCollectionBiddingBidBookUseCase {
             },
             () =>
                 this.bidBookRepositoryPort.listCollectionBidBook({
+                    traitContext: params.traitContext,
                     chainId: params.chainId,
                     collectionId: params.collectionId,
                     includeOwnJobContext: params.includeOwnJobContext,
@@ -465,6 +518,7 @@ export class ListCollectionBiddingBidBookUseCase {
     }
 
     private buildTokenOfferCardsPage(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         mediaMode?: string;
@@ -523,7 +577,8 @@ export class ListCollectionBiddingBidBookUseCase {
             };
         }
 
-        if (!hasTokenOfferCardTraitFilters(params)) {
+        // Catalog books have already matched token membership and trait filters in the read snapshot.
+        if (params.traitContext || !hasTokenOfferCardTraitFilters(params)) {
             const counts = countTokenOfferOwnFilters(
                 offersByTokenId,
                 params,
@@ -574,7 +629,6 @@ export class ListCollectionBiddingBidBookUseCase {
                         attributes,
                         tokenIds: tokenIdPage.items,
                         offersByTokenId: matchedOffers,
-                        tokenOfferGroupsCount: tokenIdPage.items.length,
                     }),
                 },
             };
@@ -585,7 +639,6 @@ export class ListCollectionBiddingBidBookUseCase {
             attributes,
             tokenIds,
             offersByTokenId,
-            tokenOfferGroupsCount: tokenIds.length,
         });
         const counts = countTokenOfferOwnFilters(
             offersByTokenId,
@@ -626,6 +679,7 @@ export class ListCollectionBiddingBidBookUseCase {
     }
 
     private hydrateTokenOfferCards(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         mediaMode?: string;
@@ -633,7 +687,6 @@ export class ListCollectionBiddingBidBookUseCase {
         attributes: SpanAttributes;
         tokenIds: string[];
         offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
-        tokenOfferGroupsCount: number;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedTokenOfferCard[] {
@@ -641,24 +694,6 @@ export class ListCollectionBiddingBidBookUseCase {
             return [];
         }
 
-        // Load compact token cards for explicit token bids so the UI can reuse token-browser previews.
-        const tokenCards = this.apm.withSyncSpan(
-            "backend.bidding.collection_bid_book.token_offer_token_cards",
-            {
-                ...params.attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: params.tokenIds.length,
-                [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
-            },
-            () =>
-                this.collectionReadPort.listCollectionTokenCardsByIds({
-                    chainId: params.chainId,
-                    collectionId: params.collectionId,
-                    tokenIds: params.tokenIds,
-                    mediaMode: params.mediaMode,
-                    mediaPreference: params.mediaPreference,
-                    includeListings: true,
-                }),
-        );
         const traitSummaryTemplate = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_trait_summary_template",
             params.attributes,
@@ -667,28 +702,53 @@ export class ListCollectionBiddingBidBookUseCase {
                     {
                         chainId: params.chainId,
                         collectionId: params.collectionId,
+                        traitContext: params.traitContext,
                     },
                 ),
         );
 
-        return this.apm.withSyncSpan(
-            "backend.bidding.collection_bid_book.token_offer_card_build",
-            {
-                ...params.attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
-                [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
-                    params.tokenOfferGroupsCount,
-            },
-            () =>
-                buildPersistedTokenOfferCards({
-                    tokenCards,
-                    offersByTokenId: params.offersByTokenId,
-                    selectedTraits: params.selectedTraits,
-                    selectedTraitRanges: params.selectedTraitRanges,
-                    traitSummaryTemplate:
-                        traitSummaryTemplate.effectiveConfig.template,
-                }),
-        );
+        const cards: PersistedTokenOfferCard[] = [];
+        for (const tokenIds of tokenCardIdBatches(params.tokenIds)) {
+            // Load compact token cards for explicit token bids so the UI can reuse token-browser previews.
+            const tokenCards = this.apm.withSyncSpan(
+                "backend.bidding.collection_bid_book.token_offer_token_cards",
+                {
+                    ...params.attributes,
+                    [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenIds.length,
+                    [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
+                },
+                () =>
+                    this.collectionReadPort.listCollectionTokenCardsByIds({
+                        traitContext: params.traitContext,
+                        chainId: params.chainId,
+                        collectionId: params.collectionId,
+                        tokenIds,
+                        mediaMode: params.mediaMode,
+                        mediaPreference: params.mediaPreference,
+                        includeListings: true,
+                    }),
+            );
+            const matches = this.apm.withSyncSpan(
+                "backend.bidding.collection_bid_book.token_offer_card_build",
+                {
+                    ...params.attributes,
+                    [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
+                        tokenIds.length,
+                },
+                () =>
+                    buildPersistedTokenOfferCards({
+                        tokenCards,
+                        offersByTokenId: params.offersByTokenId,
+                        selectedTraits: params.selectedTraits,
+                        selectedTraitRanges: params.selectedTraitRanges,
+                        traitSummaryTemplate:
+                            traitSummaryTemplate.effectiveConfig.template,
+                    }),
+            );
+            cards.push(...matches);
+        }
+        return cards;
     }
 }
 
@@ -919,4 +979,35 @@ function encodeTokenOfferCursor(offset: number): string {
         kind: TOKEN_OFFER_CURSOR_KIND,
         offset,
     } satisfies TokenOfferCursor);
+}
+
+function translateTraitBookSelection(
+    input: Pick<ListCollectionBiddingBidBookInput, "traits" | "traitRanges">,
+    facets: TraitFacet[],
+    pinned: TraitFilter[],
+    catalog: TraitReadContext["catalog"],
+) {
+    const byKey = new Map(facets.map((facet) => [facet.key, facet]));
+    const native = resolveNativeOfferFilters({
+        catalog,
+        pinned,
+        traits: input.traits,
+        facets,
+    });
+    if (!native)
+        throw new ReadModelBadRequestError(
+            "The selected traits do not have an exact marketplace target",
+        );
+    const traitRanges = input.traitRanges.map((range) => {
+        const key =
+            catalog === TRAIT_CATALOG.Canonical
+                ? range.key
+                : byKey.get(range.key)?.nativeKey;
+        if (!key)
+            throw new ReadModelBadRequestError(
+                "The selected range has no exact marketplace key",
+            );
+        return { ...range, key };
+    });
+    return { traits: native, traitRanges };
 }

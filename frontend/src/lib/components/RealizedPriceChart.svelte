@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { appendCatalogScope, selectedCollectionScope } from '$lib/collection-view';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, pushState, replaceState } from '$app/navigation';
@@ -22,6 +24,7 @@
 	} from '$lib/api-types';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import { BackendApiError, getPriceHistory, getTokenCard } from '$lib/backend-api';
+	import { buildTokenDetailHref } from '$lib/token-browser-query';
 	import { buildTokenMediaQuery } from '$lib/media-mode';
 	import { COLLECTION_CHART_TOKEN_QUERY } from '$lib/price-chart/routing';
 	import {
@@ -41,6 +44,8 @@
 	import type { PriceChartController } from '$lib/price-chart/renderer';
 	import SaleHistorySidebar from './SaleHistorySidebar.svelte';
 	import SaleCardPreview from './SaleCardPreview.svelte';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chain,
@@ -96,6 +101,17 @@
 		pinnedSales.length ? pinnedSales : hoveredSales.length ? hoveredSales : recentSales
 	);
 
+	function saleTokenHref(tokenId: string): string {
+		return buildTokenDetailHref({
+			basePath,
+			tokenId,
+			catalogScope: selectedCollectionScope(collectionViewPage()),
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
+			returnPath: page.url.pathname,
+			returnQuery: page.url.searchParams.toString()
+		});
+	}
 	function choice<T extends string>(value: string | null, values: T[], fallback: T): T {
 		return values.includes(value as T) ? (value as T) : fallback;
 	}
@@ -184,11 +200,14 @@
 		if (!ready) return;
 		const chain = chainRef,
 			collection = collectionRef;
-		const query = buildTokenMediaQuery({
-			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
-			mediaPreference: media.preference,
-			mediaVariant: null
-		});
+		const query = appendCatalogScope(
+			buildTokenMediaQuery({
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				mediaPreference: media.preference,
+				mediaVariant: null
+			}),
+			selectedCollectionScope(collectionViewPage())
+		);
 		revision; // Refresh the current ask and card presentation with the history.
 		const instance = createSaleMediaLoader(
 			async (id, signal) => (await getTokenCard(fetch, chain, collection, id, query, signal)).token
@@ -229,7 +248,8 @@
 				traits: scope.traits,
 				traitRanges: scope.traitRanges
 			},
-			abort.signal
+			abort.signal,
+			selectedCollectionScope(collectionViewPage())
 		)
 			.then((result) => {
 				if (!abort.signal.aborted) history = result;
@@ -387,13 +407,13 @@
 				</button>
 			{/if}
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {media} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {saleTokenHref} {basePath} {media} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
 	</div>
 	{#if loader && (pinnedPreview || preview)}
-		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
+		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {saleTokenHref} />
 	{/if}
 	{#if loader && sidebarPreview}
-		<SaleCardPreview target={sidebarPreview} pinned={false} {loader} {chain} {collection} {media} {basePath} />
+		<SaleCardPreview target={sidebarPreview} pinned={false} {loader} {chain} {collection} {media} {saleTokenHref} />
 	{/if}
 </section>
 

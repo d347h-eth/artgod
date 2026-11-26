@@ -1,3 +1,10 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    ordinaryViewTraits,
+} from "./collection-views.js";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 import type {
     ChainRecord,
@@ -10,7 +17,7 @@ import type {
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import type { CollectionPriceChartContext } from "@artgod/shared/types/price-history";
 
-export type GetPriceChartContextInput = {
+export type GetPriceChartContextInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     mediaMode?: string;
@@ -31,7 +38,7 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
         private readonly chains: {
             resolveChainRef(ref: string, defaultChainId: number): ChainRecord;
         },
-        private readonly collections: {
+        private readonly collections: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 ref: string,
@@ -46,7 +53,11 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
                 chainId: number,
                 collectionId: number,
                 owner?: string,
-                options?: { rangeOnlyKeys?: string[] },
+                options?: {
+                    keys?: readonly string[];
+                    traitContext?: TraitReadContext;
+                    rangeOnlyKeys?: string[];
+                },
             ): TraitFacet[];
         },
         private readonly customization: {
@@ -67,6 +78,15 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
             chain.publicChainId,
             input.collectionRef,
         );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collections, collection, input);
+        const ordinaryTraits = ordinaryViewTraits(
+            selectedView?.pinnedTraits ?? [],
+            input.traits,
+        );
         const media = this.collections.getCollectionMediaState({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -74,6 +94,7 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
             mediaPreference: input.mediaPreference,
         });
         const scope = {
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
         };
@@ -86,7 +107,11 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
                 scope.chainId,
                 scope.collectionId,
                 undefined,
-                { rangeOnlyKeys: config.rangeKeys },
+                {
+                    traitContext,
+                    keys: aggregateFacetKeys,
+                    rangeOnlyKeys: config.rangeKeys,
+                },
             ),
             config,
         });
@@ -95,7 +120,7 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
             collection,
             media,
             traits: {
-                selected: input.traits,
+                selected: ordinaryTraits,
                 selectedRanges: input.traitRanges,
                 facets,
             },

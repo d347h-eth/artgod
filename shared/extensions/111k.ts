@@ -33,3 +33,7 @@ export const NFT111K_EMBEDDED_EXTENSION_MATCHES: readonly EmbeddedCollectionExte
             },
         },
     ];
+
+export { NFT111K_METADATA, isNft111kBlockKey } from "./111k-metadata.js";
+export { nft111kTraitCatalog } from "./111k-traits.js";
+export { STRUCTURED_BLOCK as NFT111K_STRUCTURED_BLOCK } from "./111k-structured-traits.js";

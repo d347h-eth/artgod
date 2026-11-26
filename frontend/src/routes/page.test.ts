@@ -61,6 +61,7 @@ describe('/+page load', () => {
 			frontend.isPublic = isPublic;
 			frontend.scope = { chainRef: 'example-chain', collectionRef: 'example-collection' };
 			const result = await load({
+				parent: async () => ({}),
 				fetch: vi.fn(),
 				setHeaders: vi.fn(),
 				url: new URL('https://artgod.test/')
@@ -89,6 +90,7 @@ describe('/+page load', () => {
 		});
 		backendApi.getRuntimeConfig.mockResolvedValue({ blockExplorer: null });
 		const result = await load({
+			parent: async () => ({}),
 			fetch,
 			setHeaders: vi.fn(),
 			url: new URL('https://artgod.test/')
@@ -136,6 +138,7 @@ describe('/+page load', () => {
 		});
 
 		const result = await load({
+			parent: async () => ({}),
 			fetch: vi.fn(),
 			setHeaders: vi.fn(),
 			url: new URL('https://artgod.test/')

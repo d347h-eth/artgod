@@ -7,7 +7,9 @@ declare global {
 	namespace App {
 		// interface Error {}
 		// interface Locals {}
-		// interface PageData {}
+		interface PageData {
+			collectionViewPage?: import('$lib/collection-view').CollectionViewPage | null;
+		}
 		// interface PageState {}
 		// interface Platform {}
 	}

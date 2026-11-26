@@ -1,4 +1,10 @@
 import {
+    readViewStatus,
+    hasCollectionViewGroup,
+    readTokenViewId,
+} from "@artgod/shared/read-models/trait-catalog";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
     COLLECTION_MEDIA_MODE_OPTIONS,
     COLLECTION_MEDIA_MODES,
     type CollectionExtensionInstall,
@@ -64,6 +70,7 @@ type CollectionDetailReadPort = {
         collectionRef: string,
     ): CollectionListItem;
     listCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenStatus: TokenBrowserStatus;
@@ -80,23 +87,28 @@ type CollectionDetailReadPort = {
         collectionId: number,
         owner?: string,
         options?: {
+            traitContext?: TraitReadContext;
+            keys?: readonly string[];
             excludeKeys?: string[];
             rangeOnlyKeys?: string[];
         },
     ): TraitFacet[];
     listCollectionTraitCatalog(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         keys: string[];
         scopeTraitFilters?: TraitFilter[];
     }): TraitCatalogFacet[];
     listCollectionHolders(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
         cursor?: string;
     }): CollectionHolderPage;
     getCollectionTokenDetail(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId: string;
@@ -105,6 +117,7 @@ type CollectionDetailReadPort = {
         mediaVariant?: string;
     }): TokenDetail;
     getCollectionTokenPreview(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId: string;
@@ -113,6 +126,7 @@ type CollectionDetailReadPort = {
         mediaVariant?: string;
     }): TokenPreview;
     listCollectionTokenCardsByIds(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenIds: string[];
@@ -128,6 +142,7 @@ type CollectionDetailReadPort = {
 };
 
 type CollectionTokenMediaQuery = {
+    traitContext?: TraitReadContext;
     chainId: number;
     collectionId: number;
     tokenId: string;
@@ -148,6 +163,9 @@ type ResolvedTokenMediaContext = {
 };
 
 export class ExtensionAwareCollectionDetailRead {
+    readonly hasViewGroup = hasCollectionViewGroup;
+    readonly readViewStatus = readViewStatus;
+    readonly readTokenViewId = readTokenViewId;
     constructor(
         private readonly baseReadPort: CollectionDetailReadPort,
         private readonly extensionRecords: CollectionExtensionRecordsPort,
@@ -176,6 +194,7 @@ export class ExtensionAwareCollectionDetailRead {
     }
 
     listCollectionTokens(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenStatus: TokenBrowserStatus;
@@ -236,6 +255,8 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number,
         owner?: string,
         options?: {
+            traitContext?: TraitReadContext;
+            keys?: readonly string[];
             excludeKeys?: string[];
             rangeOnlyKeys?: string[];
         },
@@ -245,13 +266,13 @@ export class ExtensionAwareCollectionDetailRead {
             collectionId,
             owner,
             {
-                excludeKeys: options?.excludeKeys,
-                rangeOnlyKeys: options?.rangeOnlyKeys,
+                ...options,
             },
         );
     }
 
     listCollectionTraitCatalog(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         keys: string[];
@@ -261,6 +282,7 @@ export class ExtensionAwareCollectionDetailRead {
     }
 
     listCollectionHolders(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         limit: number;
@@ -272,7 +294,7 @@ export class ExtensionAwareCollectionDetailRead {
     async getCollectionTokenDetailPresentation(
         params: CollectionTokenMediaQuery,
     ): Promise<{ media: TokenMediaState; token: TokenDetail }> {
-        // Read canonical token data before applying the extension-owned presentation.
+        // Read traits in the resolved catalog before applying extension-owned media.
         const token = this.baseReadPort.getCollectionTokenDetail(params);
         const resolved = await this.resolveTokenMediaContext(params);
         if (!resolved.install || !resolved.extension || !resolved.context) {
@@ -297,7 +319,7 @@ export class ExtensionAwareCollectionDetailRead {
     async getCollectionTokenPreviewPresentation(
         params: CollectionTokenMediaQuery,
     ): Promise<{ media: TokenMediaState; token: TokenPreview }> {
-        // Read canonical token data before applying the extension-owned presentation.
+        // Read traits in the resolved catalog before applying extension-owned media.
         const token = this.baseReadPort.getCollectionTokenPreview(params);
         const resolved = await this.resolveTokenMediaContext(params);
         if (!resolved.install || !resolved.extension || !resolved.context) {
@@ -317,6 +339,7 @@ export class ExtensionAwareCollectionDetailRead {
     }
 
     listCollectionTokenCardsByIds(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenIds: string[];

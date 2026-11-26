@@ -1,3 +1,8 @@
+import {
+	encodeTraitQueryPair,
+	traitQuerySegments,
+	decodeTraitQuerySegment
+} from '@artgod/shared/http/trait-query';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 
 export function parseSelectedTraits(raw: URLSearchParams): ApiTokenAttribute[] {
@@ -6,15 +11,13 @@ export function parseSelectedTraits(raw: URLSearchParams): ApiTokenAttribute[] {
 	const values = [...raw.getAll('traits'), ...raw.getAll('trait')];
 
 	for (const value of values) {
-		for (const segment of value.split(',')) {
+		for (const segment of traitQuerySegments(value)) {
 			const trimmed = segment.trim();
 			if (!trimmed) continue;
-			const delimiter = trimmed.indexOf(':');
-			if (delimiter <= 0 || delimiter === trimmed.length - 1) continue;
-			const key = trimmed.slice(0, delimiter).trim();
-			const traitValue = trimmed.slice(delimiter + 1).trim();
-			if (!key || !traitValue) continue;
-			const signature = `${key}:${traitValue}`;
+			const pair = decodeTraitQuerySegment(trimmed);
+			if (!pair) continue;
+			const { key, value: traitValue } = pair;
+			const signature = JSON.stringify([key, traitValue]);
 			if (seen.has(signature)) continue;
 			seen.add(signature);
 			parsed.push({ key, value: traitValue });
@@ -34,13 +37,12 @@ export function parseSelectedTraitRanges(raw: URLSearchParams): ApiTraitRangeFil
 	const values = [...raw.getAll('trait_ranges'), ...raw.getAll('trait_range')];
 
 	for (const value of values) {
-		for (const segment of value.split(',')) {
+		for (const segment of traitQuerySegments(value)) {
 			const trimmed = segment.trim();
 			if (!trimmed) continue;
-			const delimiter = trimmed.indexOf(':');
-			if (delimiter <= 0 || delimiter === trimmed.length - 1) continue;
-			const key = trimmed.slice(0, delimiter).trim();
-			const bounds = trimmed.slice(delimiter + 1).trim();
+			const pair = decodeTraitQuerySegment(trimmed);
+			if (!pair) continue;
+			const { key, value: bounds } = pair;
 			const rangeDelimiter = bounds.indexOf('..');
 			if (!key || rangeDelimiter < 0 || seen.has(key)) continue;
 			const fromValue = bounds.slice(0, rangeDelimiter).trim() || null;
@@ -66,14 +68,14 @@ export function appendTraitParams(
 		const key = trait.key.trim();
 		const value = trait.value.trim();
 		if (!key || !value) continue;
-		params.append('traits', `${key}:${value}`);
+		params.append('traits', encodeTraitQueryPair(key, value));
 	}
 }
 
 export function appendNormalizedTraitParams(params: URLSearchParams, raw: URLSearchParams): void {
 	const values = [...raw.getAll('traits'), ...raw.getAll('trait')];
 	for (const value of values) {
-		for (const segment of value.split(',')) {
+		for (const segment of traitQuerySegments(value)) {
 			const trimmed = segment.trim();
 			if (!trimmed) continue;
 			params.append('traits', trimmed);
@@ -91,7 +93,7 @@ export function appendTraitRangeParams(
 		const fromValue = range.fromValue?.trim() || '';
 		const toValue = range.toValue?.trim() || '';
 		if (!key || (!fromValue && !toValue)) continue;
-		params.append('trait_ranges', `${key}:${fromValue}..${toValue}`);
+		params.append('trait_ranges', encodeTraitQueryPair(key, `${fromValue}..${toValue}`));
 	}
 }
 
@@ -131,7 +133,7 @@ export function appendNormalizedTraitRangeParams(
 ): void {
 	const values = [...raw.getAll('trait_ranges'), ...raw.getAll('trait_range')];
 	for (const value of values) {
-		for (const segment of value.split(',')) {
+		for (const segment of traitQuerySegments(value)) {
 			const trimmed = segment.trim();
 			if (!trimmed) continue;
 			params.append('trait_ranges', trimmed);

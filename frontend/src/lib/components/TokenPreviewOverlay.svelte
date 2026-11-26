@@ -40,6 +40,7 @@
 	function traitHref(trait: ApiTokenAttribute): string | null {
 		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
 		return buildTokenPreviewTraitHref({
+			catalogScope: $tokenPreviewState.catalogScope,
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			trait,
@@ -51,6 +52,7 @@
 	function customizationHref(): string | null {
 		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
 		return buildTokenPreviewCustomizationHref({
+			catalogScope: $tokenPreviewState.catalogScope,
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			mediaMode: $tokenPreviewState.selectedMediaMode,

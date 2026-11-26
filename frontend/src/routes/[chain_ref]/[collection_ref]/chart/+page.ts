@@ -7,7 +7,8 @@ import {
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { PageLoad } from './$types';
-export const load: PageLoad = ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, url }) => {
+	await parent();
 	if (IS_ADMIN_FRONTEND_TARGET) throw error(404, 'Not found');
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref))

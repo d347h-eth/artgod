@@ -42,6 +42,7 @@
         "./config/tcp-port": "./config/tcp-port.ts",
         "./config/block-explorer": "./config/block-explorer.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
+        "./http/trait-query": "./http/trait-query.ts",
         "./http/api-security": "./http/api-security.ts",
         "./http/runtime-routes": "./http/runtime-routes.ts",
         "./http/bootstrap-routes": "./http/bootstrap-routes.ts",
@@ -135,7 +136,11 @@
         "./database/bidding-competition-presets": "./database/bidding-competition-presets.ts",
         "./trading/bidding-price-tier-pricing": "./trading/bidding-price-tier-pricing.ts",
         "./trading/open-sea-mainnet-security-policy": "./trading/open-sea-mainnet-security-policy.ts",
-        "./trading/runtime-state": "./trading/runtime-state.ts"
+        "./trading/runtime-state": "./trading/runtime-state.ts",
+        "./types/trait-catalog": "./types/trait-catalog.ts",
+        "./database/trait-catalog-rebuilds": "./database/trait-catalog-rebuilds.ts",
+        "./database/canonical-traits": "./database/canonical-traits.ts",
+        "./read-models/trait-catalog": "./read-models/trait-catalog.ts"
     },
     "dependencies": {
         "@opentelemetry/api": "1.9.1",

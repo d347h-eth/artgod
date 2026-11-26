@@ -67,7 +67,9 @@ Top-action rows are page chrome and should stay compact.
 Rules:
 
 - top-action rows stack vertically under the primary section tabs
-- every top-action row should use the same vertical gap
+- keep a compact vertical gap between action rows for the same page section
+- leave a larger gap between the collection's type/block picker and the first
+  section-specific row, including when the picker wraps
 - controls inside one row should use the same compact horizontal gap
 - left-side controls stay aligned to the left edge of the page content
 - do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width
@@ -530,6 +532,18 @@ colors and controls remain ArtGod's existing visual system.
 
 ## Trait Panel Behavior
 
+On collections with a view picker, place it between the collection breadcrumb
+and the section tabs. The first choice, **All**, opens the current section for
+the whole collection. Choosing a group opens that section across all its
+children. Picking a specific child narrows it further.
+
+On token detail, show the standard traits table before the structured tree.
+Center both within the page gutters. The tree starts with its top-level groups
+open and nested entries collapsed. The button immediately above the tree shows
+**Expand all** whenever any branch is closed. When every branch is open, the
+same button shows **Collapse all** and closes every level. Expanding a branch
+renders all its immediate entries. Collapsing it removes its descendants from the page.
+
 Trait panel behavior is centralized in `trait-facet-panel-controller.ts`.
 
 The controller owns:
@@ -544,9 +558,9 @@ The controller owns:
 The split of responsibilities is:
 
 - `TraitFacetPanel.svelte`
-    - presentational sidebar
-    - local trait-value search
-    - checkbox UI for discrete traits
+    - independently scrollable trait list sized to the space below the collection controls
+    - search across traits or within a single trait, with an in-field clear button that preserves other searches and selected filters
+    - checkbox and label activation for the exact discrete trait value, including its capitalization
     - inclusive `from` / `to` range UI for scalar traits
 - `TraitFacetPanelControls.svelte`
     - route-agnostic top-action controls
@@ -564,7 +578,7 @@ Bidding-specific trait behavior:
 - `AND` join means each selected `key=value` must be present in the trait bucket
 - when filters are active, do not silently cycle the join mode unless the user explicitly clicks the join-mode control
 - `bid_scope=collection` does not render the trait facet panel because collection-wide bids are not trait-filtered
-- selecting a trait bucket for bidding should also apply its traits to the visible trait filters so the panel, bid controls, and URL stay coherent
+- the bucket’s bid action opens a draft for its complete marketplace target. The filter action applies its criteria to the visible trait filters and URL
 
 ### Collection Query-Control Preferences and Shortcuts
 
@@ -700,8 +714,10 @@ Scope rules:
 - hide the scope column when the current view can only contain one obvious scope
 - token detail bid books should keep the scope column because the token can receive collection, trait, token, and token-set offers
 - trait scope views group individual bids under canonical trait-combination buckets; do not replace the individual bid list with aggregate-only rows
+- show `View match unknown` on each offer whose match to the selected view is unresolved
 - trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
-- clickable trait values in bucket titles should apply the same trait filter controls as the facet panel
+- show every criterion in a trait bucket title or token-detail offer scope, including traits absent from the sidebar
+- All and parent group views filter by marketplace traits directly. In a derived view, link an exact value through its matching catalog filter. Show the original marketplace criterion as plain text when no unambiguous mapping exists
 
 Own-state filters:
 

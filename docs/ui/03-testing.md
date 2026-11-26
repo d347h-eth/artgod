@@ -42,6 +42,7 @@ Current repository commands include:
 
 ```sh
 yarn test:bidding:automation
+yarn test:collection:views
 yarn test:bidding:automation:public
 yarn test:bidding:authorization
 yarn test:runtime:recovery
@@ -61,6 +62,22 @@ The [bootstrap regression cases](../indexer/11-testing.md#bootstrap-regression-c
 map standard, shared-contract, partially minted, and late OpenSea setup flows
 to their owning deterministic suites and optional manual fixtures.
 
+### Collection views
+
+`yarn test:collection:views` exercises collection-wide entry, all artwork
+blocks, individual blocks, the scope controls above the section tabs, the scoped gallery,
+trait bid review, rebuild controls and token detail at 1920 × 1080, 1267 × 712
+and the Pixel 7 viewport. The Plane of Existence fixture uses the 111K mapper.
+Screenshots are written to `tmp/collection-views-playwright/`. To review local
+artwork, set `ARTGOD_E2E_PLANE_MEDIA_DIR` to a directory containing `585.webp`,
+`1880.webp`, `34273.webp` and the Film Clips still `31815.webp`. An optional
+`34273.json` in that directory supplies the token’s full array of normalized
+key/value pairs for the field layout check. Ordinary runs use offline fixtures.
+To exercise the compiled Userland frontend, run
+`yarn build:userland` followed by
+`ARTGOD_E2E_BUILT_USERLAND=1 yarn test:collection:views`. Its screenshots go
+to `tmp/collection-views-userland-playwright/`.
+
 ### Preview Traits
 
 `yarn test:preview:traits` reuses the collection harness at desktop and narrow
@@ -72,6 +89,8 @@ checks the example reference, and saves a template before reopening the preview.
 It preserves screenshots and diagnostics for every run under
 `tmp/preview-traits-playwright/`. Media and control geometry are checked across
 the complete trait cycle; rendered screenshots still require visual review.
+The 111K collection-view journey checks that structured tokens use the flat
+preview controls and expose their projection tree on the detail page.
 
 ### Runtime Recovery
 

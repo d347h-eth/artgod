@@ -1,4 +1,22 @@
+import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
+import { SqliteNativeTokenRead } from "./infra/trading/sqlite-native-token-read.js";
+import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from "@artgod/shared/types";
 import {
+    buildCollectionViewsPath,
+    buildTraitCatalogRebuildsPath,
+} from "@artgod/shared/http/collection-routes";
+import {
+    TRAIT_CATALOG,
+    TRAIT_CATALOG_QUERY,
+    TRAIT_CATALOG_REBUILD_STATUS,
+} from "@artgod/shared/types/trait-catalog";
+import { CollectionViewsUseCase } from "./application/use-cases/collections/collection-views.js";
+import {
+    getTraitCatalogRebuild,
+    requestTraitCatalogRebuild,
+} from "@artgod/shared/database/trait-catalog-rebuilds";
+import {
+    buildLookupBatchTokenBiddingJobsPath,
     buildCompetitionPresetsPath,
     buildCompetitionPresetReapplyPreviewPath,
     buildCompetitionPresetReapplyPath,
@@ -8,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { BiddingJobView } from "./application/use-cases/trading/types.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
     MARKET_DATA_STORAGE_POLICY,
@@ -93,6 +111,7 @@ import {
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    nft111kTraitCatalog,
     NFT111K_EXTENSION_KEY,
     NFT111K_MAINNET_CHAIN_ID,
     NFT111K_MAINNET_CONTRACT_ADDRESS,
@@ -115,6 +134,7 @@ import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -608,25 +628,26 @@ beforeAll(async () => {
             chainsReadModel,
             biddingJobCeilingPrefillsRead,
         );
+    const nativeTokenRead = new SqliteNativeTokenRead(collectionsReadModel);
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
         );
     const getTokenBiddingBidBookUseCase =
         new getTokenBiddingBidBookUseCaseModule.GetTokenBiddingBidBookUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingBidBookRepository,
         );
     const biddingJobTargetLookupUseCase =
         new biddingJobTargetLookupUseCaseModule.BiddingJobTargetLookupUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
         );
     const tradingJobCommandSignalPort = {
@@ -636,7 +657,7 @@ beforeAll(async () => {
         new upsertTokenBiddingJobUseCaseModule.UpsertTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
@@ -713,7 +734,7 @@ beforeAll(async () => {
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            nativeTokenRead,
             biddingJobsRepository,
             tradingJobCommandSignalPort,
         );
@@ -1173,6 +1194,10 @@ beforeAll(async () => {
         null,
         competitionPresetsUseCase,
         competitionPresetReapplyUseCase,
+        new CollectionViewsUseCase(1, chainsReadModel, collectionsReadModel, {
+            getTraitCatalogRebuild,
+            requestTraitCatalogRebuild,
+        }),
     );
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -1242,6 +1267,10 @@ beforeAll(async () => {
         null,
         competitionPresetsUseCase,
         competitionPresetReapplyUseCase,
+        new CollectionViewsUseCase(1, chainsReadModel, collectionsReadModel, {
+            getTraitCatalogRebuild,
+            requestTraitCatalogRebuild,
+        }),
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
@@ -1353,6 +1382,686 @@ afterAll(async () => {
 });
 
 describe("backend api routes", () => {
+    it("loads one card for a one-token page in a 17,001-token aggregate offer book", async () => {
+        const { ExtensionAwareCollectionDetailRead } =
+            await import("./infra/collections/extension-aware-collection-detail-read.js");
+        const hydrate = vi.spyOn(
+            ExtensionAwareCollectionDetailRead.prototype,
+            "listCollectionTokenCardsByIds",
+        );
+        const collectionId =
+            getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+        db.exec("SAVEPOINT aggregate_token_offers");
+        try {
+            clearTradingJobFixtures();
+            db.prepare(
+                "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,?,'{}')",
+            ).run(collectionId, NFT111K_EXTENSION_KEY);
+            seedIndexedTokenOffers(collectionId, 17_001);
+            const response = await resolve(
+                "GET",
+                "/api/ethereum/milady/bidding/bids?limit=1",
+            );
+            expect(response.statusCode).toBe(200);
+            expect(response.payload.tokenOfferCards).toMatchObject({
+                totalItems: 17_001,
+                totalOffers: 17_001,
+                marketplaceBiddingSupportedTotalItems: 17_001,
+                items: [{ tokenId: "110001" }],
+            });
+            expect(
+                hydrate.mock.calls.map(([params]) => params.tokenIds),
+            ).toEqual([["110001"]]);
+        } finally {
+            hydrate.mockRestore();
+            db.exec("ROLLBACK TO aggregate_token_offers");
+            db.exec("RELEASE aggregate_token_offers");
+        }
+    });
+    it.each(Object.values(TRADING_BIDDING_BID_BOOK_SOURCE))(
+        "looks up and saves the single matching token in a 33,001-token offer book from %s",
+        async (source) => {
+            const { ExtensionAwareCollectionDetailRead } =
+                await import("./infra/collections/extension-aware-collection-detail-read.js");
+            const collectionId =
+                getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+            const base = "/api/ethereum/milady/bidding";
+            const csrf = await issueAdminCsrf();
+            const selection = {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                traits: [{ key: "Edition", value: "Proof" }],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            };
+            db.exec("SAVEPOINT large_filtered_token_offers");
+            const hydrate = vi.spyOn(
+                ExtensionAwareCollectionDetailRead.prototype,
+                "listCollectionTokenCardsByIds",
+            );
+            try {
+                clearTradingJobFixtures();
+                seedIndexedTokenOffers(collectionId, 33_001);
+                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)
+                    useBotSnapshotForTokenOffers(collectionId);
+                db.prepare(
+                    `
+                    INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key)
+                    VALUES (1, ?, ?, '110001', ?, ?, ?)
+                `,
+                ).run(
+                    collectionId,
+                    MILADY_ADDRESS,
+                    insertCollectionAttribute(
+                        MILADY_ADDRESS,
+                        "Edition",
+                        "Proof",
+                    ),
+                    TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                );
+                db.prepare(
+                    "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES(1,?,?,'{}')",
+                ).run(collectionId, NFT111K_EXTENSION_KEY);
+                for (const catalogEnabled of [true, false]) {
+                    if (!catalogEnabled)
+                        db.prepare(
+                            "DELETE FROM collection_extension_installs WHERE collection_id=?",
+                        ).run(collectionId);
+                    const page = await resolve(
+                        "GET",
+                        base + "/bids?limit=1&traits=Edition:Proof",
+                    );
+                    expect(page.statusCode).toBe(200);
+                    expect(page.payload.bidBook.state.source).toBe(source);
+                    expect(page.payload.tokenOfferCards).toMatchObject({
+                        totalItems: 1,
+                        items: [{ tokenId: "110001" }],
+                    });
+                    hydrate.mockClear();
+                    const lookup = await resolve(
+                        "POST",
+                        base + "/jobs/tokens/lookup",
+                        { selection },
+                        csrf,
+                    );
+                    expect(lookup.statusCode).toBe(200);
+                    expect(lookup.payload.tokenIds).toEqual(["110001"]);
+                    const saved = await resolve(
+                        "PUT",
+                        base + "/jobs/tokens/batch",
+                        {
+                            selection,
+                            status: TRADING_JOB_STATUS.Paused,
+                            floorEth: "0.1",
+                            ceilingEth: "0.2",
+                            deltaEth: "0.01",
+                        },
+                        csrf,
+                    );
+                    expect(saved.statusCode).toBe(200);
+                    expect(saved.payload.jobs).toMatchObject([
+                        {
+                            status: TRADING_JOB_STATUS.Paused,
+                            target: { tokenId: "110001" },
+                        },
+                    ]);
+                    if (catalogEnabled) {
+                        for (const [request] of hydrate.mock.calls)
+                            expect(request.tokenIds).toEqual(["110001"]);
+                    }
+                }
+            } finally {
+                hydrate.mockRestore();
+                db.exec("ROLLBACK TO large_filtered_token_offers");
+                db.exec("RELEASE large_filtered_token_offers");
+            }
+        },
+        30_000,
+    );
+    it("scopes collection reads, continuations and local rebuilds to the selected published view", async () => {
+        const collectionId =
+            getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
+        const base = "/api/ethereum/milady";
+        const discovery = buildCollectionViewsPath("ethereum", "milady");
+        const rebuilds = buildTraitCatalogRebuildsPath("ethereum", "milady");
+        const pin = { key: "Hat", value: "Beanie" };
+        const view = {
+            id: "fixture-view",
+            label: "Beanies",
+            parent: { id: "headwear", label: "Headwear" },
+            pinnedTraits: [pin],
+        };
+        const mapperVersion = nft111kTraitCatalog.availableVersion(view);
+        db.exec("SAVEPOINT collection_view_api_fixture");
+        db.prepare(
+            "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,enabled,config_json) VALUES(1,?,?,1,'{}')",
+        ).run(collectionId, NFT111K_EXTENSION_KEY);
+        try {
+            db.prepare(
+                "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,?)",
+            ).run(collectionId, view.id, JSON.stringify(view));
+            const generation = Number(
+                db
+                    .prepare(
+                        "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,?)",
+                    )
+                    .run(collectionId, view.id, mapperVersion).lastInsertRowid,
+            );
+            db.prepare(
+                "UPDATE trait_catalog_views SET active_generation=? WHERE chain_id=1 AND collection_id=? AND view_id=?",
+            ).run(generation, collectionId, view.id);
+            for (const id of ["1", "2"]) {
+                db.prepare(
+                    "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision,scope_key) VALUES(1,?,?,?,1,?)",
+                ).run(collectionId, view.id, id, pin.key);
+            }
+            db.prepare(
+                "INSERT INTO trait_catalog_projections(chain_id,collection_id,view_id,generation,token_id,revision,tree_json) VALUES(1,?,?,?,'1',1,'[]')",
+            ).run(collectionId, view.id, generation);
+            db.prepare(
+                "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value,native_key,native_value,native_field_key) VALUES(1,?,?,?,'1','Colour','Colour','quiet','Mood','Calm',NULL)",
+            ).run(collectionId, view.id, generation);
+            const query = new URLSearchParams({
+                [TRAIT_CATALOG_QUERY.View]: view.id,
+                [TRAIT_CATALOG_QUERY.Generation]: String(generation),
+            });
+            expect((await resolve("GET", discovery)).payload).toMatchObject({
+                required: true,
+                selectedViewId: null,
+                views: [
+                    {
+                        id: view.id,
+                        classified: 2,
+                        ready: 1,
+                        generation,
+                        pinnedTraits: [pin],
+                    },
+                ],
+            });
+            expect(
+                (await resolve("GET", discovery + "?token_id=1")).payload
+                    .selectedViewId,
+            ).toBe(view.id);
+            const groupQuery = new URLSearchParams({
+                [TRAIT_CATALOG_QUERY.Group]: view.parent.id,
+            });
+            expect(
+                (await resolve("GET", discovery + "?" + groupQuery)).payload
+                    .selectedGroupId,
+            ).toBe(view.parent.id);
+            const all = await resolve(
+                "GET",
+                base + "?token_status=all&limit=1",
+            );
+            expect(all.statusCode).toBe(200);
+            expect(all.payload.tokens.totalItems).toBeGreaterThan(2);
+            expect(all.payload.traits.facets).toEqual([]); // Hat and Mood belong to individual token views.
+            expect(all.payload.catalogContext).toMatchObject({
+                viewId: null,
+                catalog: TRAIT_CATALOG.Canonical,
+                nativeSelection: [],
+            });
+            const unknownFilter = await resolve(
+                "GET",
+                base + "?token_status=all&traits=Hat:Beanie",
+            );
+            expect(
+                unknownFilter.payload.catalogContext.nativeSelection,
+            ).toBeNull();
+            const group = await resolve(
+                "GET",
+                base + "?" + groupQuery + "&token_status=all",
+            );
+            expect(group.statusCode).toBe(200);
+            expect(group.payload.tokens.totalItems).toBe(2);
+            expect(group.payload.catalogContext).toMatchObject({
+                groupId: view.parent.id,
+                catalog: TRAIT_CATALOG.Canonical,
+                nativeSelection: null,
+            });
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        base +
+                            "?" +
+                            groupQuery +
+                            "&cursor=" +
+                            encodeURIComponent(all.payload.tokens.nextCursor),
+                    )
+                ).statusCode,
+            ).toBe(400);
+            for (const invalid of [
+                new URLSearchParams({ [TRAIT_CATALOG_QUERY.Group]: "unknown" }),
+                new URLSearchParams([...groupQuery, ...query]),
+                new URLSearchParams([
+                    ...groupQuery,
+                    [TRAIT_CATALOG_QUERY.Catalog, TRAIT_CATALOG.Derived],
+                ]),
+                new URLSearchParams({
+                    [TRAIT_CATALOG_QUERY.Generation]: String(generation),
+                }),
+            ])
+                expect(
+                    (await resolve("GET", base + "?" + invalid)).statusCode,
+                ).toBe(400);
+            expect(
+                (await resolve("GET", base + "/1?" + groupQuery)).statusCode,
+            ).toBe(200);
+            expect(
+                (await resolve("GET", base + "/10?" + groupQuery)).statusCode,
+            ).toBe(404);
+            const browse = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&limit=1",
+            );
+            expect(browse.statusCode).toBe(200);
+            expect(browse.payload.tokens).toMatchObject({
+                totalItems: 2,
+                items: [
+                    {
+                        tokenId: "1",
+                        attributes: [{ key: "Colour", value: "quiet" }],
+                    },
+                ],
+            });
+            expect(browse.payload.traits.facets).toMatchObject([
+                {
+                    key: "Colour",
+                    values: [
+                        {
+                            tokenCount: 1,
+                            native: { key: "Mood", value: "Calm" },
+                        },
+                    ],
+                },
+            ]);
+            // A higher offer on another token must not consume a slot or enter the total.
+            const maker = "0x2424242424242424242424242424242424242424";
+            for (const [tokenId, price] of [
+                ["10", "3000000000000000000"],
+                ["2", "2000000000000000000"],
+                ["1", "1000000000000000000"],
+            ]) {
+                insertOrderFixture({
+                    id: "scoped-card-" + tokenId,
+                    side: "buy",
+                    contract: MILADY_ADDRESS,
+                    tokenId,
+                    maker,
+                    sourceScopeKind: "token",
+                    price,
+                    currency: WETH_ADDRESS,
+                    sourceStatus: "active",
+                    fillabilityStatus: "fillable",
+                    validFrom: 1,
+                    validUntil: 4_000_000_000,
+                });
+            }
+            const offers =
+                base +
+                "/bidding/bids?" +
+                query +
+                "&maker=" +
+                maker +
+                "&limit=1";
+            const first = await resolve("GET", offers);
+            expect(first.statusCode).toBe(200);
+            expect(first.payload.tokenOfferCards).toMatchObject({
+                totalItems: 2,
+                totalOffers: 2,
+                items: [{ tokenId: "2" }],
+            });
+            const next = await resolve(
+                "GET",
+                offers +
+                    "&cursor=" +
+                    encodeURIComponent(
+                        first.payload.tokenOfferCards.nextCursor,
+                    ),
+            );
+            expect(next.payload.tokenOfferCards).toMatchObject({
+                totalItems: 2,
+                items: [{ tokenId: "1" }],
+                nextCursor: null,
+            });
+            const filteredOffers = await resolve(
+                "GET",
+                offers + "&traits=Colour:quiet",
+            );
+            expect(filteredOffers.payload.tokenOfferCards).toMatchObject({
+                totalItems: 1,
+                totalOffers: 1,
+                items: [{ tokenId: "1" }],
+            });
+            const customization = base + "/customization?" + query;
+            const csrf = await issueAdminCsrf();
+            const settings = {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: { rangeKeys: ["Rank"] },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: { template: "Card {Colour}" },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: { template: "Activity {Colour}" },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
+            };
+            db.prepare(
+                "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value) VALUES(1,?,?,?,'1','Rank','Rank','7')",
+            ).run(collectionId, view.id, generation);
+            const update = await resolve("PUT", customization, settings, csrf);
+            expect(update.statusCode).toBe(200);
+            expect(
+                update.payload.customization.traitFilterPresentation,
+            ).toMatchObject({
+                availableTraitKeys: ["Colour", "Rank"],
+                effectiveConfig: { rangeKeys: ["Rank"] },
+            });
+            const preview = await resolve("GET", base + "/1/preview");
+            expect(preview.payload.token).toMatchObject({
+                traitSummary: "Card quiet",
+                catalogScope: { id: view.id, generation },
+            });
+            expect(preview.payload.token).not.toHaveProperty("traitTree");
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        buildTokenCardPath({
+                            chainRef: "ethereum",
+                            collectionRef: "milady",
+                            tokenRef: "1",
+                        }) +
+                            "?" +
+                            query,
+                    )
+                ).payload.token.traitSummary,
+            ).toBe("Card quiet");
+            expect(
+                (await resolve("GET", base + "/activity?kind=sales&" + query))
+                    .payload.included.tokensById["1"].traitSummary,
+            ).toBe("Activity quiet");
+            expect(
+                (
+                    await resolve("GET", base + "?token_status=all&" + query)
+                ).payload.traits.facets.find(
+                    (facet: { key: string }) => facet.key === "Rank",
+                ),
+            ).toMatchObject({ displayKind: "range" });
+            const canonicalSettings = await resolve(
+                "GET",
+                customization + "&trait_catalog=" + TRAIT_CATALOG.Canonical,
+            );
+            expect(
+                canonicalSettings.payload.customization.traitFilterPresentation
+                    .availableTraitKeys,
+            ).not.toContain("Rank");
+            expect(
+                canonicalSettings.payload.customization
+                    .tokenCardTraitSummaryTemplate.effectiveConfig.template,
+            ).toBe("");
+            const badRange = await resolve(
+                "PUT",
+                customization,
+                {
+                    ...settings,
+                    traitFilterPresentation: {
+                        selectedSource: "user",
+                        userConfig: { rangeKeys: ["Power"] },
+                    },
+                },
+                csrf,
+            );
+            expect(badRange.statusCode).toBe(400);
+            const cursor = encodeURIComponent(browse.payload.tokens.nextCursor);
+            const canonical =
+                base +
+                "?" +
+                query +
+                "&token_status=all&trait_catalog=" +
+                TRAIT_CATALOG.Canonical;
+            expect(
+                (await resolve("GET", canonical + "&cursor=" + cursor))
+                    .statusCode,
+            ).toBe(400);
+            expect(
+                (await resolve("GET", canonical)).payload.traits.facets.map(
+                    (f: { key: string }) => f.key,
+                ),
+            ).toContain("Hat");
+            // A client may repeat the visible pin in the request. Membership includes pending tokens.
+            const pinnedOnly = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&traits=Hat:Beanie",
+            );
+            expect(pinnedOnly.payload.tokens.totalItems).toBe(2);
+            const selected = await resolve(
+                "GET",
+                base + "?" + query + "&token_status=all&traits=Colour:quiet",
+            );
+            expect(selected.payload.catalogContext).toMatchObject({
+                viewId: view.id,
+                generation,
+                pinnedTraits: [pin],
+                nativeSelection: [pin, { key: "Mood", value: "Calm" }],
+            });
+            expect(
+                selected.payload.tokens.items.map(
+                    (item: { tokenId: string }) => item.tokenId,
+                ),
+            ).toEqual(["1"]);
+            const batch =
+                buildLookupBatchTokenBiddingJobsPath({
+                    chainRef: "ethereum",
+                    collectionRef: "milady",
+                }) +
+                "?" +
+                query;
+            const auth = await issueAdminCsrf();
+            const filtered = await resolve(
+                "POST",
+                batch,
+                {
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                        tokenStatus: "all",
+                        traits: [{ key: "Colour", value: "quiet" }],
+                    },
+                },
+                auth,
+            );
+            expect(filtered.payload.tokenIds).toEqual(["1"]);
+            const outside = await resolve(
+                "POST",
+                batch,
+                {
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                        tokenIds: ["1", "10"],
+                    },
+                },
+                auth,
+            );
+            expect(outside.statusCode).toBe(422);
+            const batchWrite = base + "/bidding/jobs/tokens/batch?" + query;
+            const batchRequest = {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                selection: {
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                    tokenStatus: "all",
+                    traits: [],
+                },
+            };
+            const pageSelection = {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                tokenIds: ["1", "2"],
+            };
+            const pageLookup = await resolve(
+                "POST",
+                batch,
+                { selection: pageSelection },
+                auth,
+            );
+            expect(pageLookup.payload.tokenIds).toEqual(pageSelection.tokenIds);
+            db.exec("SAVEPOINT page_token_leaves_view");
+            try {
+                db.prepare(
+                    "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
+                ).run(collectionId);
+                const commands = listTradingCommandKinds();
+                for (const tokenIds of [pageSelection.tokenIds, ["2"]]) {
+                    const moved = await resolve(
+                        "PUT",
+                        batchWrite,
+                        {
+                            ...batchRequest,
+                            selection: { ...pageSelection, tokenIds },
+                        },
+                        auth,
+                    );
+                    expect(moved.statusCode).toBe(422);
+                }
+                expect(listTradingCommandKinds()).toEqual(commands);
+            } finally {
+                db.exec("ROLLBACK TO page_token_leaves_view");
+                db.exec("RELEASE page_token_leaves_view");
+            }
+            const repository = SqliteBiddingJobsRepository.prototype;
+            const write = repository.upsertTokenJobs;
+            const commandKinds = listTradingCommandKinds();
+            for (const [scopeQuery, changeScope] of [
+                [
+                    query,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_members SET view_id=NULL WHERE collection_id=? AND token_id='2'",
+                            )
+                            .run(collectionId),
+                ],
+                [
+                    query,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_views SET active_generation=? WHERE collection_id=? AND view_id=?",
+                            )
+                            .run(generation + 1, collectionId, view.id),
+                ],
+                [
+                    groupQuery,
+                    () =>
+                        db
+                            .prepare(
+                                "UPDATE trait_catalog_views SET descriptor_json=json_remove(descriptor_json, '$.parent') WHERE collection_id=? AND view_id=?",
+                            )
+                            .run(collectionId, view.id),
+                ],
+            ] as const) {
+                db.exec("SAVEPOINT changed_batch_scope");
+                const hook = vi
+                    .spyOn(repository, "upsertTokenJobs")
+                    .mockImplementationOnce(function (
+                        this: SqliteBiddingJobsRepository,
+                        inputs,
+                        context,
+                    ) {
+                        // The reader has finished selecting both tokens before the indexer changes the scope.
+                        changeScope();
+                        return write.call(this, inputs, context);
+                    });
+                try {
+                    const rejected = await resolve(
+                        "PUT",
+                        base + "/bidding/jobs/tokens/batch?" + scopeQuery,
+                        batchRequest,
+                        auth,
+                    );
+                    expect(hook).toHaveBeenCalledOnce();
+                    expect(rejected.statusCode).toBe(422);
+                    expect(listTradingCommandKinds()).toEqual(commandKinds);
+                } finally {
+                    hook.mockRestore();
+                    db.exec("ROLLBACK TO changed_batch_scope");
+                    db.exec("RELEASE changed_batch_scope");
+                }
+            }
+            const accepted = await resolve(
+                "PUT",
+                batchWrite,
+                batchRequest,
+                auth,
+            );
+            expect(accepted.statusCode).toBe(200);
+            expect(accepted.payload.tokenIds).toEqual(["1", "2"]);
+            const pending = await resolve("GET", base + "/2?" + query);
+            expect(pending.payload.token).toMatchObject({
+                attributes: [],
+                traitTree: null,
+            });
+            expect(
+                (await resolve("GET", base + "/10?" + query)).statusCode,
+            ).toBe(404);
+            expect(
+                (
+                    await resolve("POST", rebuilds + "?" + query, {
+                        mapperVersion,
+                    })
+                ).statusCode,
+            ).toBe(403);
+            const started = await resolve(
+                "POST",
+                rebuilds + "?" + query,
+                { mapperVersion },
+                await issueAdminCsrf(),
+            );
+            expect(started.payload.rebuild).toMatchObject({
+                viewId: view.id,
+                status: TRAIT_CATALOG_REBUILD_STATUS.Running,
+                total: 2,
+            });
+            expect(
+                (
+                    await resolve(
+                        "GET",
+                        rebuilds + "/" + started.payload.rebuild.runId,
+                    )
+                ).payload.rebuild,
+            ).toEqual(started.payload.rebuild);
+            expect(
+                (
+                    await resolvePublic(
+                        "GET",
+                        buildCollectionViewsPath("ethereum", "terraforms"),
+                    )
+                ).payload.required,
+            ).toBe(false);
+            expect((await resolvePublic("GET", discovery)).statusCode).toBe(
+                404,
+            );
+            expect(
+                (
+                    await resolvePublic(
+                        "POST",
+                        buildTraitCatalogRebuildsPath("ethereum", "terraforms"),
+                        {},
+                        await issueAdminCsrf(),
+                    )
+                ).statusCode,
+            ).toBe(404);
+        } finally {
+            db.exec("ROLLBACK TO collection_view_api_fixture");
+            db.exec("RELEASE collection_view_api_fixture");
+        }
+    });
     it("returns the default chain", async () => {
         const result = await resolve("GET", "/api/chains/default");
         expect(result.statusCode).toBe(200);
@@ -3129,6 +3838,95 @@ describe("backend api routes", () => {
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
             TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
+    });
+
+    it("edits and archives the original native trait job after its last source disappears", async () => {
+        db.exec("SAVEPOINT stale_native_target");
+        try {
+            clearTradingJobFixtures();
+            const csrf = await issueAdminCsrf();
+            const jobs = "/api/ethereum/milady/bidding/jobs";
+            const targetTraits = [{ type: "Mood", value: "Calm" }];
+            const declaration = {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                targetTraits,
+            };
+            const created = await resolve(
+                "PUT",
+                jobs + "/traits",
+                declaration,
+                csrf,
+            );
+            expect(created.statusCode).toBe(200);
+            const job = created.payload.job;
+            db.prepare(
+                "DELETE FROM token_attributes WHERE collection_id=? AND attribute_id IN (SELECT a.id FROM attributes a JOIN attribute_keys k ON k.id=a.attribute_key_id WHERE k.key=? AND a.value=?)",
+            ).run(
+                getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id,
+                targetTraits[0].type,
+                targetTraits[0].value,
+            );
+
+            const lookup = await resolve(
+                "POST",
+                jobs + "/target-lookup",
+                { target: { type: "trait", quantity: 1, targetTraits } },
+                csrf,
+            );
+            expect(lookup.payload.job.jobId).toBe(job.jobId);
+            const edit = await resolve(
+                "PUT",
+                jobs + "/traits",
+                {
+                    ...declaration,
+                    floorEth: "0.12",
+                    status: TRADING_JOB_STATUS.Paused,
+                },
+                csrf,
+            );
+            expect(edit.statusCode).toBe(200);
+            expect(edit.payload.job).toMatchObject({
+                jobId: job.jobId,
+                target: job.target,
+                status: TRADING_JOB_STATUS.Paused,
+                config: { floorEth: "0.12" },
+                revision: job.revision + 1,
+            });
+            const commandsAfterEdit = listTradingCommandKinds();
+            // A different quantity creates a separate native declaration.
+            expect(
+                (
+                    await resolve(
+                        "PUT",
+                        jobs + "/traits",
+                        { ...declaration, quantity: 2 },
+                        csrf,
+                    )
+                ).statusCode,
+            ).toBe(422);
+            expect(listTradingCommandKinds()).toEqual(commandsAfterEdit);
+            const archived = await resolve(
+                "DELETE",
+                jobs + "/" + job.jobId,
+                undefined,
+                csrf,
+            );
+            expect(archived.payload.job.status).toBe(
+                TRADING_JOB_STATUS.Archived,
+            );
+            const commandsAfterArchive = listTradingCommandKinds();
+            expect(
+                (await resolve("PUT", jobs + "/traits", declaration, csrf))
+                    .statusCode,
+            ).toBe(422);
+            expect(listTradingCommandKinds()).toEqual(commandsAfterArchive);
+        } finally {
+            db.exec("ROLLBACK TO stale_native_target");
+            db.exec("RELEASE stale_native_target");
+        }
     });
 
     it("creates collection-wide bidding jobs via admin routes", async () => {
@@ -9083,6 +9881,97 @@ function insertActivityFixture(input: {
                   input.occurredAt / MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
               )
             : null,
+    );
+}
+
+function seedIndexedTokenOffers(collectionId: number, count: number): void {
+    const firstTokenId = 110001;
+    const lastTokenId = firstTokenId + count - 1;
+    db.prepare(
+        "UPDATE orders SET source_status='inactive' WHERE collection_id=? AND side='buy'",
+    ).run(collectionId);
+    db.prepare(
+        `
+        WITH RECURSIVE ids(id) AS (VALUES(CAST(? AS INTEGER)) UNION ALL SELECT id+1 FROM ids WHERE id < ?)
+        INSERT INTO tokens(chain_id,collection_id,contract_address,token_id)
+        SELECT 1,?,?,CAST(id AS TEXT) FROM ids
+    `,
+    ).run(firstTokenId, lastTokenId, collectionId, MILADY_ADDRESS);
+    db.prepare(
+        `
+        INSERT INTO orders(id,chain_id,collection_id,kind,side,source,maker,contract_address,token_id,source_scope_kind,
+            quantity,price,currency,valid_from,valid_until,fillability_status,source_status,created_at,updated_at)
+        SELECT 'page-offer-' || token_id,chain_id,collection_id,'seaport','buy','opensea',?,contract_address,token_id,'token',
+            '1','500000000000000000',?,1,4000000000,'fillable','active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+        FROM tokens WHERE chain_id=1 AND collection_id=? AND length(token_id)=6 AND token_id BETWEEN ? AND ?
+    `,
+    ).run(
+        "0x9999999999999999999999999999999999999999",
+        WETH_ADDRESS.toLowerCase(),
+        collectionId,
+        String(firstTokenId),
+        String(lastTokenId),
+    );
+}
+
+function useBotSnapshotForTokenOffers(collectionId: number): void {
+    const source = TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+    const now = new Date();
+    const projection = db
+        .prepare(
+            `
+        INSERT INTO trading_bidding_bid_book_rows
+            (chain_id, collection_id, order_id, source, scope_kind, scope_label, token_id, maker, price_wei, currency_address, snapshot_refreshed_at_ms)
+        SELECT chain_id, collection_id, id, ?, source_scope_kind, '#' || token_id, token_id, maker, price, currency, ?
+        FROM orders WHERE collection_id=? AND side='buy' AND source_status='active' AND source_scope_kind=?
+    `,
+        )
+        .run(
+            source,
+            now.getTime(),
+            collectionId,
+            TRADING_BIDDING_BID_SCOPE_KIND.Token,
+        );
+    db.prepare(
+        `
+        INSERT INTO trading_bidding_collection_bid_book_state
+            (chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count)
+        VALUES (1, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+        collectionId,
+        source,
+        now.getTime(),
+        now.toISOString(),
+        projection.changes,
+    );
+    const jobId = "token-offers-snapshot-job";
+    db.prepare(
+        `
+        INSERT INTO trading_jobs (job_id, bot_kind, chain_id, collection_id, status, target_kind, revision)
+        VALUES (?, ?, 1, ?, ?, ?, 1)
+    `,
+    ).run(
+        jobId,
+        TRADING_BOT_KIND.Bidding,
+        collectionId,
+        TRADING_JOB_STATUS.Enabled,
+        TRADING_JOB_TARGET_KIND.Collection,
+    );
+    db.prepare(
+        "INSERT INTO trading_bidding_job_specs (job_id, floor_wei, ceiling_wei, delta_wei) VALUES (?, '1', '2', '1')",
+    ).run(jobId);
+    db.prepare(
+        `
+        INSERT INTO trading_bot_runtime_state (bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at)
+        VALUES (?, 1, 'fixture-wallet', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?)
+    `,
+    ).run(
+        TRADING_BOT_KIND.Bidding,
+        TRADING_BOT_RUNTIME_STATE.Running,
+        now.toISOString(),
+        now.toISOString(),
+        now.toISOString(),
     );
 }
 

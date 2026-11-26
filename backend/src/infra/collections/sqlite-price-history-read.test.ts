@@ -8,6 +8,10 @@ import {
 } from "@artgod/shared/market-data/fills";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import Fastify from "fastify";
+import Database from "better-sqlite3";
+import { iterateTraitReadSnapshot } from "@artgod/shared/read-models/trait-catalog";
+import { TRAIT_CATALOG } from "@artgod/shared/types/trait-catalog";
+import { NFT111K_EXTENSION_KEY } from "@artgod/shared/extensions/111k";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -358,6 +362,96 @@ it("loads the complete public snapshot when the first request selects one bundle
     expect(all[2]).toMatchObject({
         exclusionReason: FILL_PRICE_EXCLUSION.UnsupportedCurrency,
     });
+});
+
+it("streams chart fills from one publication and rejects a generation retired before iteration", () => {
+    const viewId = "fixture-chart-view";
+    const tokenId = "999812";
+    const scope = [collectionId, viewId] as const;
+    const install = db
+        .prepare(
+            "INSERT OR IGNORE INTO collection_extension_installs(chain_id,collection_id,extension_key,enabled,config_json) VALUES(1,?,?,1,'{}')",
+        )
+        .run(collectionId, NFT111K_EXTENSION_KEY);
+    const writer = new Database(db.raw.name);
+    try {
+        db.prepare(
+            "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,'{}')",
+        ).run(...scope);
+        const generation = db.prepare(
+            "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,?)",
+        );
+        const current = Number(generation.run(...scope, "v1").lastInsertRowid);
+        const next = Number(generation.run(...scope, "v2").lastInsertRowid);
+        const publish = writer.prepare(
+            "UPDATE trait_catalog_views SET active_generation=? WHERE chain_id=1 AND collection_id=? AND view_id=?",
+        );
+        publish.run(current, ...scope);
+        db.prepare(
+            "INSERT INTO token_metadata(chain_id,collection_id,contract_address,token_id) VALUES(1,?,'contract',?)",
+        ).run(collectionId, tokenId);
+        db.prepare(
+            "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision) VALUES(1,?,?,?,1)",
+        ).run(...scope, tokenId);
+        db.prepare(
+            "INSERT INTO trait_catalog_projections(chain_id,collection_id,view_id,generation,token_id,revision,tree_json) VALUES(1,?,?,?,?,1,'[]')",
+        ).run(...scope, current, tokenId);
+        db.prepare(
+            "INSERT INTO trait_catalog_values(chain_id,collection_id,view_id,generation,token_id,field_id,label,value) VALUES(1,?,?,?,?,'Sky','Sky','Blue')",
+        ).run(...scope, current, tokenId);
+        fill({ token: tokenId });
+        fill({ token: tokenId });
+        const request = {
+            chainId: 1,
+            collectionId,
+            from: 0,
+            to: TIME + 1,
+            limit: 10,
+            traits: [{ key: "Sky", value: "Blue" }],
+            traitContext: {
+                viewId,
+                catalog: TRAIT_CATALOG.Derived,
+                generation: current,
+            },
+        };
+        const pending = reader.iterateObservations(request);
+        // Interleave a second connection between checking the generation and
+        // starting the chart's fill query, while the read snapshot is still open.
+        const during = iterateTraitReadSnapshot(request, () => {
+            writer.transaction(() => {
+                publish.run(next, ...scope);
+                writer
+                    .prepare(
+                        "DELETE FROM trait_catalog_projections WHERE generation=?",
+                    )
+                    .run(current);
+            })();
+            return reader.iterateObservations(request);
+        });
+        expect(Array.from(during, (fill) => fill.tokenId)).toEqual([
+            tokenId,
+            tokenId,
+        ]);
+        expect(() => Array.from(pending)).toThrow(ReadModelBadRequestError);
+        expect([
+            ...reader.iterateObservations({
+                ...request,
+                traitContext: { ...request.traitContext, generation: next },
+            }),
+        ]).toEqual([]);
+    } finally {
+        writer.close();
+        db.prepare(
+            "DELETE FROM trait_catalog_views WHERE chain_id=1 AND collection_id=? AND view_id=?",
+        ).run(...scope);
+        db.prepare(
+            "DELETE FROM token_metadata WHERE chain_id=1 AND collection_id=? AND token_id=?",
+        ).run(collectionId, tokenId);
+        if (install.changes)
+            db.prepare(
+                "DELETE FROM collection_extension_installs WHERE chain_id=1 AND collection_id=?",
+            ).run(collectionId);
+    }
 });
 
 function trait(

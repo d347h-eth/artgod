@@ -171,14 +171,15 @@ describe('fullscreen preview traits', () => {
 		expect(parseSelectedTraits(url.searchParams)).toEqual([trait]);
 		expect(url.searchParams.get('media_mode')).toBe('snapshot');
 		expect(url.searchParams.get('token_status')).toBe('all');
-		expect(
-			buildTokenPreviewTraitHref({
-				chainRef: 'ethereum',
-				collectionRef: 'collection',
-				trait: { key: 'key', value: 'ambiguous,value' },
-				mediaMode: 'snapshot',
-				mediaPreference: null
-			})
-		).toBeNull();
+		const punctuated = buildTokenPreviewTraitHref({
+			chainRef: 'ethereum',
+			collectionRef: 'collection',
+			trait: { key: 'key', value: 'ambiguous,value' },
+			mediaMode: 'snapshot',
+			mediaPreference: null
+		});
+		expect(parseSelectedTraits(new URL(punctuated!, 'https://example.test').searchParams)).toEqual([
+			{ key: 'key', value: 'ambiguous,value' }
+		]);
 	});
 });

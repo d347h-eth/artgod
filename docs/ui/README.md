@@ -16,3 +16,5 @@ Read the first two documents completely before changing a user-visible surface.
 Collection-specific UI behavior belongs in its
 [extension](../extensions/README.md). Admin supervision belongs in
 [Desktop](../desktop/README.md).
+
+The [111K collection views](../extensions/04-111k-trait-catalogs.md#browse-and-bidding) use the shared collection shell, trait controls and Customization page.

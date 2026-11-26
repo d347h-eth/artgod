@@ -1,3 +1,4 @@
+import { TRAIT_CATALOG } from "@artgod/shared/types/trait-catalog";
 import { describe, it, expect } from "vitest";
 import type {
     ChainRecord,
@@ -98,7 +99,16 @@ describe("competitive extras presets", () => {
             },
         ]);
         expect(f.catalogReads).toEqual([
-            { chainId: 1, collectionId: 7, keys: ["Mode"] },
+            {
+                chainId: 1,
+                collectionId: 7,
+                keys: ["Mode"],
+                traitContext: {
+                    catalog: TRAIT_CATALOG.Canonical,
+                    viewId: null,
+                    generation: null,
+                },
+            },
         ]);
         expect(() =>
             f.useCase.upsertCompetitionPreset({
@@ -124,7 +134,16 @@ describe("competitive extras presets", () => {
             extraCompetitionTraits: [{ type: "Mode" }],
         });
         expect(f.catalogReads).toEqual([
-            { chainId: 1, collectionId: 7, keys: ["Mode"] },
+            {
+                chainId: 1,
+                collectionId: 7,
+                keys: ["Mode"],
+                traitContext: {
+                    catalog: TRAIT_CATALOG.Canonical,
+                    viewId: null,
+                    generation: null,
+                },
+            },
         ]);
     });
     it("rejects unsupported targets, unknown extras and empty definitions before writing", () => {

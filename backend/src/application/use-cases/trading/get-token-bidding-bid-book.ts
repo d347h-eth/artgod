@@ -1,5 +1,11 @@
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+} from "../collections/collection-views.js";
 import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
-import type { TokenDetail } from "@artgod/shared/types/browse";
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import type { TraitFilter } from "@artgod/shared/types/browse";
 import type {
     BiddingBidBookRepositoryPort,
     GetTokenBiddingBidBookOutput,
@@ -7,9 +13,7 @@ import type {
 import { mapPersistedBidBookToView } from "./bidding-bid-book.js";
 export type { GetTokenBiddingBidBookOutput } from "./bidding-bid-book.js";
 
-type MaybePromise<T> = T | Promise<T>;
-
-export type GetTokenBiddingBidBookInput = {
+export type GetTokenBiddingBidBookInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
@@ -25,16 +29,17 @@ export class GetTokenBiddingBidBookUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
-                chainId: number;
-                collectionId: number;
-                tokenId: string;
-            }): MaybePromise<TokenDetail>;
+            getCanonicalTokenTraits(
+                chainId: number,
+                collectionId: number,
+                tokenId: string,
+                traitContext?: TraitReadContext,
+            ): { tokenId: string; traits: TraitFilter[] };
         },
         readonly bidBookRepositoryPort: BiddingBidBookRepositoryPort,
     ) {}
@@ -52,28 +57,33 @@ export class GetTokenBiddingBidBookUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        // Verify the token and reuse its normalized traits for applicability checks.
-        const token = await this.collectionReadPort.getCollectionTokenDetail({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-        });
-        // Read bids that apply to this token across token, collection, trait, and token-set scopes.
+        const tokenId = input.tokenRef.trim();
+        const { traitContext } = resolveTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+            tokenId,
+        );
         const bidBook = this.bidBookRepositoryPort.listTokenBidBook({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
-            tokenId: token.tokenId,
-            tokenTraits: token.attributes.map((trait) => ({
-                type: trait.key,
-                value: trait.value,
-            })),
+            tokenId,
+            readCanonicalTraits: () =>
+                this.collectionReadPort
+                    .getCanonicalTokenTraits(
+                        chain.publicChainId,
+                        collection.collectionId,
+                        tokenId,
+                        traitContext,
+                    )
+                    .traits.map(({ key, value }) => ({ type: key, value })),
             includeOwnJobContext: input.includeOwnJobContext,
         });
 
         return {
             chain,
             collection,
-            tokenId: token.tokenId,
+            tokenId,
             bidBook: mapPersistedBidBookToView(bidBook),
         };
     }

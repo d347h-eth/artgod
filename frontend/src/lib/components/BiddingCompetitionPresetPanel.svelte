@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { appendTraitCatalogKeys } from '@artgod/shared/http/trait-query';
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionScope, selectedCollectionView, appendCatalogScope } from '$lib/collection-view';
+	import { TRAIT_CATALOG_QUERY, TRAIT_CATALOG } from '@artgod/shared/types/trait-catalog';
 	import { untrack } from 'svelte';
 	import {
-		TRAIT_CATALOG_QUERY_PARAMS,
 		type TradingCompetitionPreset,
 		type TradingTraitCompetitionSelector
 	} from '@artgod/shared/types';
@@ -36,6 +39,8 @@
 		BIDDING_JOB_REAPPLY_ACTION_KEY
 	} from '$lib/action-confirmation';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
+
+	const collectionViewPage = useCollectionView();
 
 	const presetFieldHelp = {
 		target:
@@ -146,11 +151,11 @@
 	$effect(() => {
 		const chainRef = chain?.slug,
 			collectionRef = collection?.slug;
-		const keys = facets.map((f) => f.key);
+		const keys = presetKeys();
 		if (!open || !chainRef || !collectionRef || !keys.length) return;
 		let cancelled = false;
 		catalogLoading = true;
-		const params = new URLSearchParams({ [TRAIT_CATALOG_QUERY_PARAMS.Keys]: keys.join(',') });
+		const params = presetCatalogParams(keys);
 		void getCollectionTraitCatalog(fetch, chainRef, collectionRef, params)
 			.then((response) => {
 				if (!cancelled) catalog = response.traitCatalog.facets;
@@ -165,6 +170,21 @@
 			cancelled = true;
 		};
 	});
+	function presetCatalogParams(keys: string[]) {
+		const params = appendCatalogScope(
+			new URLSearchParams(),
+			selectedCollectionScope(collectionViewPage())
+		);
+		if (selectedCollectionView(collectionViewPage()))
+			params.set(TRAIT_CATALOG_QUERY.Catalog, TRAIT_CATALOG.Canonical);
+		appendTraitCatalogKeys(params, keys);
+		return params;
+	}
+	function presetKeys() {
+		return selectedCollectionView(collectionViewPage())
+			? facets.flatMap((f) => (f.nativeKey ? [f.nativeKey] : []))
+			: facets.map((f) => f.key);
+	}
 	function reset(): void {
 		editing = null;
 		targetTraits = [{ type: '', value: '' }];
@@ -213,7 +233,7 @@
 		const generation = requestGeneration;
 		const chainRef = chain.slug,
 			collectionRef = collection.slug;
-		const keys = facets.map((f) => f.key);
+		const keys = presetKeys();
 		error = null;
 		if (!(await loadInventory(chainRef, collectionRef, generation))) return;
 		catalogLoading = true;
@@ -223,7 +243,7 @@
 					fetch,
 					chainRef,
 					collectionRef,
-					new URLSearchParams({ [TRAIT_CATALOG_QUERY_PARAMS.Keys]: keys.join(',') })
+					presetCatalogParams(keys)
 				);
 				if (generation !== requestGeneration) return;
 				catalog = response.traitCatalog.facets;
@@ -314,7 +334,8 @@
 				fetch,
 				chain.slug,
 				collection.slug,
-				preset.presetId
+				preset.presetId,
+				selectedCollectionScope(collectionViewPage())
 			);
 			if (generation !== requestGeneration) return;
 			reapplyPreview = response;
@@ -385,7 +406,8 @@
 					fetch,
 					chainRef,
 					collectionRef,
-					reviewed.preset.presetId
+					reviewed.preset.presetId,
+					selectedCollectionScope(collectionViewPage())
 				);
 				if (generation !== requestGeneration) return;
 				reapplyPreview = preview;

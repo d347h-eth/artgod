@@ -1,10 +1,18 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    wrapCatalogPage,
+    unwrapCatalogCursor,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionHolderPage,
     CollectionListItem,
 } from "@artgod/shared/types/browse";
 
-export type GetCollectionHoldersInput = {
+export type GetCollectionHoldersInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     limit: number;
@@ -26,12 +34,13 @@ export class GetCollectionHoldersUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionDetailReadPort: {
+        readonly collectionDetailReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
             listCollectionHolders(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 limit: number;
@@ -51,17 +60,23 @@ export class GetCollectionHoldersUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext } = resolveTraitScope(
+            this.collectionDetailReadPort,
+            collection,
+            input,
+        );
         const holders = this.collectionDetailReadPort.listCollectionHolders({
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             limit: input.limit,
-            cursor: input.cursor,
+            cursor: unwrapCatalogCursor(input.cursor, traitContext),
         });
 
         return {
             chain,
             collection,
-            holders,
+            holders: wrapCatalogPage(holders, traitContext),
         };
     }
 }

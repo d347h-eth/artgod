@@ -1,3 +1,9 @@
+import { resolveEffectiveNativeTraits, TRAIT_CATALOG } from '@artgod/shared/types/trait-catalog';
+import {
+	selectedCollectionScope,
+	type CatalogScope,
+	type CollectionViewPage
+} from '$lib/collection-view';
 import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import { isTradingNumericTraitRange } from '@artgod/shared/types';
 import type {
@@ -82,6 +88,9 @@ export type BiddingAutomationDraftTargetType =
 
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
+	catalogScope?: CatalogScope;
+	// A derived filter remains usable for browsing when its full native predicate cannot be expressed.
+	nativeSelection?: ApiTokenAttribute[] | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: BiddingAutomationTraitAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
@@ -123,6 +132,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 
 // Builds a bidding filter snapshot by injecting backend-declared trait bidding support from facets.
 export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
+	collectionView?: CollectionViewPage | null;
 	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: ApiTokenAttribute[];
 	facets: ApiTraitFacet[];
@@ -135,7 +145,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
-	return buildBiddingAutomationTokenFilterSnapshot({
+	const snapshot = buildBiddingAutomationTokenFilterSnapshot({
 		source: params.source,
 		selectedTraits: resolveBiddingAutomationTraitAttributes({
 			selectedTraits: params.selectedTraits,
@@ -150,6 +160,29 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		ownStateFilter: params.ownStateFilter,
 		priceTierFilter: params.priceTierFilter
 	});
+	if (!params.collectionView) return snapshot;
+	const view = selectedCollectionScope(params.collectionView);
+	if (!view) {
+		// Whole-collection filters have no pin. Every selected canonical pair must still bind.
+		snapshot.nativeSelection = resolveEffectiveNativeTraits({
+			catalog: TRAIT_CATALOG.Canonical,
+			traits: params.selectedTraits,
+			facets: params.facets
+		});
+	} else if ('groupId' in view) {
+		// A group can scope an exact-token batch, but its union of blocks has no native trait pin.
+		snapshot.catalogScope = view;
+		snapshot.nativeSelection = null;
+	} else {
+		snapshot.catalogScope = { id: view.id, generation: view.generation };
+		snapshot.nativeSelection = resolveEffectiveNativeTraits({
+			catalog: TRAIT_CATALOG.Derived,
+			pinned: view.pinnedTraits,
+			traits: params.selectedTraits,
+			facets: params.facets
+		});
+	}
+	return snapshot;
 }
 
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
@@ -172,6 +205,7 @@ export type BiddingAutomationFilteredTokenSelection = {
 export type BiddingAutomationExplicitTokenSelection = {
 	type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens;
 	tokenIds: string[];
+	catalogScope?: CatalogScope;
 };
 
 // Represents a bid-book row selected as the template for a bidding draft.
@@ -185,6 +219,17 @@ export type BiddingAutomationSelection =
 	| BiddingAutomationFilteredTokenSelection
 	| BiddingAutomationExplicitTokenSelection
 	| BiddingAutomationSelectedBidSelection;
+
+// The originating browse scope fences token selection, independently of native job identity.
+export function biddingSelectionCatalogScope(
+	selection: BiddingAutomationSelection
+): CatalogScope | undefined {
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens)
+		return selection.filter.catalogScope;
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens)
+		return selection.catalogScope;
+	return undefined;
+}
 
 // Describes the durable job target that a UI selection is currently drafting.
 export type BiddingAutomationDraftTarget =
@@ -504,7 +549,26 @@ export function marketplaceBiddingSupportedTraits(
 		}));
 }
 
+// Finite token lists and numeric criteria cannot be expressed by the exact-trait job contract.
+export function canDraftNativeBidScope(scope: ApiBiddingBidBookRow['scope']): boolean {
+	return (
+		scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.TokenSet &&
+		(scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token ||
+			!scope.encodedTokenIds ||
+			scope.encodedTokenIds === '*') &&
+		!scope.traits.some(isTradingNumericTraitRange)
+	);
+}
+
+export function canDraftCollectionBid(bid: ApiBiddingBidBookRow): boolean {
+	return (
+		bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection &&
+		canDraftNativeBidScope(bid.scope)
+	);
+}
+
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
+	if (!canDraftNativeBidScope(bid.scope)) return null;
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
@@ -513,7 +577,6 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 	}
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
 		const traits = bid.scope.traits.filter((trait) => !isTradingNumericTraitRange(trait));
-		if (traits.length !== bid.scope.traits.length) return null;
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: traits.map((trait) => ({
@@ -566,6 +629,31 @@ function resolveDraftTargetFromSelection(
 
 	if (
 		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
+		selection.filter.nativeSelection !== undefined
+	) {
+		const native = selection.filter.nativeSelection;
+		if (
+			!native ||
+			!canDraftTraitJobFromFilters({
+				selectedTraits: native,
+				selectedTraitRanges: selection.filter.selectedTraitRanges
+			})
+		) {
+			return {
+				type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+				traits: selection.filter.selectedTraits,
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+			};
+		}
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: native,
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+		};
+	}
+
+	if (
+		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
 		canDraftTraitJobFromFilters({
 			selectedTraits: selection.filter.selectedTraits,
 			selectedTraitRanges: selection.filter.selectedTraitRanges
@@ -602,6 +690,16 @@ export function canSubmitFilteredTokenBatch(draft: BiddingAutomationDraft): bool
 }
 
 // Allows trait-job drafting only for exact trait criteria that OpenSea can target directly.
+export function canDraftTraitJobFromSnapshot(
+	filter: BiddingAutomationTokenFilterSnapshot
+): boolean {
+	return canDraftTraitJobFromFilters({
+		selectedTraits:
+			filter.nativeSelection === undefined ? filter.selectedTraits : (filter.nativeSelection ?? []),
+		selectedTraitRanges: filter.selectedTraitRanges
+	});
+}
+
 export function canDraftTraitJobFromFilters(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];

@@ -43,7 +43,7 @@ export class UpsertTokenBiddingJobUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getNativeTokenIdentity(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -74,7 +74,7 @@ export class UpsertTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before mutating its job.
-        const token = await this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getNativeTokenIdentity({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,
@@ -101,9 +101,8 @@ export class UpsertTokenBiddingJobUseCase {
             pricingSource: pricing.pricingSource,
         };
         // Persist the desired job state and enqueue the matching Outbox command.
-        const result = this.biddingJobsRepositoryPort.upsertTokenJob(
-            persistedInput,
-        );
+        const result =
+            this.biddingJobsRepositoryPort.upsertTokenJob(persistedInput);
         // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,

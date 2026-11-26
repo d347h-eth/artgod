@@ -1,3 +1,8 @@
+import { resolveBatchTraitScope } from "./batch-token-bidding-job-selection.js";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+} from "../collections/collection-views.js";
 import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
 import type { BiddingJobsRepositoryPort } from "./ports.js";
 import { type BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
@@ -11,7 +16,7 @@ import {
     type BiddingJobView,
 } from "./types.js";
 
-export type LookupBatchTokenBiddingJobsInput = {
+export type LookupBatchTokenBiddingJobsInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     includeOwnJobContext: boolean;
@@ -35,12 +40,13 @@ export class LookupBatchTokenBiddingJobsUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: BatchTokenBiddingJobSelectionTokenReadPort & {
-            resolveCollectionRef(
-                chainId: number,
-                collectionRef: string,
-            ): CollectionListItem;
-        },
+        readonly collectionReadPort: CatalogScopeReadPort &
+            BatchTokenBiddingJobSelectionTokenReadPort & {
+                resolveCollectionRef(
+                    chainId: number,
+                    collectionRef: string,
+                ): CollectionListItem;
+            },
         readonly bidBookRepositoryPort: Pick<
             BiddingBidBookRepositoryPort,
             "listCollectionBidBook"
@@ -63,11 +69,17 @@ export class LookupBatchTokenBiddingJobsUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, selection } = resolveBatchTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+        );
         const tokenIds = resolveBatchTokenBiddingJobSelectionTokenIds({
+            traitContext,
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             includeOwnJobContext: input.includeOwnJobContext,
-            selection: input.selection,
+            selection,
             collectionReadPort: this.collectionReadPort,
             bidBookRepositoryPort: this.bidBookRepositoryPort,
         });

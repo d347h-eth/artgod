@@ -28,6 +28,31 @@ describe("PublicCollectionDetailCache", () => {
         vi.useRealTimers();
     });
 
+    it("caches the collection-wide default and bypasses parent and leaf reads", async () => {
+        const inner = { getCollectionDetail: vi.fn(() => createOutput()) };
+        const warmup = { warmTokenPreviews: vi.fn() };
+        const input = createInput();
+        const cache = new PublicCollectionDetailCache(
+            inner,
+            { ...createDefaultMediaModePort(), requiresView: () => true },
+            warmup,
+            {
+                defaultInput: input,
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+        );
+        const all = await cache.getCollectionDetail(input);
+        for (const scope of [{ viewGroup: "group" }, { view: "leaf" }]) {
+            expect(
+                await cache.getCollectionDetail({ ...input, ...scope }),
+            ).not.toBe(all);
+        }
+        expect(await cache.getCollectionDetail(input)).toBe(all);
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(3);
+        expect(warmup.warmTokenPreviews).not.toHaveBeenCalled();
+    });
+
     it("fills the public default page cache on the first eligible request", async () => {
         const output = createOutput();
         const inner = {

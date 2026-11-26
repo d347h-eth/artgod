@@ -1,4 +1,5 @@
 <script lang="ts">
+	import BidBookViewMatch from '$lib/components/BidBookViewMatch.svelte';
 	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 	import { BID_BOOK_ROWS_TABLE_SCOPE_KIND, type BidBookRowsTableRow } from '$lib/bid-book-view-models';
 	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
@@ -128,11 +129,13 @@
 						/>
 						{#if showScope}
 							<td class="bid-book-col-center">
+								<BidBookViewMatch applicability={row.bid.scope.viewApplicability} />
 								{#if row.scope.kind === BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits}
 									<div class="bid-book-demand-group-header bid-book-row-scope-header">
 										<span class="bid-book-demand-group-title">
 											<BidBookTraitList
 												traits={row.scope.traits}
+												browseCriterion={row.scope.browseCriterion}
 												traitValueHref={row.scope.traitValueHref}
 											/>
 										</span>

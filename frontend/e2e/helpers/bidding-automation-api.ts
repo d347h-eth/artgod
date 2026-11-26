@@ -1,5 +1,6 @@
 import type { Page, Request } from 'playwright/test';
-import type { ApiBiddingJob } from '../../src/lib/api-types';
+import { buildCollectionViewsPath } from '@artgod/shared/http/collection-routes';
+import type { ApiBiddingJob, ApiCollection } from '../../src/lib/api-types';
 import {
 	buildCompetitionPresetsPath,
 	buildCompetitionPresetReapplyPreviewPath,
@@ -64,7 +65,11 @@ const BIDDING_E2E_API_PATH_SUFFIX = {
 // Captures bidding write calls while returning deterministic API responses to the real UI.
 export async function installBiddingAutomationApiMock(
 	page: Page,
-	options: { competitionReapply?: boolean } = {}
+	options: {
+		competitionReapply?: boolean;
+		bidBookCollection?: ApiCollection;
+		collectionBidBookFixture?: typeof buildBiddingE2eCollectionBiddingData;
+	} = {}
 ): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
 	const reapplyFixture = options.competitionReapply
@@ -111,6 +116,20 @@ export async function installBiddingAutomationApiMock(
 			activeScenario = scenario;
 		}
 	});
+
+	const viewsPath = buildCollectionViewsPath(BIDDING_E2E_CHAIN.slug, BIDDING_E2E_COLLECTION.slug);
+	await page.route(
+		(url) => url.pathname === viewsPath,
+		(route) =>
+			route.fulfill({
+				json: {
+					collection: BIDDING_E2E_COLLECTION,
+					required: false,
+					selectedViewId: null,
+					views: []
+				}
+			})
+	);
 
 	await page.route('**/api/security/csrf', async (route) => {
 		await route.fulfill({
@@ -223,7 +242,14 @@ export async function installBiddingAutomationApiMock(
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify(bidBookResponse(url, searchParams))
+				body: JSON.stringify(
+					bidBookResponse(
+						url,
+						searchParams,
+						options.bidBookCollection,
+						options.collectionBidBookFixture
+					)
+				)
 			});
 			return;
 		}
@@ -589,22 +615,27 @@ function jobResponse(input: {
 	};
 }
 
-function bidBookResponse(url: URL, searchParams: URLSearchParams): unknown {
+function bidBookResponse(
+	url: URL,
+	searchParams: URLSearchParams,
+	collection?: ApiCollection,
+	collectionFixture = buildBiddingE2eCollectionBiddingData
+): unknown {
 	const tokenId = tokenIdFromTokenScopedBiddingPath(url.pathname);
 	if (tokenId) {
 		const data = buildBiddingE2eTokenDetailData(tokenId, searchParams);
 		return {
 			chain: data.chain,
-			collection: data.collection,
+			collection: collection ?? data.collection,
 			tokenId: data.token.tokenId,
 			bidBook: data.tokenBiddingBidBook
 		};
 	}
 
-	const data = buildBiddingE2eCollectionBiddingData(searchParams);
+	const data = collectionFixture(searchParams);
 	return {
 		chain: data.chain,
-		collection: data.collection,
+		collection: collection ?? data.collection,
 		media: data.media,
 		scopeFilter: data.bidScope,
 		traits: {

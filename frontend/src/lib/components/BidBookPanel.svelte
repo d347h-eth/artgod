@@ -1,9 +1,18 @@
 <script lang="ts">
+	import { canDraftCollectionBid, canDraftNativeBidScope } from '$lib/bidding-automation';
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { createNativeTraitPresentation } from '@artgod/shared/types/trait-catalog';
+	import { selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
 	import {
 		formatTradingTraitCriterionLabel,
 		isTradingNumericTraitRange
 	} from '@artgod/shared/types';
-	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
+	import {
+		bidBookCriteriaToBrowseFilters,
+		trimBidBookTraitText,
+		type BidBookScopeTraits,
+		type BidBookTraitValueHref
+	} from '$lib/bidding-bid-book-display';
 	import type { Component, Snippet } from 'svelte';
 	import { BID_BOOK_FILTER_ALL_LABEL } from '$lib/bid-book-view-models';
 	import type {
@@ -16,7 +25,8 @@
 	import {
 		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
-		TRADING_BIDDING_BID_SCOPE_KIND
+		TRADING_BIDDING_BID_SCOPE_KIND,
+		TRADING_BIDDING_BID_SCOPE_LABEL
 	} from '@artgod/shared/types';
 	import {
 		formatCompactTime,
@@ -41,14 +51,14 @@
 		biddingBidBookGroupKey,
 		canonicalBiddingBidBookTraits
 	} from '@artgod/shared/trading/bid-book-groups';
-	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
-	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
 	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
 	import BidBookRowsTable from '$lib/components/BidBookRowsTable.svelte';
 	import BidBookTraitDemandTable from '$lib/components/BidBookTraitDemandTable.svelte';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
+
+	const collectionViewPage = useCollectionView();
 
 	type BidBookTimeMode = CompactTimeDisplayMode;
 	type BidBookPanelView = 'rows' | 'trait-demand';
@@ -82,6 +92,7 @@
 
 	let {
 		bidBook,
+		traitBindings = [],
 		job = null,
 		nextUpdateAtMs = null,
 		showScope = false,
@@ -104,6 +115,7 @@
 		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
+		traitBindings?: Parameters<typeof createNativeTraitPresentation>[0];
 		job?: ApiBiddingJob | null;
 		nextUpdateAtMs?: number | null;
 		showScope?: boolean;
@@ -306,8 +318,16 @@
 	}
 
 	function formatScope(bid: ApiBiddingBidBookRow): string {
-		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+		if (canDraftCollectionBid(bid)) {
 			return 'C';
+		}
+		if (
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet ||
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection
+		) {
+			return trimBidBookTraitText(
+				`${TRADING_BIDDING_BID_SCOPE_LABEL.TokenSet} ${bid.scope.encodedTokenIds ?? ''}`
+			);
 		}
 		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 			return `#${bid.scope.tokenId}`;
@@ -329,16 +349,26 @@
 		return bid.scope.label || formatScope(bid);
 	}
 
-	function demandDisplayTraits(
-		group: BidBookDemandGroup
-	): ApiBiddingBidBookRow['scope']['traits'] {
-		return sortDemandTraitsForDisplay(group.traits, activeDemandTraitKey);
+	// Aggregate views browse canonical traits directly. Only a derived leaf needs reverse bindings.
+	const presentation = $derived(
+		selectedCollectionView(collectionViewPage())
+			? createNativeTraitPresentation(traitBindings)
+			: null
+	);
+
+	function browseCriterion(trait: BidBookScopeTraits[number]): BidBookScopeTraits[number] | null {
+		if (!presentation) return trait;
+		if (isTradingNumericTraitRange(trait)) {
+			const key = presentation.key(trait.type);
+			return key ? { ...trait, type: key } : null;
+		}
+		const value = presentation.value({ key: trait.type, value: trait.value });
+		return value ? { type: value.key, value: value.value } : null;
 	}
 
-	function bidScopeDisplayTraits(
-		bid: ApiBiddingBidBookRow
-	): ApiBiddingBidBookRow['scope']['traits'] {
-		return sortDemandTraitsForDisplay(bid.scope.traits, activeDemandTraitKey);
+	function browseTraits(traits: BidBookScopeTraits): BidBookScopeTraits | null {
+		const mapped = traits.map(browseCriterion);
+		return mapped.every((trait) => trait !== null) ? mapped : null;
 	}
 
 	function makerHref(bid: ApiBiddingBidBookRow): string | null {
@@ -350,6 +380,7 @@
 			makerBidHref?.(bid) ??
 			makerFilterHref?.(makerAddress) ??
 			buildOwnerTokensHref({
+				catalogScope: selectedCollectionScope(collectionViewPage()),
 				basePath: joinPath(basePath, `holders/${encodeURIComponent(makerAddress)}`),
 				selectedTraits: [],
 				selectedTraitRanges: [],
@@ -434,19 +465,23 @@
 	function shouldShowTraitFilterAction(
 		traits: ApiBiddingBidBookRow['scope']['traits']
 	): boolean {
-		return (
-			!!onFilterTraitDemandGroup &&
-			(traits.length > 1 || traits.some(isTradingNumericTraitRange)) &&
-			bidBookCriteriaToBrowseFilters(traits) !== null
-		);
+		if (
+			!onFilterTraitDemandGroup ||
+			(traits.length <= 1 && !traits.some(isTradingNumericTraitRange))
+		) {
+			return false;
+		}
+		const mapped = browseTraits(traits);
+		return mapped !== null && bidBookCriteriaToBrowseFilters(mapped) !== null;
 	}
 
 	function filterTraits(traits: ApiBiddingBidBookRow['scope']['traits'], label: string): void {
-		if (!onFilterTraitDemandGroup) {
+		const mapped = browseTraits(traits);
+		if (!onFilterTraitDemandGroup || !mapped) {
 			return;
 		}
 		void onFilterTraitDemandGroup({
-			traits,
+			traits: mapped,
 			label
 		});
 	}
@@ -458,7 +493,7 @@
 	function canSelectBidRow(bid: ApiBiddingBidBookRow): boolean {
 		return (
 			!!onSelectBid &&
-			!bid.scope.traits.some(isTradingNumericTraitRange) &&
+			canDraftNativeBidScope(bid.scope) &&
 			(canSelectBid?.(bid) ?? true)
 		);
 	}
@@ -506,7 +541,7 @@
 				const activeBids = sortedBids.filter((bid) => !isMutedBidForBest(bestBid, bid));
 				return {
 					key,
-					label: formatDemandTraits(traits, null),
+					label: traits.map(formatTradingTraitCriterionLabel).join(' + '),
 					traits,
 					bids: sortedBids,
 					bestBid,
@@ -543,18 +578,8 @@
 	}
 
 	function demandGroupTraitKeys(traits: ApiBiddingBidBookRow['scope']['traits']): string[] {
-		return [...new Set(traits.map((trait) => trait.type))].sort((left, right) =>
-			left.localeCompare(right)
-		);
-	}
-
-	function formatDemandTraits(
-		traits: ApiBiddingBidBookRow['scope']['traits'],
-		primaryTraitKey: string | null
-	): string {
-		return sortDemandTraitsForDisplay(traits, primaryTraitKey)
-			.map(formatTradingTraitCriterionLabel)
-			.join(' + ');
+		const keys = traits.map((trait) => (browseCriterion(trait) ?? trait).type);
+		return [...new Set(keys)].sort((left, right) => left.localeCompare(right));
 	}
 
 	function sortDemandTraitsForDisplay(
@@ -564,7 +589,9 @@
 		if (primaryTraitKey === null) {
 			return traits;
 		}
-		return [...traits].sort((left, right) => {
+		return [...traits].sort((leftNative, rightNative) => {
+			const left = browseCriterion(leftNative) ?? leftNative;
+			const right = browseCriterion(rightNative) ?? rightNative;
 			const leftPrimary = left.type === primaryTraitKey;
 			const rightPrimary = right.type === primaryTraitKey;
 			if (leftPrimary !== rightPrimary) {
@@ -864,7 +891,8 @@
 			const label = traitScopeLabel(bid);
 			return {
 				kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits,
-				traits: bidScopeDisplayTraits(bid),
+				traits: sortDemandTraitsForDisplay(bid.scope.traits, activeDemandTraitKey),
+				browseCriterion,
 				traitValueHref,
 				showFilterAction: shouldShowTraitFilterAction(bid.scope.traits),
 				filterLabel: `filter ${label}`,
@@ -893,7 +921,8 @@
 				hidden: shouldHideDemandGroup(group),
 				muted: isMutedDemandGroup(group),
 				startsNewGroup: shouldShowDemandGroupSpacer(groups, groupIndex),
-				traits: demandDisplayTraits(group),
+				traits: sortDemandTraitsForDisplay(group.traits, activeDemandTraitKey),
+				browseCriterion,
 				traitValueHref,
 				showFilterAction: shouldShowTraitFilterAction(group.traits),
 				filterLabel: `filter ${group.label}`,

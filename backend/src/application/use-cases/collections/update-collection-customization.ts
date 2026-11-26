@@ -1,3 +1,9 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionCustomization,
@@ -15,7 +21,7 @@ import {
 } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_IMAGE_CACHE_REFRESH_REASON } from "@artgod/shared/media/token-image-cache-jobs";
 
-export type UpdateCollectionCustomizationInput = {
+export type UpdateCollectionCustomizationInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     traitFilterPresentation: {
@@ -55,7 +61,7 @@ export class UpdateCollectionCustomizationUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
@@ -63,10 +69,16 @@ export class UpdateCollectionCustomizationUseCase {
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
+                owner?: string,
+                options?: {
+                    traitContext?: TraitReadContext;
+                    keys?: readonly string[];
+                },
             ): TraitFacet[];
         },
         readonly customizationWritePort: {
             updateTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 selectedSource: CollectionCustomizationSourceKind;
@@ -74,12 +86,14 @@ export class UpdateCollectionCustomizationUseCase {
                 availableTraitKeys?: string[];
             }): CollectionCustomization["traitFilterPresentation"];
             updateTokenCardTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 selectedSource: CollectionCustomizationSourceKind;
                 userConfig: TraitSummaryTemplateConfig;
             }): CollectionCustomization["tokenCardTraitSummaryTemplate"];
             updateActivityRowTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 selectedSource: CollectionCustomizationSourceKind;
@@ -128,8 +142,18 @@ export class UpdateCollectionCustomizationUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, aggregateFacetKeys } = resolveTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+        );
         const traitKeys = this.collectionReadPort
-            .listCollectionTraitFacets(chain.publicChainId, collection.collectionId)
+            .listCollectionTraitFacets(
+                chain.publicChainId,
+                collection.collectionId,
+                undefined,
+                { traitContext, keys: aggregateFacetKeys },
+            )
             .map((facet) => facet.key);
         const previousImageCachePolicy =
             this.customizationWritePort.getImageCachePolicyState({
@@ -138,6 +162,7 @@ export class UpdateCollectionCustomizationUseCase {
             });
         const traitFilterPresentation =
             this.customizationWritePort.updateTraitFilterPresentationState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 selectedSource: input.traitFilterPresentation.selectedSource,
@@ -145,20 +170,28 @@ export class UpdateCollectionCustomizationUseCase {
                 availableTraitKeys: traitKeys,
             });
         const tokenCardTraitSummaryTemplate =
-            this.customizationWritePort.updateTokenCardTraitSummaryTemplateState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                selectedSource: input.tokenCardTraitSummaryTemplate.selectedSource,
-                userConfig: input.tokenCardTraitSummaryTemplate.userConfig,
-            });
+            this.customizationWritePort.updateTokenCardTraitSummaryTemplateState(
+                {
+                    traitContext,
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    selectedSource:
+                        input.tokenCardTraitSummaryTemplate.selectedSource,
+                    userConfig: input.tokenCardTraitSummaryTemplate.userConfig,
+                },
+            );
         const activityRowTraitSummaryTemplate =
-            this.customizationWritePort.updateActivityRowTraitSummaryTemplateState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                selectedSource:
-                    input.activityRowTraitSummaryTemplate.selectedSource,
-                userConfig: input.activityRowTraitSummaryTemplate.userConfig,
-            });
+            this.customizationWritePort.updateActivityRowTraitSummaryTemplateState(
+                {
+                    traitContext,
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    selectedSource:
+                        input.activityRowTraitSummaryTemplate.selectedSource,
+                    userConfig:
+                        input.activityRowTraitSummaryTemplate.userConfig,
+                },
+            );
         const imageCachePolicy =
             this.customizationWritePort.updateImageCachePolicyState({
                 chainId: chain.publicChainId,

@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetTokenPreviewInput,
@@ -34,6 +35,7 @@ export class GetTokenPreviewHttpAdapter {
     ): GetTokenPreviewInput {
         const searchParams = getSearchParams(request);
         return {
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,

@@ -16,7 +16,8 @@ import {
 	publicCollectionTokensPath
 } from '$lib/runtime/public-deployment';
 
-export const load: PageLoad = async ({ fetch, url }) => {
+export const load: PageLoad = async ({ parent, fetch, url }) => {
+	await parent();
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
 	}

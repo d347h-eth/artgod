@@ -55,9 +55,9 @@ __metadata:
     "@elchininet/isometric": "npm:4.0.0"
     "@eslint/compat": "npm:2.1.0"
     "@eslint/js": "npm:10.0.1"
-    "@sveltejs/adapter-node": "npm:6.0.0"
-    "@sveltejs/adapter-static": "npm:4.0.0"
-    "@sveltejs/kit": "npm:3.0.1"
+    "@sveltejs/adapter-node": "npm:6.0.1"
+    "@sveltejs/adapter-static": "npm:4.0.1"
+    "@sveltejs/kit": "npm:3.1.1"
     "@sveltejs/vite-plugin-svelte": "npm:7.1.2"
     "@tailwindcss/forms": "npm:0.5.11"
     "@tailwindcss/typography": "npm:0.5.20"
@@ -1997,27 +1997,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sveltejs/adapter-node@npm:6.0.0":
-  version: 6.0.0
-  resolution: "@sveltejs/adapter-node@npm:6.0.0"
+"@sveltejs/adapter-node@npm:6.0.1":
+  version: 6.0.1
+  resolution: "@sveltejs/adapter-node@npm:6.0.1"
   peerDependencies:
     "@sveltejs/kit": ^3.0.0-next.0
-  checksum: 10/e1b6f41eb5918dc43b153a4c929c2e665020392194f5d982be9ee824afde0ef05e4bd035a99e97e44f64660e211a268cea5613b52447b77bca8b1667ca4bfa12
+  checksum: 10/fc5e796996f311156078e78155713c2b1de812e7357163e99215cef65b76a0ef5cbb569825ad5a4ee3ae7af12a54152d722f203ef2b26b7819ea571d078aab44
   languageName: node
   linkType: hard
 
-"@sveltejs/adapter-static@npm:4.0.0":
-  version: 4.0.0
-  resolution: "@sveltejs/adapter-static@npm:4.0.0"
+"@sveltejs/adapter-static@npm:4.0.1":
+  version: 4.0.1
+  resolution: "@sveltejs/adapter-static@npm:4.0.1"
   peerDependencies:
     "@sveltejs/kit": ^3.0.0-next.0
-  checksum: 10/d18627ea72cebf18e9fd647efc2ff3f6a65932c07c2c0844975480b79e2618d17b19751cb87655e70d859a1d2bf1ad497bad034fd0ba86b985e9543c5ac5f8d4
+  checksum: 10/bad6e6de2ecc5e77e5298013f6601d1fd07f24a3276ee1c1d717d5f0095e6044f3ad6d0a75821269e98a507dc306c742f31a7c9556fb948db1bc050437d2dc9d
   languageName: node
   linkType: hard
 
-"@sveltejs/kit@npm:3.0.1":
-  version: 3.0.1
-  resolution: "@sveltejs/kit@npm:3.0.1"
+"@sveltejs/kit@npm:3.1.1":
+  version: 3.1.1
+  resolution: "@sveltejs/kit@npm:3.1.1"
   dependencies:
     "@rolldown/pluginutils": "npm:^1.0.1"
     "@standard-schema/spec": "npm:^1.1.0"
@@ -2040,7 +2040,7 @@ __metadata:
       optional: true
   bin:
     svelte-kit: svelte-kit.js
-  checksum: 10/291f55bb6c19cd9bc7d4eeb7590d2d44dc049d36e81dbb6f6461ed919bad754039ab909754eba2d913075e59981b38ff474f3ce6223063025b11045385fe8855
+  checksum: 10/7d8891ff3340147669f6d4c75a74ff787fd1c35c232daa27166be6ea4288a02d488dd9795c5511969fb16ca05d6113548675617292240dbd208b5f0599c0662e
   languageName: node
   linkType: hard
 

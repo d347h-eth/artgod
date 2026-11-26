@@ -61,6 +61,28 @@ Agent-specific guidance. Project overview and documentation navigation belong in
 - Prefer cursor/streamed iteration for large datasets; justify large allocations
   with business need or performance evidence.
 
+## Bug triage and fix selection
+
+- Before assigning severity or recommending a merge hold, estimate how often
+  users encounter the failure in normal use. Give the affected share of all
+  requests and of requests on the affected path (or equivalent operations).
+  Estimate how many distinct users encounter it at least once over a stated
+  long-term horizon at realistic traffic and user volumes. Account for repeated
+  failures concentrated on the same users.
+  A forced reproduction establishes the trigger. If field rates are unknown,
+  give a reasoned range or bound where possible and identify the missing inputs.
+- Describe what the user sees, what they can still do, how long the effect
+  lasts, and the action or intervention that restores service. Distinguish a
+  disturbance cleared by the next action from loss of a capability, downtime,
+  or lasting harm such as an incorrect bid or lost data. Use both exposure and
+  consequence to justify urgency. Rare irreversible harm can warrant priority.
+- For a bug that warrants a fix, measure current behavior and credible fixes
+  on the same representative data and workloads before choosing one. Include
+  a narrower remedy when feasible. Exercise both the failure condition and
+  ordinary use. Compare the user-visible improvement and relevant costs such
+  as latency under load, contention, or resource use. Report the tradeoffs
+  and any evidence still missing before recommending a solution.
+
 ## Context and skills
 
 Read only what the current task needs, using these entry points as relevant.

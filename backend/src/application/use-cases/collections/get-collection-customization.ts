@@ -1,3 +1,9 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionCustomization,
@@ -5,7 +11,7 @@ import type {
     TraitFacet,
 } from "@artgod/shared/types";
 
-export type GetCollectionCustomizationInput = {
+export type GetCollectionCustomizationInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
 };
@@ -25,7 +31,7 @@ export class GetCollectionCustomizationUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
@@ -33,19 +39,27 @@ export class GetCollectionCustomizationUseCase {
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
+                owner?: string,
+                options?: {
+                    traitContext?: TraitReadContext;
+                    keys?: readonly string[];
+                },
             ): TraitFacet[];
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 availableTraitKeys?: string[];
             }): CollectionCustomization["traitFilterPresentation"];
             getTokenCardTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): CollectionCustomization["tokenCardTraitSummaryTemplate"];
             getActivityRowTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): CollectionCustomization["activityRowTraitSummaryTemplate"];
@@ -71,22 +85,35 @@ export class GetCollectionCustomizationUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, aggregateFacetKeys } = resolveTraitScope(
+            this.collectionReadPort,
+            collection,
+            input,
+        );
         const traitKeys = this.collectionReadPort
-            .listCollectionTraitFacets(chain.publicChainId, collection.collectionId)
+            .listCollectionTraitFacets(
+                chain.publicChainId,
+                collection.collectionId,
+                undefined,
+                { traitContext, keys: aggregateFacetKeys },
+            )
             .map((facet) => facet.key);
         const traitFilterPresentation =
             this.customizationReadPort.getTraitFilterPresentationState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 availableTraitKeys: traitKeys,
             });
         const tokenCardTraitSummaryTemplate =
             this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             });
         const activityRowTraitSummaryTemplate =
             this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             });

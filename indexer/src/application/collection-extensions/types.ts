@@ -1,3 +1,4 @@
+import type { TraitCatalogMapper } from "@artgod/shared/types/trait-catalog";
 import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
@@ -98,6 +99,7 @@ export type CollectionExtensionArtifactRefreshResult = {
 };
 
 export interface IndexerCollectionExtension {
+    traitCatalog?: TraitCatalogMapper;
     key: CollectionExtensionKey;
     /** Canonical identity lets readiness distinguish token kinds without trusting host labels. */
     isMetadataReady?(target: MetadataTarget, metadata: TokenMetadata): boolean;

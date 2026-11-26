@@ -1,3 +1,4 @@
+import type { CollectionViewStatus, TraitNode } from "./trait-catalog.js";
 import type {
     CollectionExtensionKey,
     CollectionMediaPresentation,
@@ -191,6 +192,7 @@ export const TRAIT_FILTER_QUERY_PARAMS = {
 
 // Names trait-catalog query parameters shared by backend and frontend adapters.
 export const TRAIT_CATALOG_QUERY_PARAMS = {
+    ExactKey: "exact_key",
     Key: "key",
     Keys: "keys",
     ScopeTrait: "scope_trait",
@@ -240,6 +242,8 @@ export type TokenCard = TokenPresentationSummary & {
 };
 
 export type TokenDetailTrait = TraitMarketplaceBiddingSupport & {
+    native?: TraitFilter | null;
+    nativeKey?: string | null;
     key: string;
     value: string;
     tokenCount: number | null;
@@ -254,11 +258,14 @@ export type TokenMediaPreview = {
 
 // Fullscreen token inspection adds normalized traits without detail-page market reads.
 export type TokenPreview = TokenMediaPreview & {
+    // Trait links from a multi-view gallery use the catalog that supplied this token's fields.
+    catalogScope?: Pick<CollectionViewStatus, "id" | "generation">;
     attributes: TokenAttribute[];
     traitSummary: string | null;
 };
 
 export type TokenDetail = TokenMarketplaceBiddingSupport & {
+    traitTree?: TraitNode[] | null;
     tokenId: string;
     name: string | null;
     image: string | null;
@@ -272,16 +279,19 @@ export type TokenDetail = TokenMarketplaceBiddingSupport & {
 };
 
 export type TraitFacetValue = TraitMarketplaceBiddingSupport & {
+    native?: TraitFilter | null;
     value: string;
     tokenCount: number;
 };
 
 export type TraitCatalogFacetValue = {
+    native?: TraitFilter | null;
     value: string;
     tokenCount: number;
 };
 
 export type TraitFacet = {
+    nativeKey?: string | null;
     key: string;
     displayKind: TraitFilterDisplayKind;
     minValue: string | null;
@@ -290,6 +300,7 @@ export type TraitFacet = {
 };
 
 export type TraitCatalogFacet = {
+    nativeKey?: string | null;
     key: string;
     values: TraitCatalogFacetValue[];
 };

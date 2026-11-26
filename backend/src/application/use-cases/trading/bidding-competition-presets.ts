@@ -1,3 +1,7 @@
+import {
+    TRAIT_CATALOG,
+    type TraitReadContext,
+} from "@artgod/shared/types/trait-catalog";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -73,7 +77,10 @@ export class BiddingCompetitionPresetsUseCase {
         readonly targets: TraitBiddingTargetSupportReadPort,
         readonly catalog: {
             listCollectionTraitCatalog(
-                input: CompetitionPresetScope & { keys: string[] },
+                input: CompetitionPresetScope & {
+                    keys: string[];
+                    traitContext?: TraitReadContext;
+                },
             ): { key: string; values: { value: string }[] }[];
         },
         readonly presets: BiddingCompetitionPresetsRepositoryPort,
@@ -122,6 +129,11 @@ export class BiddingCompetitionPresetsUseCase {
         ];
         const facets = this.catalog.listCollectionTraitCatalog({
             ...scope,
+            traitContext: {
+                catalog: TRAIT_CATALOG.Canonical,
+                viewId: null,
+                generation: null,
+            },
             keys: [...new Set(catalogSelectors.map((t) => t.type))],
         });
         if (

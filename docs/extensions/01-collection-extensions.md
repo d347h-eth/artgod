@@ -267,6 +267,8 @@ no age cutoff. Later metadata events or explicit refreshes can reopen it.
 The [111K implementation contract and pilot checklist](03-111k-bootstrap.md)
 record the deployment, tests and remaining user-run mainnet validation.
 
+The installed 111K extension also projects normalized canonical traits into exclusive type and block views. See [collection views and trait catalogs](04-111k-trait-catalogs.md) for lifecycle, API and bidding semantics.
+
 ## Bundled Extension: Terraforms
 
 The Terraforms embedded extension is:

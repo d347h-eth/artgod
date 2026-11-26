@@ -28,6 +28,7 @@ import {
 	BIDDING_AUTOMATION_JOB_QUANTITY,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+	biddingSelectionCatalogScope,
 	buildBiddingJobTargetLookupRequestBody,
 	buildTokenBiddingJobTargetLookupRequestBody,
 	canSubmitFilteredTokenBatch,
@@ -108,6 +109,16 @@ export async function saveBiddingAutomationDraftJobs(
 		return [response.job];
 	}
 
+	const batchSelection = batchTokenSelectionRequestFromDraft(draft);
+	if (batchSelection) {
+		const response = await upsertBatchTokenBiddingJobs(fetchFn, chainRef, collectionRef, {
+			status: nextStatus,
+			...pricing,
+			selection: batchSelection
+		});
+		return response.jobs;
+	}
+
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
 		if (draft.target.tokenIds.length === 1) {
 			const response = await upsertTokenBiddingJob(
@@ -134,22 +145,7 @@ export async function saveBiddingAutomationDraftJobs(
 	}
 
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
-		if (
-			draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens ||
-			!canSubmitFilteredTokenBatch(draft)
-		) {
-			throw new Error('filtered token selection is not available for submit');
-		}
-		const selection = batchTokenSelectionRequestFromFilteredDraft(draft);
-		if (!selection) {
-			throw new Error('filtered token selection is not available for submit');
-		}
-		const response = await upsertBatchTokenBiddingJobs(fetchFn, chainRef, collectionRef, {
-			status: nextStatus,
-			...pricing,
-			selection
-		});
-		return response.jobs;
+		throw new Error('filtered token selection is not available for submit');
 	}
 
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
@@ -193,7 +189,8 @@ export function resolveBiddingAutomationDraftTargetLookupKey(
 	}
 
 	const body = buildBiddingJobTargetLookupRequestBody(draft);
-	return body ? `${chain.slug}:${collection.slug}:${JSON.stringify(body)}` : '';
+	if (!body) return '';
+	return `${chain.slug}:${collection.slug}:${JSON.stringify(batchTokenSelectionRequestFromDraft(draft) ?? body)}`;
 }
 
 // Looks up an existing declared job for a draft before the form decides between create/modify.
@@ -210,6 +207,13 @@ export async function lookupBiddingAutomationDraftTargetJob(
 		return null;
 	}
 
+	const selection = batchTokenSelectionRequestFromDraft(draft);
+	if (selection) {
+		const response = await lookupBatchTokenBiddingJobs(fetchFn, chain.slug, collection.slug, {
+			selection
+		});
+		return response.jobs[0] ?? null;
+	}
 	const response = await lookupBiddingJobTarget(fetchFn, chain.slug, collection.slug, body);
 	return response.job;
 }
@@ -276,7 +280,7 @@ export async function applyBiddingSelectionJobAction(
 export async function lookupBiddingSelectionJobs(
 	input: LookupBiddingSelectionJobsInput
 ): Promise<LookupBiddingSelectionJobsResult> {
-	const batchSelection = batchTokenSelectionRequestFromFilteredDraft(input.draft);
+	const batchSelection = batchTokenSelectionRequestFromDraft(input.draft);
 	if (batchSelection) {
 		const response = await lookupBatchTokenBiddingJobs(
 			input.fetchFn,
@@ -323,10 +327,15 @@ export function resolveBiddingSelectionJobsLookupKey(input: {
 	collection: ApiCollection | null;
 	draft: BiddingAutomationDraft | null;
 }): string {
-	if (!input.chain || !input.collection) {
+	if (
+		!input.chain ||
+		!input.collection ||
+		(input.draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch &&
+			input.draft.target.tokenIds.length === 1)
+	) {
 		return '';
 	}
-	const batchSelection = batchTokenSelectionRequestFromFilteredDraft(input.draft);
+	const batchSelection = batchTokenSelectionRequestFromDraft(input.draft);
 	if (batchSelection) {
 		return `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(batchSelection)}`;
 	}
@@ -377,9 +386,19 @@ export function resolveBiddingSaveMessage(
 	return `${count} jobs saved`;
 }
 
-function batchTokenSelectionRequestFromFilteredDraft(
+function batchTokenSelectionRequestFromDraft(
 	draft: BiddingAutomationDraft | null
 ): BatchTokenBiddingJobSelectionRequest | null {
+	if (draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		const scope = biddingSelectionCatalogScope(draft.source);
+		return scope
+			? {
+					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+					tokenIds: draft.target.tokenIds,
+					catalogScope: scope
+				}
+			: null;
+	}
 	if (
 		!draft ||
 		draft.target.type !== BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch ||
@@ -391,6 +410,9 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
 		return {
 			type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+			...(draft.source.filter.catalogScope
+				? { catalogScope: draft.source.filter.catalogScope }
+				: {}),
 			traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 			traitRanges: draft.source.filter.selectedTraitRanges,
 			traitJoinMode: draft.source.filter.traitJoinMode,
@@ -406,6 +428,7 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	}
 	return {
 		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+		...(draft.source.filter.catalogScope ? { catalogScope: draft.source.filter.catalogScope } : {}),
 		tokenStatus,
 		traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 		traitRanges: draft.source.filter.selectedTraitRanges,

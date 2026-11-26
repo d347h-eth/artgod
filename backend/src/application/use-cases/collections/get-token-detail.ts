@@ -1,3 +1,9 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -17,7 +23,7 @@ import { applyMediaPurposePolicyToTokenMedia } from "./media-purpose-policy.js";
 
 type MaybePromise<T> = T | Promise<T>;
 
-export type GetTokenDetailInput = {
+export type GetTokenDetailInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
@@ -43,12 +49,13 @@ export class GetTokenDetailUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionDetailReadPort: {
+        readonly collectionDetailReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
             getCollectionTokenDetailPresentation(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
@@ -62,6 +69,7 @@ export class GetTokenDetailUseCase {
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 availableTraitKeys?: string[];
@@ -85,11 +93,18 @@ export class GetTokenDetailUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext } = resolveTraitScope(
+            this.collectionDetailReadPort,
+            collection,
+            input,
+            input.tokenRef,
+        );
 
         // Resolve media selection and token presentation against one extension-read context.
         const { media, token } =
             await this.collectionDetailReadPort.getCollectionTokenDetailPresentation(
                 {
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     tokenId: input.tokenRef,
@@ -113,6 +128,7 @@ export class GetTokenDetailUseCase {
                 : token;
         const traitFilterPresentation =
             this.customizationReadPort.getTraitFilterPresentationState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 availableTraitKeys: presentedToken.attributes.map(

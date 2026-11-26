@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import TraitCatalogRebuild from './TraitCatalogRebuild.svelte';
+	import { appendCatalogScope, selectedCollectionScope, selectedCollectionView } from '$lib/collection-view';
 	import {
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
@@ -47,6 +50,8 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+
+	const collectionViewPage = useCollectionView();
 
 	type TraitFilterPresentationState =
 		CollectionCustomizationApiResponse['customization']['traitFilterPresentation'];
@@ -131,8 +136,10 @@
 		return `/${chain.slug}`;
 	}
 
+	const selectedView = $derived(selectedCollectionView(collectionViewPage()));
 	function collectionNavigation() {
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode,
 			mediaPreference,
@@ -528,7 +535,8 @@
 				fetch,
 				chain.slug,
 				collection.slug,
-				buildCustomizationBody()
+				buildCustomizationBody(),
+				appendCatalogScope(new URLSearchParams(), selectedCollectionScope(collectionViewPage()))
 			);
 			applyCustomizationState(response.customization);
 			tokenPreview.invalidateTokenPreviewCache();
@@ -615,6 +623,9 @@
 	{/snippet}
 
 	<section class="customization-panel">
+		{#if selectedView && chain && collection}
+			<TraitCatalogRebuild view={selectedView} chainRef={chain.slug} collectionRef={collection.slug} />
+		{/if}
 		<section class="customization-feature-panel">
 			<header class="panel-header">
 				<div>

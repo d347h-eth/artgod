@@ -1,3 +1,5 @@
+import type { CollectionViewsUseCase } from "./application/use-cases/collections/collection-views.js";
+import { CollectionViewsHttpAdapter } from "./http/handlers/collections/collection-views.js";
 import type { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { InspectBootstrapSampleHttpAdapter } from "./http/handlers/bootstrap/inspect-bootstrap-sample.js";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -225,6 +227,7 @@ export function createApiApp(
     publicGetSyncBackfillStateUseCase: GetSyncBackfillStatePort | null = null,
     competitionPresetsPort: BiddingCompetitionPresetsPort | null = null,
     competitionPresetReapplyPort: BiddingCompetitionPresetReapplyPort | null = null,
+    collectionViews: CollectionViewsUseCase | null = null,
 ): FastifyInstance {
     const isPublicSingleCollection = isPublicSingleCollectionDeployment(
         deploymentConfig.mode,
@@ -516,6 +519,12 @@ export function createApiApp(
         competitionPresetReapplyPort
             ? new BiddingCompetitionPresetReapplyHttpAdapter(
                   competitionPresetReapplyPort,
+              )
+            : null,
+        collectionViews
+            ? new CollectionViewsHttpAdapter(
+                  collectionViews,
+                  !isPublicSingleCollection,
               )
             : null,
     );

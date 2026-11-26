@@ -133,6 +133,7 @@
         "test:bidding:attached:artifacts": "yarn workspace @artgod/frontend test:bidding:attached:artifacts",
         "test:bidding:attached:headed:artifacts": "yarn workspace @artgod/frontend test:bidding:attached:headed:artifacts",
         "test:bidding:automation": "yarn workspace @artgod/frontend test:bidding:automation",
+        "test:collection:views": "yarn workspace @artgod/frontend test:collection:views",
         "test:bidding:automation:headed": "yarn workspace @artgod/frontend test:bidding:automation:headed",
         "test:terraforms:media": "yarn workspace @artgod/frontend test:terraforms:media",
         "test:bidding:automation:public": "yarn workspace @artgod/frontend test:bidding:automation:public",

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { appendCatalogScope, selectedCollectionScope } from '$lib/collection-view';
+	import { page } from '$app/state';
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
@@ -104,7 +107,8 @@
 		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
-		canDraftTraitJobFromFilters,
+		canDraftCollectionBid,
+		canDraftTraitJobFromSnapshot,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -159,6 +163,8 @@
 		nextSelectedTraits,
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chain,
@@ -217,7 +223,9 @@
 
 	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
-	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomation = createBiddingAutomationController(() =>
+		selectedCollectionScope(collectionViewPage())
+	);
 	const biddingAutomationState = biddingAutomation.state;
 	let biddingJobsChangeSignal = $state(0);
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
@@ -237,6 +245,11 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeBidBook = $state<ApiBiddingBidBook>(bidBook);
+	const topCollectionBid = $derived(activeBidBook.bids.find(canDraftCollectionBid));
+	const showBidBookScope = $derived(
+		bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection ||
+		activeBidBook.bids.some((bid) => !canDraftCollectionBid(bid))
+	);
 	let activeOwnPriceTierCounts = $state<TradingBiddingBidBookPriceTierCounts | null>(ownPriceTierCounts);
 	let activeOwnBidStateCounts = $state<TradingBiddingBidBookOwnStateCounts | null>(ownBidStateCounts);
 	let activeTokenOfferCardsPage = $state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
@@ -264,6 +277,7 @@
 	// Navigation starts on the first page. Paged reads supply their cursor and
 	// limit explicitly while retaining every current filter.
 	const biddingQueryParams = $derived({
+		catalogScope: selectedCollectionScope(collectionViewPage()),
 		selectedTraits: activeTraits,
 		selectedTraitRanges: activeTraitRanges,
 		bidScope,
@@ -318,12 +332,7 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const canBidOnTraits = $derived(
-		canDraftTraitJobFromFilters({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges
-		})
-	);
+	const canBidOnTraits = $derived(canDraftTraitJobFromSnapshot(currentBiddingFilterSnapshot()));
 	const canRefineTokenSelectionToVisiblePage = $derived(
 		activeTokenOfferCardsPage.totalPages > 1
 	);
@@ -468,6 +477,7 @@
 		const { selectedTraits, selectedTraitRanges, mediaMode, mediaPreference, ...bidding } =
 			biddingQueryParams;
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			mediaMode,
 			mediaPreference,
@@ -524,6 +534,7 @@
 
 	function tokenOfferCardHref(tokenId: string): string {
 		return buildTokenDetailHref({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath,
 			tokenId,
 			mediaMode,
@@ -635,6 +646,10 @@
 
 	function tokenOfferWindowSignature(): string {
 		return buildPaginationWindowSignature([
+			appendCatalogScope(
+				new URLSearchParams(),
+				selectedCollectionScope(collectionViewPage())
+			).toString(),
 			basePath,
 			'token-offers',
 			activeTokenOfferCardsPage.limit,
@@ -900,6 +915,7 @@
 		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
 	} = {}): BiddingAutomationTokenFilterSnapshot {
 		return buildBiddingAutomationResolvedTokenFilterSnapshot({
+			collectionView: collectionViewPage(),
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
 			selectedTraits: params.traits ?? activeTraits,
 			facets,
@@ -959,9 +975,7 @@
 	}
 
 	function placeCollectionBid(): void {
-		const topBid = activeBidBook.bids[0];
-		if (!topBid) return;
-		onBidBookSelectBid(topBid);
+		if (topCollectionBid) onBidBookSelectBid(topCollectionBid);
 	}
 
 	function closeBiddingAutomationPanel(): void {
@@ -1090,9 +1104,10 @@
 
 {#snippet bidBookPanel()}
 	<BidBookPanel
+		traitBindings={facets}
 		bidBook={activeBidBook}
 		nextUpdateAtMs={bidBookNextUpdateAtMs}
-		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		showScope={showBidBookScope}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		ownStateFilterControls={ownStateFilterRow}
 		{showMuted}
@@ -1104,8 +1119,10 @@
 		makerFilterHref={makerFilterHref}
 		onSelectTraitDemandBid={onBidBookTraitDemandBid}
 		onFilterTraitDemandGroup={onBidBookTraitDemandFilter}
-		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
-		showRowActions={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ||
+			bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
+			? null
+			: onBidBookSelectBid}
 		{TraitDemandGroupPreview}
 	/>
 {/snippet}
@@ -1237,7 +1254,7 @@
 						showCollectionAction={biddingSelectionControlPolicy.showCollectionAction}
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
-						collectionActionDisabled={activeBidBook.bids.length === 0}
+						collectionActionDisabled={!topCollectionBid}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}

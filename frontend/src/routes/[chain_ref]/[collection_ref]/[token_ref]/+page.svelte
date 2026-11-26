@@ -1,4 +1,9 @@
 <script lang="ts">
+	import { COLLECTION_CHART_PATH } from '$lib/price-chart/routing';
+	import { useCollectionView } from '$lib/collection-view-context';
+	import {detailTraitTree} from '$lib/trait-tree';
+	import TraitTree from '$lib/components/TraitTree.svelte';
+	import { appendCatalogScope, selectedCollectionView } from '$lib/collection-view';
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { ApiTraitRangeFilter, ApiCollectionBiddingTraitFilterJoinMode } from '$lib/api-types';
 	import { browser } from '$app/env';
@@ -77,6 +82,7 @@
 	} from '$lib/runtime/public-deployment';
 	import { resolveTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 	import {
+		observeTokenImageAspectRatio,
 		resolveTokenMediaAspectRatio,
 		resolveTokenMediaIframeSource,
 		tokenMediaTitle,
@@ -95,6 +101,8 @@
 		type TokenDetailExtensionSection
 	} from '$lib/token-detail-extension-sections';
 	import type { TokenDetailExtensionSectionHrefs } from '$lib/token-detail-extension-sections/types';
+
+	const collectionViewPage = useCollectionView();
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -174,13 +182,13 @@
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
-		const base =
-			data.backPath ??
-			(IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-				? publicCollectionTokensPath()
-				: `/${data.chain.slug}/${data.collection.slug}`);
-		if (data.backQuery) return `${base}?${data.backQuery}`;
-		const query = new URLSearchParams();
+		const base = data.backPath ?? collectionTokensBasePath();
+		// An explicitly saved path with an empty query returns to the collection-wide scope.
+		if (data.backPath || data.backQuery) return withQuery(base, new URLSearchParams(data.backQuery ?? ''));
+		const query = appendCatalogScope(
+			new URLSearchParams(),
+			selectedCollectionView(collectionViewPage())
+		);
 		appendCollectionMediaParams(query, collectionNavigationMediaState());
 		const suffix = query.toString();
 		return suffix ? `${base}?${suffix}` : base;
@@ -189,13 +197,17 @@
 	function holderHref(): string | null {
 		if (!data?.chain || !data.collection || !displayedToken?.currentHolder) return null;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
-			const query = new URLSearchParams();
+			const query = appendCatalogScope(
+				new URLSearchParams(),
+				selectedCollectionView(collectionViewPage())
+			);
 			appendCollectionMediaParams(query, collectionNavigationMediaState());
 			const suffix = query.toString();
 			const path = publicCollectionOwnerTokensPath(displayedToken.currentHolder);
 			return suffix ? `${path}?${suffix}` : path;
 		}
 		return buildOwnerTokensHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
 			selectedTraits: [],
 			selectedTraitRanges: [],
@@ -223,6 +235,7 @@
 
 	function backLabel(): string {
 		if (!data?.chain || !data.collection) return 'back';
+		if (data.backPath?.endsWith('/' + COLLECTION_CHART_PATH)) return 'back to chart';
 		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 			return data.backPath && data.backPath.endsWith('/bidding')
@@ -244,6 +257,7 @@
 		}
 		const bidScope = bidBookScopeForBid(bid);
 		const query = buildCollectionBiddingQuery({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			bidScope,
@@ -296,10 +310,9 @@
 		if (selectedTokenTraitTarget) {
 			return buildTraitBiddingAutomationDraftFromTrait({
 				trait: {
-					key: selectedTokenTraitTarget.key,
-					value: selectedTokenTraitTarget.value,
-					marketplaceBiddingSupported:
-						selectedTokenTraitTarget.marketplaceBiddingSupported
+					key: selectedTokenTraitTarget.native?.key ?? selectedTokenTraitTarget.key,
+					value: selectedTokenTraitTarget.native?.value ?? selectedTokenTraitTarget.value,
+					marketplaceBiddingSupported: selectedTokenTraitTarget.marketplaceBiddingSupported
 				},
 				tokenCount: selectedTokenTraitTarget.tokenCount
 			});
@@ -357,7 +370,8 @@
 	}
 
 	function tokenTraitBidLabel(trait: ApiTokenDetailTrait): string {
-		return `place bid on ${trait.key}=${trait.value}`;
+		const target = trait.native ?? trait;
+		return `place bid on ${target.key}=${target.value}`;
 	}
 
 	async function onBidBookTraitFilter(selection: {
@@ -382,6 +396,7 @@
 		return {
 			activityExtensionEvent: (event, filters = {}) =>
 				buildCollectionActivityHref({
+					catalogScope: selectedCollectionView(collectionViewPage()),
 					basePath: collectionTokensBasePath(),
 					limit: DEFAULT_PAGE_LIMIT,
 					extensionEvent: event,
@@ -397,6 +412,7 @@
 		};
 	}
 
+	const structuredTraits = $derived(detailTraitTree(displayedToken?.traitTree ?? [], displayedToken?.attributes ?? []));
 	function sortedTraits(): ApiTokenDetailTrait[] {
 		const input = displayedToken?.attributes ?? [];
 		return [...input].sort((a, b) => {
@@ -416,30 +432,10 @@
 	}
 
 	$effect(() => {
-		const imageUrl = displayedToken?.image?.trim() ?? '';
 		displayedMediaAspectRatio = null;
-		if (!browser || !imageUrl) return;
-
-		let cancelled = false;
-		const probe = new Image();
-		probe.referrerPolicy = 'no-referrer';
-		probe.onload = () => {
-			if (cancelled) return;
-			if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
-				displayedMediaAspectRatio = probe.naturalWidth / probe.naturalHeight;
-			}
-		};
-		probe.onerror = () => {
-			if (cancelled) return;
-			displayedMediaAspectRatio = null;
-		};
-		probe.src = imageUrl;
-
-		return () => {
-			cancelled = true;
-			probe.onload = null;
-			probe.onerror = null;
-		};
+		return observeTokenImageAspectRatio(displayedToken?.image, (ratio) => {
+			displayedMediaAspectRatio = ratio;
+		});
 	});
 
 	function tokenMediaSource(token: ApiTokenDetail): TokenMediaIframeSource | null {
@@ -547,6 +543,7 @@
 			: parseCollectionTokenStatus(returnQuery.get('token_status'));
 
 		return buildTokenBrowserHref({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			basePath: collectionTokensBasePath(),
 			limit: parseReturnLimit(returnQuery.get('limit')),
 			displayMode: parseDisplayMode(returnQuery.get('mode')),
@@ -568,6 +565,7 @@
 		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode = COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
 	): string {
 		const query = buildCollectionBiddingQuery({
+			catalogScope: selectedCollectionView(collectionViewPage()),
 			selectedTraits: traits,
 			selectedTraitRanges: traitRanges,
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
@@ -638,11 +636,14 @@
 				data.chain.slug,
 				data.collection.slug,
 				displayedToken.tokenId,
-				buildTokenMediaQuery({
-					mediaMode,
-					mediaPreference: displayedMedia.preference,
-					mediaVariant
-				})
+				appendCatalogScope(
+					buildTokenMediaQuery({
+						mediaMode,
+						mediaPreference: displayedMedia.preference,
+						mediaVariant
+					}),
+					selectedCollectionView(collectionViewPage())
+				)
 			);
 			if (activeRequestId !== tokenDetailRequestId) return;
 
@@ -694,7 +695,13 @@
 			// Refresh the token-scoped job and bid book together so the panel and rows stay coherent.
 			const [jobResponse, bidBookResponse] = await Promise.all([
 				getTokenBiddingJob(fetch, data.chain.slug, data.collection.slug, activeTokenId),
-				getTokenBiddingBidBook(fetch, data.chain.slug, data.collection.slug, activeTokenId)
+				getTokenBiddingBidBook(
+					fetch,
+					data.chain.slug,
+					data.collection.slug,
+					activeTokenId,
+					appendCatalogScope(new URLSearchParams(), selectedCollectionView(collectionViewPage()))
+				)
 			]);
 			if (
 				tokenBiddingRefreshRequestId !== requestId ||
@@ -743,7 +750,6 @@
 			availableVariants: []
 		};
 	}
-
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -858,7 +864,7 @@
 
 		<div class="token-detail-traits-wrap">
 			{#if sortedTraits().length === 0}
-				<p class="muted">no traits available</p>
+				{#if collectionViewPage() && displayedToken.traitTree == null}<p class="muted">Traits pending</p>{:else if !displayedToken.traitTree?.length}<p class="muted">no traits available</p>{/if}
 			{:else}
 				<table class="token-detail-traits">
 					<thead>
@@ -881,7 +887,7 @@
 											{:else}
 												<span>{trait.value}</span>
 											{/if}
-											{#if shouldShowTokenBiddingAutomation()}
+											{#if shouldShowTokenBiddingAutomation() && (!collectionViewPage() || trait.native)}
 												<button
 													type="button"
 													class="bid-book-place-bid-icon-button token-detail-trait-bid-button"
@@ -901,6 +907,11 @@
 					</tbody>
 				</table>
 			{/if}
+			{#if structuredTraits.length}
+				{#key displayedToken.tokenId}
+					<TraitTree nodes={structuredTraits} />
+				{/key}
+			{/if}
 		</div>
 
 		{#if shouldShowTokenBidBook()}
@@ -916,6 +927,9 @@
 				</div>
 			{/if}
 			<BidBookPanel
+				traitBindings={displayedToken.attributes.map((trait) => ({
+					key: trait.key, nativeKey: trait.nativeKey, values: [trait]
+				}))}
 				bidBook={tokenBiddingBidBook}
 				job={tokenBiddingJob}
 				nextUpdateAtMs={tokenBiddingNextUpdateAtMs}

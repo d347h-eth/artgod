@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import { untrack } from 'svelte';
 	import {
 		isConfirmationActionTarget,
@@ -37,6 +39,8 @@
 		validateBiddingDeltaInput
 	} from '$lib/bidding-delta-input';
 	import { TEST_IDS } from '$lib/test-ids';
+
+	const collectionViewPage = useCollectionView();
 
 	type EditablePriceTierStatus =
 		| typeof TRADING_JOB_STATUS.Enabled
@@ -452,7 +456,8 @@
 				fetch,
 				chain.slug,
 				collection.slug,
-				tier.tierId
+				tier.tierId,
+				selectedCollectionScope(collectionViewPage())
 			);
 			reapplyTierId = response.tier.tierId;
 			reapplyTierName = response.tier.name;
@@ -622,7 +627,6 @@
 		}
 		armedActionKey = null;
 	}
-
 </script>
 
 <svelte:window onpointerdown={onWindowPointerDown} onfocusin={onWindowFocusIn} />

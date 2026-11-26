@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     PreviewBiddingPriceTierReapplyInput,
@@ -28,6 +29,7 @@ export class PreviewBiddingPriceTierReapplyHttpAdapter {
     ) => {
         return await this.previewBiddingPriceTierReapplyPort.previewBiddingPriceTierReapply(
             {
+                ...catalogRequest(request),
                 chainRef: request.params.chain_ref,
                 collectionRef: request.params.collection_ref,
                 tierId: request.params.tier_id,

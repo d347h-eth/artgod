@@ -2,7 +2,6 @@
 	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import TokenCardTile from './TokenCardTile.svelte';
 	import { getTokenPreviewController } from './token-preview-controller';
-	import { buildTokenDetailHref } from '$lib/token-browser-query';
 	import { buildAskMarketPrice } from '$lib/market-price';
 	import { openseaItemHref } from '$lib/marketplace-links';
 	import type { SaleMedia, SaleMediaLoader, SalePreviewTarget } from '$lib/price-chart/media';
@@ -14,7 +13,7 @@
 		chain,
 		collection,
 		media,
-		basePath
+		saleTokenHref
 	}: {
 		target: SalePreviewTarget;
 		pinned: boolean;
@@ -22,7 +21,7 @@
 		chain: ApiChain;
 		collection: ApiCollection;
 		media: ApiCollectionMediaState;
-		basePath: string;
+		saleTokenHref: (tokenId: string) => string;
 	} = $props();
 	const tokenPreview = getTokenPreviewController();
 	let token = $state.raw<SaleMedia | null>(null);
@@ -89,7 +88,7 @@
 	<div inert={!pinned}>
 	{#if token}
 		<TokenCardTile {chain} {collection} {token} {tokenPreview}
-			href={buildTokenDetailHref({ basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
+			href={saleTokenHref(token.tokenId)}
 			selectedMediaMode={media.selectedMode} availableMediaModes={media.availableModes}
 			mediaPreference={media.preference} marketPrices={ask ? [ask] : []} />
 	{:else}

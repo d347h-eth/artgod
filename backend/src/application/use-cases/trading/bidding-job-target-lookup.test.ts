@@ -9,9 +9,7 @@ import {
     type PersistedBiddingJobRecord,
     type TradingBiddingJobTargetDescriptor,
 } from "@artgod/shared/types";
-import {
-    BiddingJobTargetLookupUseCase,
-} from "./bidding-job-target-lookup.js";
+import { BiddingJobTargetLookupUseCase } from "./bidding-job-target-lookup.js";
 import { TradingValidationError } from "./types.js";
 
 const CHAIN: ChainRecord = {
@@ -40,7 +38,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
         let tokenLookupCalled = false;
         let capturedTarget: TradingBiddingJobTargetDescriptor | null = null;
         const useCase = buildUseCase({
-            getCollectionTokenDetail: ({ tokenId }) => {
+            getNativeTokenIdentity: ({ tokenId }) => {
                 tokenLookupCalled = true;
                 return { tokenId: tokenId.trim() };
             },
@@ -167,7 +165,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
 });
 
 function buildUseCase(params: {
-    getCollectionTokenDetail?: (params: {
+    getNativeTokenIdentity?: (params: {
         chainId: number;
         collectionId: number;
         tokenId: string;
@@ -185,8 +183,9 @@ function buildUseCase(params: {
         },
         {
             resolveCollectionRef: () => COLLECTION,
-            getCollectionTokenDetail:
-                params.getCollectionTokenDetail ?? (({ tokenId }) => ({ tokenId })),
+            getNativeTokenIdentity:
+                params.getNativeTokenIdentity ??
+                (({ tokenId }) => ({ tokenId })),
         },
         {
             findJobByTarget: params.findJobByTarget ?? (() => null),
@@ -195,7 +194,9 @@ function buildUseCase(params: {
 }
 
 function tokenJob(
-    overrides: Partial<Extract<PersistedBiddingJobRecord, { targetKind: "token" }>>,
+    overrides: Partial<
+        Extract<PersistedBiddingJobRecord, { targetKind: "token" }>
+    >,
 ): Extract<PersistedBiddingJobRecord, { targetKind: "token" }> {
     return {
         jobId: "job-token",

@@ -1,3 +1,7 @@
+import {
+    normalizeTraitBiddingTarget,
+    TraitCompetitionValidationError,
+} from "@artgod/shared/trading/trait-competition";
 import type { TradingTraitCriterion } from "@artgod/shared/types";
 import { TradingValidationError } from "./types.js";
 
@@ -37,4 +41,16 @@ export function assertMarketplaceBiddingSupportedTargetTraits(params: {
         throw new TradingValidationError(
             `target trait is not available for marketplace bidding: ${unsupported.type}=${unsupported.value}`,
         );
+}
+
+export function normalizeNativeJobTarget(
+    criteria: TradingTraitCriterion[],
+): TradingTraitCriterion[] {
+    try {
+        return normalizeTraitBiddingTarget(criteria);
+    } catch (error) {
+        if (error instanceof TraitCompetitionValidationError)
+            throw new TradingValidationError(error.message);
+        throw error;
+    }
 }

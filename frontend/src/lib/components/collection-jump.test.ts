@@ -15,12 +15,13 @@ describe('resolveCollectionJumpHref', () => {
 		resolveOwnerRefMock.mockReset();
 	});
 
-	it('keeps token id jumps local', async () => {
+	it('lets a token ID resolve its own view when jumping from another view', async () => {
 		await expect(
 			resolveCollectionJumpHref({
 				fetchFn: fetch,
 				chainRef: 'ethereum',
 				basePath: '/ethereum/terraforms',
+				catalogScope: { id: 'source', generation: 3 },
 				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				value: '5081'
 			})

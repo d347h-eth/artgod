@@ -158,7 +158,7 @@ Token targets:
 Trait targets:
 
 - `bid on traits` creates or updates one trait-scoped collection job from the current trait filter.
-- In trait bid-book view, a bucket-level `bid` action applies that bucket's traits to the filter and drafts the same trait target.
+- In the trait bid book, the bucket’s bid action drafts the original marketplace target. The separate filter action requires the current view to represent every criterion.
 - Trait criteria are canonicalized before persistence so the same key/value set resolves to the same declared job regardless of UI order.
 - OR-mode filter exploration remains a display/search aid; a drafted trait job stores the selected traits as a concrete AND target.
 

@@ -1,3 +1,12 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+    ordinaryViewTraits,
+    wrapCatalogPage,
+    unwrapCatalogCursor,
+} from "../collections/collection-views.js";
 import type {
     ActivityEventMedia,
     ActivityFeedIncludes,
@@ -21,7 +30,7 @@ import {
 } from "./token-presentation-summary.js";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
-export type GetCollectionActivityInput = {
+export type GetCollectionActivityInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     limit: number;
@@ -60,7 +69,7 @@ export class GetCollectionActivityUseCase {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionReadPort: {
+        readonly collectionReadPort: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 collectionRef: string,
@@ -70,6 +79,8 @@ export class GetCollectionActivityUseCase {
                 collectionId: number,
                 owner?: string,
                 options?: {
+                    keys?: readonly string[];
+                    traitContext?: TraitReadContext;
                     rangeOnlyKeys?: string[];
                 },
             ): TraitFacet[];
@@ -82,6 +93,7 @@ export class GetCollectionActivityUseCase {
         },
         readonly activityReadPort: {
             listCollectionActivities(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 limit: number;
@@ -103,6 +115,7 @@ export class GetCollectionActivityUseCase {
         },
         readonly tokenPresentationReadPort: {
             listCollectionTokenCardsByIds(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
@@ -113,6 +126,7 @@ export class GetCollectionActivityUseCase {
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
                 availableTraitKeys?: string[];
@@ -122,6 +136,7 @@ export class GetCollectionActivityUseCase {
                 };
             };
             getActivityRowTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): {
@@ -143,6 +158,15 @@ export class GetCollectionActivityUseCase {
         const collection = this.collectionReadPort.resolveCollectionRef(
             chain.publicChainId,
             input.collectionRef,
+        );
+        const {
+            traitContext,
+            aggregateFacetKeys,
+            view: selectedView,
+        } = resolveTraitScope(this.collectionReadPort, collection, input);
+        const ordinaryTraits = ordinaryViewTraits(
+            selectedView?.pinnedTraits ?? [],
+            input.traits,
         );
         const activityAttributes = {
             [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
@@ -174,17 +198,18 @@ export class GetCollectionActivityUseCase {
             },
             () =>
                 this.activityReadPort.listCollectionActivities({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     limit: input.limit,
-                    cursor: input.cursor,
+                    cursor: unwrapCatalogCursor(input.cursor, traitContext),
                     kind: input.kind,
                     extensionEvent: input.extensionEvent,
                     tokenId: input.tokenId,
                     maker: input.maker,
                     contentHash: input.contentHash,
                     eventGroup: input.eventGroup,
-                    traitFilters: input.traits,
+                    traitFilters: ordinaryTraits,
                     traitRangeFilters: input.traitRanges,
                 }),
         );
@@ -193,6 +218,7 @@ export class GetCollectionActivityUseCase {
             activityAttributes,
             () =>
                 this.customizationReadPort.getTraitFilterPresentationState({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                 }),
@@ -210,6 +236,8 @@ export class GetCollectionActivityUseCase {
                     collection.collectionId,
                     undefined,
                     {
+                        traitContext,
+                        keys: aggregateFacetKeys,
                         rangeOnlyKeys:
                             traitFilterPresentation.effectiveConfig.rangeKeys,
                     },
@@ -225,6 +253,7 @@ export class GetCollectionActivityUseCase {
             () =>
                 this.customizationReadPort.getActivityRowTraitSummaryTemplateState(
                     {
+                        traitContext,
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
                     },
@@ -241,6 +270,7 @@ export class GetCollectionActivityUseCase {
             },
             () =>
                 this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     tokenIds: activityTokenIds,
@@ -272,12 +302,12 @@ export class GetCollectionActivityUseCase {
             chain,
             collection,
             traits: {
-                selected: input.traits,
+                selected: ordinaryTraits,
                 selectedRanges: input.traitRanges,
                 facets,
             },
             media,
-            activities,
+            activities: wrapCatalogPage(activities, traitContext),
             included,
         };
     }

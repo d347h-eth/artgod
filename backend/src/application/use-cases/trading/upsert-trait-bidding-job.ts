@@ -3,10 +3,6 @@ import type {
     CollectionListItem,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
-import {
-    normalizeTraitBiddingTarget,
-    TraitCompetitionValidationError,
-} from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingJobsRepositoryPort,
     UpsertCollectionBiddingJobInput as PersistedUpsertCollectionBiddingJobInput,
@@ -25,6 +21,7 @@ import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-p
 export type { UpsertTraitBiddingJobOutput } from "./types.js";
 
 import {
+    normalizeNativeJobTarget,
     assertMarketplaceBiddingSupportedTargetTraits,
     type TraitBiddingTargetSupportReadPort,
 } from "./trait-bidding-target.js";
@@ -80,23 +77,7 @@ export class UpsertTraitBiddingJobUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        let targetTraits: TradingTraitCriterion[];
-        try {
-            targetTraits = normalizeTraitBiddingTarget(input.targetTraits);
-        } catch (error) {
-            if (error instanceof TraitCompetitionValidationError) {
-                throw new TradingValidationError(error.message);
-            }
-            throw error;
-        }
-        assertMarketplaceBiddingSupportedTargetTraits({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            targetTraits,
-            traitBiddingTargetSupportReadPort:
-                this.traitBiddingTargetSupportReadPort,
-        });
-
+        const targetTraits = normalizeNativeJobTarget(input.targetTraits);
         // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
         const pricing = resolveBiddingJobPricing({
             chainId: chain.publicChainId,
@@ -119,8 +100,17 @@ export class UpsertTraitBiddingJobUseCase {
             competitionPresetVersionId: input.competitionPresetVersionId,
         };
         // Persist the desired trait job and enqueue the matching Outbox command.
-        const result =
-            this.biddingJobsRepositoryPort.upsertCollectionJob(persistedInput);
+        const result = this.biddingJobsRepositoryPort.upsertCollectionJob(
+            persistedInput,
+            () =>
+                assertMarketplaceBiddingSupportedTargetTraits({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    targetTraits,
+                    traitBiddingTargetSupportReadPort:
+                        this.traitBiddingTargetSupportReadPort,
+                }),
+        );
         // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { goto } from '$app/navigation';
@@ -29,7 +31,7 @@
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationDraftFromSelection,
-		canDraftTraitJobFromFilters,
+		canDraftTraitJobFromSnapshot,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -67,6 +69,8 @@
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chain,
@@ -111,7 +115,9 @@
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
-	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomation = createBiddingAutomationController(() =>
+		selectedCollectionScope(collectionViewPage())
+	);
 	const biddingAutomationState = biddingAutomation.state;
 	const tokenPanelBidBook = createTokenBiddingPanelBidBookController();
 	const tokenPanelBidBookState = tokenPanelBidBook.state;
@@ -136,9 +142,7 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const canBidOnTraits = $derived(
-		canDraftTraitJobFromFilters({ selectedTraits, selectedTraitRanges })
-	);
+	const canBidOnTraits = $derived(canDraftTraitJobFromSnapshot(currentBiddingFilterSnapshot()));
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
@@ -195,6 +199,7 @@
 
 	function resetTraitsHref(): string {
 		return buildOwnerTokensHref({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
@@ -207,6 +212,7 @@
 
 	function collectionNavigation() {
 		return buildCollectionNavigation({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: collectionBasePath,
 			mediaMode: media.selectedMode,
 			mediaPreference: media.preference,
@@ -241,13 +247,14 @@
 	): Promise<void> {
 		await goto(
 			buildOwnerTokensHref({
+				catalogScope: selectedCollectionScope(collectionViewPage()),
 				basePath: browserBasePath,
 				limit: tokens.limit,
 				displayMode,
 				selectedTraits: nextTraits,
-					selectedTraitRanges: nextRanges,
-					mediaMode: media.selectedMode,
-					mediaPreference: media.preference
+				selectedTraitRanges: nextRanges,
+				mediaMode: media.selectedMode,
+				mediaPreference: media.preference
 			}),
 			{
 				invalidateAll: true,
@@ -300,6 +307,7 @@
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
 		return buildTokenBrowserBiddingFilterSnapshot({
+			collectionView: collectionViewPage(),
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			facets,
@@ -354,6 +362,7 @@
 
 	function panelBidBookContext() {
 		return {
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			fetchFn: fetch,
 			chain,
 			collection,

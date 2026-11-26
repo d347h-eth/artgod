@@ -1,3 +1,9 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    type CatalogRequest,
+    type CatalogScopeReadPort,
+    resolveTraitScope,
+} from "./collection-views.js";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -17,7 +23,7 @@ import { applyMediaPurposePolicyToTokenMedia } from "./media-purpose-policy.js";
 
 type MaybePromise<T> = T | Promise<T>;
 
-export type GetTokenPreviewInput = {
+export type GetTokenPreviewInput = CatalogRequest & {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
@@ -43,6 +49,7 @@ type CollectionDetailReadPort = {
         collectionRef: string,
     ): CollectionListItem;
     getCollectionTokenPreviewPresentation(params: {
+        traitContext?: TraitReadContext;
         chainId: number;
         collectionId: number;
         tokenId: string;
@@ -64,13 +71,15 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 defaultPublicChainId: number,
             ): ChainRecord;
         },
-        readonly collectionDetailReadPort: CollectionDetailReadPort,
+        readonly collectionDetailReadPort: CatalogScopeReadPort &
+            CollectionDetailReadPort,
         readonly customizationReadPort: {
             getMediaPurposePolicyState(params: {
                 chainId: number;
                 collectionId: number;
             }): MediaPurposePolicyFeatureState;
             getTokenCardTraitSummaryTemplateState(params: {
+                traitContext?: TraitReadContext;
                 chainId: number;
                 collectionId: number;
             }): { effectiveConfig: { template: string } };
@@ -88,10 +97,17 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             chain.publicChainId,
             input.collectionRef,
         );
+        const { traitContext, view } = resolveTraitScope(
+            this.collectionDetailReadPort,
+            collection,
+            input,
+            input.tokenRef,
+        );
         // Resolve media selection and token presentation against one extension-read context.
         const { media, token } =
             await this.collectionDetailReadPort.getCollectionTokenPreviewPresentation(
                 {
+                    traitContext,
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     tokenId: input.tokenRef,
@@ -115,6 +131,7 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 : token;
         const template =
             this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
+                traitContext,
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             }).effectiveConfig.template;
@@ -125,6 +142,7 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 tokenId: presentedToken.tokenId,
                 image: presentedToken.image,
                 animationUrl: presentedToken.animationUrl,
+                ...(view && { catalogScope: { id: view.id, generation: view.generation } }),
                 attributes: token.attributes,
                 traitSummary: renderTraitSummaryTemplate(
                     template,

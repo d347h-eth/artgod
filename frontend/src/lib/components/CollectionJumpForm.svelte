@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import { goto } from '$app/navigation';
 	import { resolveCollectionJumpHref } from '$lib/components/collection-jump';
 	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
+
+	const collectionViewPage = useCollectionView();
 
 	let {
 		chainRef,
@@ -20,6 +24,7 @@
 	async function onSubmit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const href = await resolveCollectionJumpHref({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			fetchFn: fetch,
 			chainRef,
 			basePath,

@@ -1,4 +1,8 @@
 import type {
+    CollectionViewsHttpAdapter,
+    CollectionViewsRoute,
+} from "./http/handlers/collections/collection-views.js";
+import type {
     InspectBootstrapSampleHttpAdapter,
     InspectBootstrapSampleRoute,
 } from "./http/handlers/bootstrap/inspect-bootstrap-sample.js";
@@ -351,6 +355,7 @@ export function registerApiRoutes(
     options: ApiRouteRegistrationOptions,
     competitionPresetsAdapter: BiddingCompetitionPresetsHttpAdapter | null = null,
     competitionPresetReapplyAdapter: BiddingCompetitionPresetReapplyHttpAdapter | null = null,
+    collectionViewsAdapter: CollectionViewsHttpAdapter | null = null,
 ): void {
     const publicCollectionScopeGuard = createPublicCollectionScopeGuard(
         options.publicCollectionScope,
@@ -434,6 +439,15 @@ export function registerApiRoutes(
             spanAttributes: getActivityEventPreviewSpanAttributes,
         },
     );
+    if (collectionViewsAdapter) {
+        registerObservedGet<CollectionViewsRoute>(
+            app,
+            options,
+            COLLECTION_API_ROUTE_TEMPLATE.CollectionViews,
+            collectionViewsAdapter.discover,
+            { preHandler: publicCollectionScopeGuard },
+        );
+    }
     registerObservedGet<GetCollectionTraitCatalogRoute>(
         app,
         options,
@@ -552,6 +566,20 @@ export function registerApiRoutes(
         return;
     }
 
+    if (collectionViewsAdapter) {
+        registerObservedPost<CollectionViewsRoute>(
+            app,
+            options,
+            COLLECTION_API_ROUTE_TEMPLATE.TraitCatalogRebuilds,
+            collectionViewsAdapter.rebuild,
+        );
+        registerObservedGet<CollectionViewsRoute>(
+            app,
+            options,
+            COLLECTION_API_ROUTE_TEMPLATE.TraitCatalogRebuild,
+            collectionViewsAdapter.progress,
+        );
+    }
     registerObservedGet<ListCollectionsRoute>(
         app,
         options,

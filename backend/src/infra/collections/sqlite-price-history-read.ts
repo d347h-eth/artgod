@@ -1,3 +1,8 @@
+import {
+    buildCatalogTokenPredicate,
+    ensureCatalogToken,
+    iterateTraitReadSnapshot,
+} from "@artgod/shared/read-models/trait-catalog";
 import { db } from "@artgod/shared/database";
 import {
     allocateFillPayment,
@@ -56,20 +61,45 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         );
     }
 
-    *iterateObservations(
+    iterateObservations(
         input: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
     ): Iterable<PriceHistoryObservation> {
-        const candidates = resolveTraitFilterTokenCandidates({
+        const traitContext = input.traitContext;
+        if (!traitContext) return this.iterateFills(input);
+        const scope = { ...input, traitContext };
+        return iterateTraitReadSnapshot(scope, () => {
+            if (input.tokenId !== undefined)
+                ensureCatalogToken(scope, input.tokenId);
+            return this.iterateFills(input);
+        });
+    }
+
+    private *iterateFills(
+        input: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
+    ): Iterable<PriceHistoryObservation> {
+        const filters = {
             chainId: input.chainId,
             collectionId: input.collectionId,
-            tokenId: input.tokenId,
             traitFilterGroups: groupTraitFilters(
                 normalizeTraitFilters(input.traits ?? []),
             ),
             traitRangeFilterGroups: groupTraitRangeFilters(
                 normalizeTraitRangeFilters(input.traitRanges ?? []),
             ),
-        });
+        };
+        const scoped = input.traitContext
+            ? buildCatalogTokenPredicate({
+                  ...filters,
+                  traitContext: input.traitContext,
+                  tokenColumnSql: "f.token_id",
+              })
+            : undefined;
+        const candidates = scoped
+            ? { isEmpty: false, tokenIds: null }
+            : resolveTraitFilterTokenCandidates({
+                  ...filters,
+                  tokenId: input.tokenId,
+              });
         if (candidates.isEmpty) return;
         // Indexed chronology reads each attributed item once. Header totals and
         // raw-item offsets already include untracked/cross-collection siblings.
@@ -81,6 +111,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
              WHERE f.chain_id = ? AND f.collection_id = ?
                AND f.block_timestamp >= ? AND f.block_timestamp < ?
                ${input.tokenId === undefined ? "" : "AND f.token_id = ?"}
+               ${scoped ? `AND (${scoped.sql})` : ""}
                ${candidates.tokenIds === null ? "" : "AND f.token_id IN (SELECT value FROM json_each(?))"}
              ORDER BY f.block_timestamp, f.block_number, f.log_index, f.id
              LIMIT ?`,
@@ -93,6 +124,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         ];
         if (input.tokenId !== undefined) args.push(input.tokenId);
         // One binding avoids SQLite's variable limit on large matching token sets.
+        if (scoped) args.push(...scoped.values);
         if (candidates.tokenIds !== null)
             args.push(JSON.stringify(candidates.tokenIds));
         args.push(input.limit);

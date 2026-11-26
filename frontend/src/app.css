@@ -1613,6 +1613,12 @@ th {
 	color: color-mix(in srgb, var(--c-sand) 82%, transparent);
 }
 
+.bid-book-maker-filter-input:focus,
+.collection-view-picker select:focus {
+	outline: none;
+	box-shadow: none;
+}
+
 .bid-book-maker-filter-input[aria-invalid='true'] {
 	border-color: var(--c-pink);
 	color: var(--c-pink);
@@ -1762,26 +1768,22 @@ th {
 
 .facet-column-sticky {
 	position: sticky;
-	top: 0.75rem;
+	top: var(--panel-content-padding);
 	align-self: flex-start;
-	max-height: calc(100vh - 1.5rem);
-	min-height: 0;
 }
 
 .facet-column-sticky .facet-panel {
-	flex: 1 1 auto;
-	min-height: 0;
+	/* Keep a usable scroll target even when the controls fill the initial viewport. */
+	max-height: clamp(
+		6rem,
+		calc(var(--facet-available-height, 100dvh) - var(--panel-content-padding)),
+		var(--facet-height-limit, 100dvh)
+	);
 	overflow-y: auto;
 	overflow-x: hidden;
 	overscroll-behavior: contain;
-	scrollbar-width: none;
-	-ms-overflow-style: none;
-}
-
-.facet-column-sticky .facet-panel::-webkit-scrollbar {
-	width: 0;
-	height: 0;
-	display: none;
+	scrollbar-width: thin;
+	scrollbar-color: var(--c-blue) var(--c-bg);
 }
 
 .facet-panel-controls-row {
@@ -2038,7 +2040,13 @@ th {
 	gap: 0.35rem;
 }
 
+.trait-search-field {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+}
+
 .trait-search-input {
+	grid-area: 1 / 1;
 	width: 100%;
 	font-family: inherit;
 	font-size: 0.78rem;
@@ -2046,6 +2054,18 @@ th {
 	color: var(--c-ice);
 	border: 1px solid var(--c-blue);
 	padding: 0.25rem 0.45rem;
+}
+
+.trait-search-input:not(:placeholder-shown) {
+	padding-inline-end: calc(20px + 0.9rem);
+}
+
+.trait-search-clear {
+	grid-area: 1 / 1;
+	place-self: center end;
+	width: 20px;
+	padding: 0;
+	margin-inline-end: 0.45rem;
 }
 
 .trait-sort-button {
@@ -3491,10 +3511,22 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-detail-traits-wrap {
-	display: flex;
-	justify-content: center;
-	padding: 0 0.75rem;
+	container: token-detail-traits / inline-size;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	justify-items: center;
+	gap: var(--token-detail-section-gap-half);
+	padding-inline: var(--panel-content-padding);
 	margin-block-start: var(--token-detail-section-gap);
+}
+
+.token-detail-traits-wrap > .trait-tree {
+	width: fit-content;
+	max-width: 100%;
+}
+
+.token-detail-traits-wrap > p {
+	text-align: center;
 }
 
 .token-detail-extension-sections {
@@ -3735,6 +3767,7 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-detail-traits {
+	justify-self: center;
 	width: min(820px, 100%);
 	border-collapse: separate;
 	border-spacing: 0;
@@ -3749,6 +3782,22 @@ a.bid-book-own-status:focus-visible {
 .token-detail-traits th {
 	color: var(--c-sand);
 	font-size: 0.7rem;
+}
+
+.token-detail-traits .mono {
+	word-break: normal;
+	overflow-wrap: anywhere;
+}
+
+.token-detail-traits .token-detail-col-right {
+	white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+	.token-detail-traits th,
+	.token-detail-traits td {
+		padding-inline: 0.3rem;
+	}
 }
 
 .token-detail-col-center {
@@ -4869,8 +4918,12 @@ a.bid-book-own-status:focus-visible {
 	.facet-column {
 		position: relative;
 		top: auto;
-		max-height: none;
 		padding: 0;
+	}
+
+	/* In the stacked layout leave space to scroll the results past the filters. */
+	.facet-column-sticky .facet-panel {
+		--facet-height-limit: 65dvh;
 	}
 
 	.facet-panel {

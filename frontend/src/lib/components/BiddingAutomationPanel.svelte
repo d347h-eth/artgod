@@ -965,7 +965,7 @@
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
 			<div>
 				<span class="runtime-k">target</span>
-				<span class="runtime-v mono">{targetLabel()}</span>
+				<span class="runtime-v bidding-target">{targetLabel()}</span>
 			</div>
 			{#if selectedDraftUnsupported}
 				<div>
@@ -1365,3 +1365,9 @@
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.bidding-target {
+		overflow-wrap: anywhere;
+	}
+</style>

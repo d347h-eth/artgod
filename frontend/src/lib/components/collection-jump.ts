@@ -1,3 +1,4 @@
+import { type CatalogScope } from '$lib/collection-view';
 import { resolveOwnerAddressRef } from '$lib/components/owner-ref';
 import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 import { joinPath } from '$lib/route-paths';
@@ -7,6 +8,7 @@ type ResolveCollectionJumpHrefInput = {
 	fetchFn: typeof fetch;
 	chainRef: string;
 	basePath: string;
+	catalogScope?: CatalogScope | null;
 	mediaMode: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	value: string;
@@ -29,7 +31,13 @@ export async function resolveCollectionJumpHref(
 	}
 	const ownerAddress = await resolveOwnerAddressRef(input);
 	return ownerAddress
-		? buildOwnerHref(input.basePath, input.mediaMode, input.mediaPreference ?? null, ownerAddress)
+		? buildOwnerHref(
+				input.basePath,
+				input.mediaMode,
+				input.mediaPreference ?? null,
+				ownerAddress,
+				input.catalogScope
+			)
 		: null;
 }
 
@@ -37,10 +45,12 @@ function buildOwnerHref(
 	basePath: string,
 	mediaMode: string | null,
 	mediaPreference: CollectionMediaPreferenceInput,
-	ownerRef: string
+	ownerRef: string,
+	catalogScope?: CatalogScope | null
 ): string {
 	return buildOwnerTokensHref({
 		basePath: joinPath(basePath, `holders/${encodeURIComponent(ownerRef)}`),
+		catalogScope,
 		selectedTraits: [],
 		selectedTraitRanges: [],
 		mediaMode,

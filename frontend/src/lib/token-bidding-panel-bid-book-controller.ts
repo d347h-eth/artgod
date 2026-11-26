@@ -1,13 +1,10 @@
+import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { get, writable, type Readable } from 'svelte/store';
 import {
 	DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 	type BiddingBidBookLiveRefreshConfig
 } from '@artgod/shared/config/bidding';
-import type {
-	ApiBiddingBidBook,
-	ApiChain,
-	ApiCollection
-} from '$lib/api-types';
+import type { ApiBiddingBidBook, ApiChain, ApiCollection } from '$lib/api-types';
 import { getTokenBiddingBidBook } from '$lib/backend-api';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -22,6 +19,7 @@ import {
 } from '$lib/bidding-live-refresh';
 
 export type TokenBiddingPanelBidBookContext = {
+	catalogScope?: CatalogScope | null;
 	fetchFn: typeof fetch;
 	chain: ApiChain | null;
 	collection: ApiCollection | null;
@@ -79,7 +77,8 @@ export function createTokenBiddingPanelBidBookController(): TokenBiddingPanelBid
 				context.fetchFn,
 				context.chain.slug,
 				context.collection.slug,
-				tokenId
+				tokenId,
+				appendCatalogScope(new URLSearchParams(), context.catalogScope)
 			);
 			if (requestId !== activeRequestId || panelBidBookTokenId(context) !== tokenId) {
 				return;

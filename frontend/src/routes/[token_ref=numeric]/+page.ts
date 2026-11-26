@@ -1,3 +1,4 @@
+import { copyCatalogScope } from '$lib/collection-view';
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getTokenBiddingBidBook, getTokenDetail } from '$lib/backend-api';
@@ -16,7 +17,8 @@ import {
 	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ parent, fetch, params, url }) => {
+	await parent();
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
 	}
@@ -36,13 +38,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
 				params.token_ref,
-				buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant })
+				copyCatalogScope(
+					buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant }),
+					url.searchParams
+				)
 			),
 			getTokenBiddingBidBook(
 				fetch,
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
-				params.token_ref
+				params.token_ref,
+				copyCatalogScope(new URLSearchParams(), url.searchParams)
 			)
 		]);
 		return {

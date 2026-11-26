@@ -1,3 +1,9 @@
+import type { TraitReadContext } from "@artgod/shared/types/trait-catalog";
+import {
+    resolveTraitScope,
+    type CatalogScopeReadPort,
+    type CatalogRequest,
+} from "../collections/collection-views.js";
 import {
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
@@ -29,9 +35,10 @@ import {
     type BiddingJobView,
 } from "./types.js";
 
-export type CompetitionPresetReapplyInput = CompetitionPresetsInput & {
-    presetId: string;
-};
+export type CompetitionPresetReapplyInput = CatalogRequest &
+    CompetitionPresetsInput & {
+        presetId: string;
+    };
 export type ApplyCompetitionPresetReapplyInput =
     CompetitionPresetReapplyInput & {
         expectedRevision: number;
@@ -66,7 +73,10 @@ export type ReapplyCompetitionPresetWriteInput = CompetitionPresetScope & {
 };
 export interface CompetitionPresetReapplyJobsPort {
     listCompetitionPresetJobs(
-        input: CompetitionPresetScope & { presetId: string },
+        input: CompetitionPresetScope & {
+            traitContext?: TraitReadContext;
+            presetId: string;
+        },
     ): PersistedCollectionBiddingJobRecord[];
     getJobById(jobId: string): PersistedBiddingJobRecord | null;
     // Recheck preset and selected job snapshots, including current target
@@ -157,7 +167,7 @@ export class BiddingCompetitionPresetReapplyUseCase {
                 defaultChainId: number,
             ): ChainRecord;
         },
-        readonly collections: {
+        readonly collections: CatalogScopeReadPort & {
             resolveCollectionRef(
                 chainId: number,
                 ref: string,
@@ -176,8 +186,17 @@ export class BiddingCompetitionPresetReapplyUseCase {
         const preset = requireReapplyCompetitionPreset(
             this.presets.getPreset(scope, input.presetId),
         );
+        const traitContext =
+            input.view || input.viewGroup
+                ? resolveTraitScope(this.collections, collection, input)
+                      .traitContext
+                : undefined;
         const jobs = this.jobs
-            .listCompetitionPresetJobs({ ...scope, presetId: preset.presetId })
+            .listCompetitionPresetJobs({
+                ...scope,
+                ...(traitContext ? { traitContext } : {}),
+                presetId: preset.presetId,
+            })
             .map((job) => {
                 let error: string | null = null;
                 try {

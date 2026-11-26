@@ -1,3 +1,4 @@
+import { appendCatalogScope, type CatalogScope } from '$lib/collection-view';
 import { goto } from '$app/navigation';
 import { buildCollectionChartHref } from '$lib/price-chart/routing';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
@@ -41,6 +42,7 @@ import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigati
 
 export type CollectionNavigationState = {
 	basePath: string;
+	catalogScope?: CatalogScope | null;
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	activityEventFeeds?: ApiActivityExtensionEventFeed[];
@@ -70,6 +72,23 @@ export type CollectionNavigationState = {
 	blockspace?: {
 		enabled?: boolean;
 	};
+};
+
+export type CollectionSectionSelection = {
+	activeSection:
+		| 'tokens'
+		| 'activities'
+		| 'holders'
+		| 'bidding'
+		| 'chart'
+		| 'customization'
+		| 'blockspace'
+		| 'extension-page'
+		| null;
+	activeTokenStatus?: CollectionTokenStatus | null;
+	activeActivityKind?: ActivityFeedFilterKind | null;
+	activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
+	activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
 };
 
 export type CollectionRouteTarget = {
@@ -129,6 +148,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		displayMode: tokenDisplayMode,
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
+		catalogScope: state.catalogScope,
 		mediaMode,
 		mediaPreference
 	});
@@ -138,6 +158,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		extensionEvent: activityExtensionEvent,
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
+		catalogScope: state.catalogScope,
 		mediaMode,
 		mediaPreference
 	});
@@ -146,6 +167,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		selectedTraitRanges: state.selectedTraitRanges,
 		bidScope: state.bidding?.bidScope,
 		traitJoinMode: state.bidding?.traitJoinMode,
+		catalogScope: state.catalogScope,
 		mediaMode,
 		mediaPreference,
 		maker: state.bidding?.maker,
@@ -174,6 +196,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	};
 	const extensionPageHref = (target: CollectionExtensionNavigationPageTarget): string => {
 		const query = new URLSearchParams();
+		appendCatalogScope(query, state.catalogScope);
 		appendCollectionMediaParams(query, { mediaMode, mediaPreference });
 		return withQuery(
 			joinPath(
@@ -187,7 +210,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		? withQuery(joinPath(normalizedBasePath, 'bidding'), biddingQuery)
 		: null;
 
-	const holdersQuery = new URLSearchParams();
+	const holdersQuery = appendCatalogScope(new URLSearchParams(), state.catalogScope);
 	appendCollectionMediaParams(holdersQuery, { mediaMode, mediaPreference });
 	const chartQuery = new URLSearchParams(holdersQuery);
 	appendTraitParams(chartQuery, state.selectedTraits);
@@ -215,6 +238,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 				basePath: normalizedBasePath,
 				selectedTraits: state.selectedTraits,
 				selectedTraitRanges: state.selectedTraitRanges,
+				catalogScope: state.catalogScope,
 				mediaMode,
 				mediaPreference
 			}),

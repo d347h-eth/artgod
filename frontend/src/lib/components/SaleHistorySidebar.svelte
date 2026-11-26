@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionScope } from '$lib/collection-view';
 	import { onMount } from 'svelte';
 	import type { ApiCollectionMediaState } from '$lib/api-types';
 	import type { RealizedSale } from '@artgod/shared/types/price-history';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import type { SaleMediaLoader, SalePreviewTarget } from '$lib/price-chart/media';
 	import { blockExplorerTransactionHref } from '$lib/marketplace-links';
-	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 	import { joinPath } from '$lib/route-paths';
 	import {
 		salePriceTitle,
@@ -14,10 +16,13 @@
 		SALE_CURRENCY_LABEL
 	} from '$lib/price-chart/model';
 	import SaleTokenThumbnail from './SaleTokenThumbnail.svelte';
+
+	const collectionViewPage = useCollectionView();
 	let {
 		sales,
 		pinned,
 		clearPin,
+		saleTokenHref,
 		basePath,
 		media,
 		blockExplorer,
@@ -27,6 +32,7 @@
 		sales: RealizedSale[];
 		pinned: boolean;
 		clearPin: () => void;
+		saleTokenHref: (tokenId: string) => string;
 		basePath: string;
 		media: ApiCollectionMediaState;
 		blockExplorer: BlockExplorerConfig;
@@ -59,6 +65,7 @@
 	}
 	function ownerHref(address: string) {
 		return buildOwnerTokensHref({
+			catalogScope: selectedCollectionScope(collectionViewPage()),
 			basePath: joinPath(basePath, 'holders/' + encodeURIComponent(address)),
 			selectedTraits: [],
 			selectedTraitRanges: [],
@@ -82,7 +89,7 @@
 				{@const txHref = blockExplorerTransactionHref(sale.txHash, blockExplorer)}
 				<div class="sale-row" role="row" data-sale-id={sale.id}>
 					<span role="cell"><a class="sale-time" href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={new Date(sale.timestamp * 1000).toISOString()}>{relativeTime(sale.timestamp)}</a></span>
-					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })} {loader} {onpreview} /></span>
+					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={saleTokenHref(sale.tokenId)} {loader} {onpreview} /></span>
 					<span role="cell" class="sale-price" style:--sale-color={`var(--c-${saleActionColor(sale.action)})`}><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={salePriceTitle(sale)}><span class="sale-amount">{salePriceText(sale.unitPrice)}</span><small aria-label={sale.currencySymbol}>{SALE_CURRENCY_LABEL[sale.currencySymbol]}</small></a></span>
 					<span role="cell">{#if sale.seller}<a class="sale-seller" href={ownerHref(sale.seller)} title={sale.seller}>{sale.seller.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 					<span role="cell">{#if sale.buyer}<a class="sale-buyer" href={ownerHref(sale.buyer)} title={sale.buyer}>{sale.buyer.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>

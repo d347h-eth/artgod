@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCollectionView } from '$lib/collection-view-context';
+	import { selectedCollectionView } from '$lib/collection-view';
 	import { tick } from 'svelte';
 	import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 	import type {
@@ -18,6 +20,9 @@
 		type TraitFacetValueSortMode
 	} from '$lib/trait-facet-sorting';
 
+	const collectionViewPage = useCollectionView();
+	const view = $derived(selectedCollectionView(collectionViewPage()));
+
 	type MaybePromise<T> = T | Promise<T>;
 	type TraitRangeDraft = {
 		fromValue: string;
@@ -25,7 +30,7 @@
 	};
 
 	let {
-		facets,
+		facets: catalogFacets,
 		selectedTraits,
 		selectedRanges,
 		collapsed = false,
@@ -56,11 +61,27 @@
 	let traitValueSortMode = $state<Record<string, TraitFacetValueSortMode>>({});
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
 	let openTraitGroups = $state<Record<string, boolean>>({});
-	const traitSearchInputs = new Map<string, HTMLInputElement>();
-	let activeTraitSet = $derived(new Set(selectedTraits.map((item) => `${item.key}:${item.value}`)));
+	const traitSearchInputs = new Map<string | null, HTMLInputElement>();
+	let activeTraitSet = $derived(
+		new Set(selectedTraits.map((item) => JSON.stringify([item.key, item.value])))
+	);
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
 	);
+	// The view picker already owns its exact native criterion. Keep explicit URL filters removable.
+	const facets = $derived.by(() => {
+		const pins = view?.pinnedTraits;
+		if (!pins?.length) return catalogFacets;
+		return catalogFacets.filter((facet) => {
+			if (
+				facet.displayKind !== TRAIT_FILTER_DISPLAY_KIND.Set ||
+				facet.values.length !== 1 ||
+				traitGroupActive(facet.key)
+			) return true;
+			const native = facet.values[0].native;
+			return !native || !pins.some((pin) => pin.key === native.key && pin.value === native.value);
+		});
+	});
 	let rootTraitValueSearchActive = $derived(hasRootTraitValueSearch(rootTraitValueSearch));
 	let hasSearchableFacets = $derived(facets.some(isTraitFacetValueSearchable));
 	let visibleFacets = $derived(
@@ -78,36 +99,23 @@
 		traitRangeDrafts = nextDrafts;
 	});
 
-	function traitId(key: string, value: string): string {
-		return `${key}-${value}`.replace(/\s+/g, '-').toLowerCase();
-	}
-
 	function traitChecked(key: string, value: string): boolean {
-		return activeTraitSet.has(`${key}:${value}`);
+		return activeTraitSet.has(JSON.stringify([key, value]));
 	}
 
-	function onRootTraitSearchInput(event: Event): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-
-		rootTraitValueSearch = target.value;
+	function setTraitSearchValue(key: string | null, value: string): void {
+		if (key === null) {
+			rootTraitValueSearch = value;
+		} else {
+			traitValueSearch = { ...traitValueSearch, [key]: value };
+		}
 	}
 
-	function onTraitSearchInput(key: string, event: Event): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-
-		traitValueSearch = {
-			...traitValueSearch,
-			[key]: target.value
-		};
+	function traitSearchValue(key: string | null): string {
+		return key === null ? rootTraitValueSearch : traitValueSearch[key] ?? '';
 	}
 
-	function traitSearchValue(key: string): string {
-		return traitValueSearch[key] ?? '';
-	}
-
-	function registerTraitSearchInput(node: HTMLInputElement, key: string): { destroy(): void } {
+	function registerTraitSearchInput(node: HTMLInputElement, key: string | null): { destroy(): void } {
 		traitSearchInputs.set(key, node);
 		return {
 			destroy() {
@@ -125,6 +133,8 @@
 			if (!details.open) details.open = true;
 			return;
 		}
+		// Restoring groups after a search can also dispatch toggle. Keep focus in the search field.
+		if (details.open === traitGroupOpen(facet)) return;
 
 		openTraitGroups = {
 			...openTraitGroups,
@@ -135,9 +145,14 @@
 		void focusTraitSearchInput(facet.key);
 	}
 
-	async function focusTraitSearchInput(key: string): Promise<void> {
+	async function focusTraitSearchInput(key: string | null): Promise<void> {
 		await tick();
 		traitSearchInputs.get(key)?.focus();
+	}
+
+	function clearTraitSearch(key: string | null): void {
+		setTraitSearchValue(key, '');
+		void focusTraitSearchInput(key);
 	}
 
 	function traitSortMode(key: string): TraitFacetValueSortMode {
@@ -184,10 +199,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 
-		traitValueSearch = {
-			...traitValueSearch,
-			[key]: rootTraitValueSearch
-		};
+		setTraitSearchValue(key, rootTraitValueSearch);
 		openTraitGroups = { [key]: true };
 		rootTraitValueSearch = '';
 		void focusTraitSearchInput(key);
@@ -200,10 +212,16 @@
 		);
 	}
 
-	function onTraitCheckboxClick(key: string, value: string, event: MouseEvent): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-		void onToggleTrait(key, value, target.checked, event.ctrlKey);
+	function onTraitValueClick(key: string, value: string, event: MouseEvent): void {
+		if (event.button !== 0) return;
+		const checkbox = (event.currentTarget as HTMLLabelElement).control;
+		if (!(checkbox instanceof HTMLInputElement)) return;
+
+		// Checkbox activation (including Space) already flipped checked. A label click has not.
+		const clickedCheckbox = event.target === checkbox;
+		if (!clickedCheckbox) event.preventDefault();
+		checkbox.checked = event.ctrlKey || (clickedCheckbox ? checkbox.checked : !checkbox.checked);
+		void onToggleTrait(key, value, checkbox.checked, event.ctrlKey);
 	}
 
 	function rangeDraft(key: string): TraitRangeDraft {
@@ -279,27 +297,88 @@
 		event.preventDefault();
 		onRangeApplyClick(key);
 	}
+
+	function fitPanelToViewport(panel: HTMLElement) {
+		const viewport = window.visualViewport;
+		let frame = 0;
+
+		function measure() {
+			frame = 0;
+			const viewportTop = viewport?.offsetTop ?? 0;
+			const top = Math.max(0, panel.getBoundingClientRect().top - viewportTop);
+			const available = Math.floor((viewport?.height ?? window.innerHeight) - top);
+			panel.style.setProperty('--facet-available-height', available + 'px');
+		}
+
+		function scheduleMeasure() {
+			if (!frame) frame = requestAnimationFrame(measure);
+		}
+
+		// The collection controls can wrap or grow while the page stays at the same scroll position.
+		const observer = new ResizeObserver(scheduleMeasure);
+		observer.observe(panel.closest('.panel') ?? document.body);
+		measure();
+		window.addEventListener('scroll', scheduleMeasure, { passive: true });
+		window.addEventListener('resize', scheduleMeasure);
+		viewport?.addEventListener('resize', scheduleMeasure);
+		viewport?.addEventListener('scroll', scheduleMeasure);
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+			window.removeEventListener('scroll', scheduleMeasure);
+			window.removeEventListener('resize', scheduleMeasure);
+			viewport?.removeEventListener('resize', scheduleMeasure);
+			viewport?.removeEventListener('scroll', scheduleMeasure);
+		};
+	}
 </script>
+
+{#snippet traitSearchField(key: string | null)}
+	{@const value = traitSearchValue(key)}
+	{@const clearLabel = key === null ? 'clear trait search' : `clear ${key} search`}
+	<div class="trait-search-field">
+		<input
+			class="trait-search-input"
+			type="text"
+			role="searchbox"
+			enterkeyhint="search"
+			aria-label={key === null ? 'search all traits' : `search ${key} values`}
+			placeholder={key === null ? 'search all' : 'search'}
+			{value}
+			use:registerTraitSearchInput={key}
+			oninput={(event) => setTraitSearchValue(key, event.currentTarget.value)}
+			onkeydown={(event) => {
+				if (event.key === 'Escape' && !event.isComposing && value.length > 0) {
+					clearTraitSearch(key);
+				}
+			}}
+		/>
+		{#if value.length > 0}
+			<button
+				type="button"
+				class="facet-panel-action-button facet-reset-button trait-search-clear"
+				title={clearLabel}
+				aria-label={clearLabel}
+				onclick={() => clearTraitSearch(key)}
+			>
+				x
+			</button>
+		{/if}
+	</div>
+{/snippet}
 
 <div class="facet-column" class:facet-column-sticky={sticky && !collapsed}>
 	{#if !collapsed}
-		<aside class="facet-panel">
+		<aside class="facet-panel" {@attach sticky ? fitPanelToViewport : undefined}>
 			<div class="facet-header">
 				<h2>traits</h2>
 			</div>
 
 			{#if facets.length === 0}
-				<p class="muted">no trait facets yet</p>
+				<p class="muted">no trait filters available</p>
 			{:else if hasSearchableFacets}
 				<div class="trait-root-search">
-					<input
-						class="trait-search-input"
-						type="search"
-						aria-label="search all traits"
-						placeholder="search all"
-						value={rootTraitValueSearch}
-						oninput={onRootTraitSearchInput}
-					/>
+					{@render traitSearchField(null)}
 				</div>
 			{/if}
 
@@ -415,14 +494,7 @@
 							{:else}
 								{#if !rootTraitValueSearchActive}
 									<div class="trait-search-row">
-										<input
-											class="trait-search-input"
-											type="search"
-											placeholder="search"
-											value={traitSearchValue(facet.key)}
-											use:registerTraitSearchInput={facet.key}
-											oninput={(event) => onTraitSearchInput(facet.key, event)}
-										/>
+										{@render traitSearchField(facet.key)}
 										<button
 											type="button"
 											class="facet-panel-action-button trait-sort-button"
@@ -439,14 +511,13 @@
 									{#if visibleFacetValues(facet).length === 0}
 										<p class="muted">no matches</p>
 									{:else}
-										{#each visibleFacetValues(facet) as value}
-											<label for={traitId(facet.key, value.value)}>
+										{#each visibleFacetValues(facet) as value (value.value)}
+											<label
+												onclickcapture={(event) => onTraitValueClick(facet.key, value.value, event)}
+											>
 												<input
-													id={traitId(facet.key, value.value)}
 													type="checkbox"
 													checked={traitChecked(facet.key, value.value)}
-													onclick={(event) =>
-														onTraitCheckboxClick(facet.key, value.value, event)}
 												/>
 												<span class="trait-value-text">{value.value}</span>
 												<span class="trait-value-count mono">{value.tokenCount}</span>

@@ -121,6 +121,11 @@ Meaning:
 
 This applies to the media box and to the iframe viewport.
 
+Opening a preview uses the thumbnail’s aspect ratio as an initial size hint.
+During adjacent navigation the displayed artwork keeps its size while the next
+request loads. The new frame then fits the new token’s image dimensions within
+the viewport at the selected scale.
+
 ## Iframe Content Contract
 
 There are two fundamentally different content modes:
@@ -215,10 +220,12 @@ centered media controls. Activity-event previews retain their media-only control
 The initial output uses the effective token-card trait summary template, including
 its line breaks. When that summary has no text, local deployments show a muted
 `customize` link to the token-card template section of collection customization.
+The link opens the template that supplied the preview summary, including the
+token’s block template when browsing the whole collection or a parent group.
 That editor provides compact examples of the supported template syntax. Public
-deployments omit the link because they do not expose the editor. Clicking `traits` cycles
-through the normalized traits in pages of at most 20 key/value pairs, then no
-output, then the summary again. Tokens without traits skip the key/value pages.
+deployments omit the link because they do not expose the editor. Clicking `traits`
+cycles through pages of at most 20 flat key/value pairs,
+then no output, then the summary again. Tokens without traits skip the key/value pages.
 
 The key/value text is one compact column. Keys are cut to 10 Unicode code points
 and values to 15, without ellipses or masks; whitespace within a key or value
@@ -226,6 +233,10 @@ stays on one line. Only values in these pages link to matching collection tokens
 using the complete key/value and current media selection. Values that cannot
 round-trip through the existing trait-filter query grammar remain plain text.
 The template summary has no filter links.
+
+The token-detail page owns the projection tree. Preview requests, including
+adjacent-token prefetches, read the flat trait fields for this overlay.
+Trait links use the catalog that supplied the displayed value.
 
 The intentional hidden mode stays completely empty. Saving customization clears
 the frontend preview cache, including pending prefetches, so the next preview

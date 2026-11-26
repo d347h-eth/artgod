@@ -1,3 +1,4 @@
+import { catalogRequest } from "../../common/trait-catalog-query.js";
 import type { FastifyRequest } from "fastify";
 import type {
     GetTokenUriInput,
@@ -17,7 +18,9 @@ type MaybePromise<T> = T | Promise<T>;
 export class GetTokenUriHttpAdapter {
     constructor(
         readonly getTokenUriPort: {
-            getTokenUri(input: GetTokenUriInput): MaybePromise<GetTokenUriOutput>;
+            getTokenUri(
+                input: GetTokenUriInput,
+            ): MaybePromise<GetTokenUriOutput>;
         },
     ) {}
 
@@ -25,6 +28,7 @@ export class GetTokenUriHttpAdapter {
         request: FastifyRequest<GetTokenUriRoute>,
     ): Promise<GetTokenUriOutput> =>
         this.getTokenUriPort.getTokenUri({
+            ...catalogRequest(request),
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
