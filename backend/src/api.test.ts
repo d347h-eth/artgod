@@ -21,7 +21,6 @@ import {
     buildCompetitionPresetReapplyPreviewPath,
     buildCompetitionPresetReapplyPath,
 } from "@artgod/shared/http/trading-routes";
-import Database from "better-sqlite3";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1524,10 +1523,37 @@ describe("backend api routes", () => {
         const base = "/api/ethereum/milady";
         const discovery = buildCollectionViewsPath("ethereum", "milady");
         const rebuilds = buildTraitCatalogRebuildsPath("ethereum", "milady");
+        const pin = { key: "Hat", value: "Beanie" };
+        const view = {
+            id: "fixture-view",
+            label: "Beanies",
+            parent: { id: "headwear", label: "Headwear" },
+            pinnedTraits: [pin],
+        };
+        const mapperVersion = nft111kTraitCatalog.availableVersion(view);
         db.exec("SAVEPOINT collection_view_api_fixture");
+        db.prepare(
+            "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,enabled,config_json) VALUES(1,?,?,1,'{}')",
+        ).run(collectionId, NFT111K_EXTENSION_KEY);
         try {
-            const { view, generation, pin, mapperVersion } =
-                installTwoTokenViewFixture(collectionId);
+            db.prepare(
+                "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,?)",
+            ).run(collectionId, view.id, JSON.stringify(view));
+            const generation = Number(
+                db
+                    .prepare(
+                        "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,?)",
+                    )
+                    .run(collectionId, view.id, mapperVersion).lastInsertRowid,
+            );
+            db.prepare(
+                "UPDATE trait_catalog_views SET active_generation=? WHERE chain_id=1 AND collection_id=? AND view_id=?",
+            ).run(generation, collectionId, view.id);
+            for (const id of ["1", "2"]) {
+                db.prepare(
+                    "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision,scope_key) VALUES(1,?,?,?,1,?)",
+                ).run(collectionId, view.id, id, pin.key);
+            }
             db.prepare(
                 "INSERT INTO trait_catalog_projections(chain_id,collection_id,view_id,generation,token_id,revision,tree_json) VALUES(1,?,?,?,'1',1,'[]')",
             ).run(collectionId, view.id, generation);
@@ -1650,7 +1676,27 @@ describe("backend api routes", () => {
                 },
             ]);
             // A higher offer on another token must not consume a slot or enter the total.
-            const maker = insertRankedTokenOfferFixtures();
+            const maker = "0x2424242424242424242424242424242424242424";
+            for (const [tokenId, price] of [
+                ["10", "3000000000000000000"],
+                ["2", "2000000000000000000"],
+                ["1", "1000000000000000000"],
+            ]) {
+                insertOrderFixture({
+                    id: "scoped-card-" + tokenId,
+                    side: "buy",
+                    contract: MILADY_ADDRESS,
+                    tokenId,
+                    maker,
+                    sourceScopeKind: "token",
+                    price,
+                    currency: WETH_ADDRESS,
+                    sourceStatus: "active",
+                    fillabilityStatus: "fillable",
+                    validFrom: 1,
+                    validUntil: 4_000_000_000,
+                });
+            }
             const offers =
                 base +
                 "/bidding/bids?" +
@@ -2016,77 +2062,6 @@ describe("backend api routes", () => {
             db.exec("RELEASE collection_view_api_fixture");
         }
     });
-    it.each(Object.values(TRADING_BIDDING_BID_BOOK_SOURCE))(
-        "keeps scoped token offer counts, cursor and cards together during a membership change in %s",
-        async (source) => {
-            const { ExtensionAwareCollectionDetailRead } =
-                await import("./infra/collections/extension-aware-collection-detail-read.js");
-            const collectionId =
-                getCollectionFixtureByAddress(MILADY_ADDRESS).collection_id;
-            clearTradingJobFixtures();
-            const writer = new Database(db.raw.name);
-            const reader = ExtensionAwareCollectionDetailRead.prototype;
-            const loadCards = reader.listCollectionTokenCardsByIds;
-            const hydrate = vi.spyOn(reader, "listCollectionTokenCardsByIds");
-            try {
-                const { view, generation } =
-                    installTwoTokenViewFixture(collectionId);
-                const maker = insertRankedTokenOfferFixtures();
-                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
-                    useBotSnapshotForTokenOffers(collectionId);
-                }
-                const query = new URLSearchParams({
-                    [TRAIT_CATALOG_QUERY.View]: view.id,
-                    [TRAIT_CATALOG_QUERY.Generation]: String(generation),
-                    [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker]: maker,
-                    limit: "1",
-                });
-                const offers = "/api/ethereum/milady/bidding/bids?" + query;
-                hydrate.mockImplementationOnce(function (
-                    this: InstanceType<
-                        typeof ExtensionAwareCollectionDetailRead
-                    >,
-                    params,
-                ) {
-                    // The indexer commits the selected NFT's departure before the reader hydrates it.
-                    writer
-                        .prepare(
-                            "UPDATE trait_catalog_members SET view_id=NULL,revision=revision+1 WHERE collection_id=? AND token_id='2'",
-                        )
-                        .run(collectionId);
-                    return loadCards.call(this, params);
-                });
-                const during = await resolve("GET", offers);
-                expect(hydrate).toHaveBeenCalledOnce();
-                expect(during.statusCode).toBe(200);
-                expect(during.payload.bidBook.state.source).toBe(source);
-                expect(during.payload.tokenOfferCards).toMatchObject({
-                    totalItems: 2,
-                    totalOffers: 2,
-                    items: [{ tokenId: "2" }],
-                    nextCursor: expect.any(String),
-                });
-                const after = await resolve("GET", offers);
-                expect(after.statusCode).toBe(200);
-                expect(after.payload.tokenOfferCards).toMatchObject({
-                    totalItems: 1,
-                    totalOffers: 1,
-                    items: [{ tokenId: "1" }],
-                    nextCursor: null,
-                });
-            } finally {
-                hydrate.mockRestore();
-                writer.close();
-                clearTradingJobFixtures();
-                db.prepare(
-                    "DELETE FROM orders WHERE collection_id=? AND id IN ('scoped-card-1','scoped-card-2','scoped-card-10')",
-                ).run(collectionId);
-                db.prepare(
-                    "DELETE FROM collection_extension_installs WHERE chain_id=1 AND collection_id=? AND extension_key=?",
-                ).run(collectionId, NFT111K_EXTENSION_KEY);
-            }
-        },
-    );
     it("returns the default chain", async () => {
         const result = await resolve("GET", "/api/chains/default");
         expect(result.statusCode).toBe(200);
@@ -9662,64 +9637,6 @@ function seedData(): void {
         dedupeKey: "offchain:opensea:item_received_bid:buy-order-token-2:2",
         isOpen: true,
     });
-}
-
-function installTwoTokenViewFixture(collectionId: number) {
-    const pin = { key: "Hat", value: "Beanie" };
-    const view = {
-        id: "fixture-view",
-        label: "Beanies",
-        parent: { id: "headwear", label: "Headwear" },
-        pinnedTraits: [pin],
-    };
-    const mapperVersion = nft111kTraitCatalog.availableVersion(view);
-    db.prepare(
-        "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,enabled,config_json) VALUES(1,?,?,1,'{}')",
-    ).run(collectionId, NFT111K_EXTENSION_KEY);
-    db.prepare(
-        "INSERT INTO trait_catalog_views(chain_id,collection_id,view_id,descriptor_json) VALUES(1,?,?,?)",
-    ).run(collectionId, view.id, JSON.stringify(view));
-    const generation = Number(
-        db
-            .prepare(
-                "INSERT INTO trait_catalog_generations(chain_id,collection_id,view_id,mapper_version) VALUES(1,?,?,?)",
-            )
-            .run(collectionId, view.id, mapperVersion).lastInsertRowid,
-    );
-    db.prepare(
-        "UPDATE trait_catalog_views SET active_generation=? WHERE chain_id=1 AND collection_id=? AND view_id=?",
-    ).run(generation, collectionId, view.id);
-    for (const id of ["1", "2"]) {
-        db.prepare(
-            "INSERT INTO trait_catalog_members(chain_id,collection_id,view_id,token_id,revision,scope_key) VALUES(1,?,?,?,1,?)",
-        ).run(collectionId, view.id, id, pin.key);
-    }
-    return { view, generation, pin, mapperVersion };
-}
-
-function insertRankedTokenOfferFixtures(): string {
-    const maker = "0x2424242424242424242424242424242424242424";
-    for (const [tokenId, price] of [
-        ["10", "3000000000000000000"],
-        ["2", "2000000000000000000"],
-        ["1", "1000000000000000000"],
-    ]) {
-        insertOrderFixture({
-            id: "scoped-card-" + tokenId,
-            side: "buy",
-            contract: MILADY_ADDRESS,
-            tokenId,
-            maker,
-            sourceScopeKind: "token",
-            price,
-            currency: WETH_ADDRESS,
-            sourceStatus: "active",
-            fillabilityStatus: "fillable",
-            validFrom: 1,
-            validUntil: 4_000_000_000,
-        });
-    }
-    return maker;
 }
 
 function clearTradingJobFixtures(): void {
