@@ -401,7 +401,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                     chainId: 1,
                     collectionId: id,
                     tokenId,
-                    tokenTraits: [],
+                    readCanonicalTraits: () => [],
                     includeOwnJobContext: false,
                 })
                 .bids.map((row) => [row.orderId, row.lastSeenMs]);
@@ -1465,7 +1465,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 chainId: 1,
                 collectionId,
                 tokenId: "5",
-                tokenTraits: [],
+                readCanonicalTraits: () => [],
                 includeOwnJobContext: false,
             });
         const fresh = read();

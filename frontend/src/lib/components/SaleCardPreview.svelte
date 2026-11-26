@@ -58,12 +58,7 @@
 					lastSeenMs: token.listingLastSeenMs,
 					href: listingHref({
 						venue: token.listingVenue,
-						tokenHref: buildTokenDetailHref({
-							basePath,
-							tokenId: token.tokenId,
-							mediaMode: media.selectedMode,
-							mediaPreference: media.preference
-						}),
+						tokenHref: saleTokenHref(token.tokenId),
 						chainSlug: chain.slug,
 						collectionAddress: collection.address,
 						tokenId: token.tokenId

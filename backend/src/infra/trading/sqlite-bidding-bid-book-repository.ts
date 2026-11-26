@@ -1377,7 +1377,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             values.ownMaker = selection.onlyOwnMaker;
         }
         if (selection.scope) {
-            where += " AND source_scope_kind=@scope";
+            if (selection.scope === INDEXED_ORDER_SOURCE_SCOPE_KIND.Collection) {
+                // A collection view can also contain offers signed for a finite token set.
+                where += " AND source_scope_kind IN (@scope,@tokenSetScope)";
+                values.tokenSetScope = INDEXED_ORDER_SOURCE_SCOPE_KIND.TokenSet;
+            } else {
+                where += " AND source_scope_kind=@scope";
+            }
             values.scope = selection.scope;
         }
         if (selection.tokenId !== undefined) {

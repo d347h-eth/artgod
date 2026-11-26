@@ -635,7 +635,10 @@ export class SqliteCollectionsReadModel {
             };
         };
         return params.traitContext
-            ? withTraitReadSnapshot({ ...params, traitContext: params.traitContext }, read)
+            ? withTraitReadSnapshot(
+                  { ...params, traitContext: params.traitContext },
+                  read,
+              )
             : db.raw.transaction(read)();
     }
 

@@ -312,6 +312,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     traitContext,
                     selectedTraits: nativeSelection.traits,
                     selectedTraitRanges: nativeSelection.traitRanges,
+                    // Catalog membership and the view-specific collection floor must be applied before pagination.
                     ...(input.scopeFilter ===
                         COLLECTION_BIDDING_BID_SCOPE_FILTER.Token &&
                     !traitContext
@@ -609,7 +610,6 @@ export class ListCollectionBiddingBidBookUseCase {
                         attributes,
                         tokenIds,
                         offersByTokenId,
-                        tokenOfferGroupsCount: tokenIds.length,
                     }),
                     prevCursor:
                         offset > 0
