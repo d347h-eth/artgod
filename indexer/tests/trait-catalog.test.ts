@@ -34,7 +34,10 @@ import {
     type TraitCatalogMapper,
 } from "@artgod/shared/types/trait-catalog";
 import type { TraitFilter } from "@artgod/shared/types/browse";
-import { COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    TRADING_BIDDING_BID_SCOPE_KIND,
+} from "@artgod/shared/types";
 import { TOKEN_ATTRIBUTE_SOURCE_KIND } from "@artgod/shared/types/token-attributes";
 import { SqliteCollectionPurgeRepository } from "../../backend/src/infra/collections/sqlite-collection-purge-repository.js";
 import {
@@ -46,6 +49,7 @@ import { SqliteMetadataStore } from "../src/infra/metadata/sqlite-metadata-store
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
 import { SqliteTokenAttributeWriter } from "../src/infra/attributes/sqlite-token-attributes.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
+import { seedNativeTraitBid } from "./fixtures/native-trait-bid.js";
 import {
     NFT111K_TEST_OWNER,
     nft111kTestInstall,
@@ -54,6 +58,7 @@ import {
 const install = nft111kTestInstall();
 const { chainId, collectionId } = install;
 const contract = NFT111K_MAINNET_CONTRACT_ADDRESS;
+const collectionSlug = "test-catalog";
 const debug = { persistRawDebugPayloads: false };
 const driMi = [{ key: NFT111K_METADATA.CollectionBlock, value: "DriMi" }];
 const view = nft111kTraitCatalog.classify(driMi);
@@ -69,7 +74,7 @@ function seedCollection() {
     ).run(
         chainId,
         collectionId,
-        "test-catalog",
+        collectionSlug,
         contract,
         COLLECTION_STATUS.Live,
     );
@@ -128,6 +133,9 @@ describe("local trait catalog lifecycle", () => {
         await createMigrationRunner().runMigrations();
     });
     beforeEach(() => {
+        db.exec(
+            "DELETE FROM orders; DELETE FROM trading_jobs; DELETE FROM trading_bidding_price_tiers;",
+        );
         db.exec(
             "DELETE FROM collection_extension_installs; DELETE FROM token_metadata; DELETE FROM tokens; DELETE FROM metadata_pending; DELETE FROM collections;",
         );
@@ -247,11 +255,15 @@ describe("local trait catalog lifecycle", () => {
         ).toEqual({ uri: null, attributes_json: null, raw_json: null });
     });
     it.each([
-        ["plane of existence", "Character 1 - Mini drif / 1body", "Characters"],
-        ["backrooms 2", "Painting 1 Artist", "Paintings"],
+        [
+            NFT111K_STRUCTURED_BLOCK.Plane,
+            "Character 1 - Mini drif / 1body",
+            "Characters",
+        ],
+        [NFT111K_STRUCTURED_BLOCK.Backrooms, "Painting 1 Artist", "Paintings"],
     ])(
-        "publishes the structured %s mapper over an existing identity generation",
-        (block, key, group) => {
+        "publishes the structured %s mapper and preserves native trait orders and tier-backed bids",
+        async (block, key, group) => {
             const facts = [
                 { key: NFT111K_METADATA.CollectionBlock, value: block },
                 { key, value: "First" },
@@ -263,6 +275,7 @@ describe("local trait catalog lifecycle", () => {
                 availableVersion: () => mapperVersion,
             });
             observe("1", facts);
+            observe("2", [facts[0], { key, value: "Second" }]);
             drain();
             const before = db
                 .prepare(
@@ -270,6 +283,39 @@ describe("local trait catalog lifecycle", () => {
                 )
                 .get(selected.id) as { generation: number };
             expect(values(before.generation, "1")).toContainEqual(facts[1]);
+            const bid = seedNativeTraitBid(
+                { chainId, collectionId, contract, collectionSlug },
+                facts,
+            );
+            const originalJob = bid.lookup();
+            const targetTraits = facts.map(({ key, value }) => ({
+                type: key,
+                value,
+            }));
+            expect(originalJob).toMatchObject({
+                jobId: bid.job.jobId,
+                quantity: 1,
+                floorWei: "100000000000000000",
+                targetTraits: expect.arrayContaining(targetTraits),
+            });
+            const originalOrder = bid.storedOrder();
+            expect(originalOrder).toMatchObject({
+                source_scope_kind: "attribute",
+                source_encoded_token_ids: null,
+            });
+            const scope = await bid.orderScope(
+                "1",
+                selected.id,
+                before.generation,
+            );
+            expect(scope).toMatchObject({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                traits: expect.arrayContaining(targetTraits),
+            });
+            expect(scope?.traits).toHaveLength(targetTraits.length);
+            expect(
+                await bid.orderScope("2", selected.id, before.generation),
+            ).toBeUndefined();
             resolve = () => nft111kTraitCatalog;
             const run = requestTraitCatalogRebuild({
                 chainId,
@@ -294,6 +340,27 @@ describe("local trait catalog lifecycle", () => {
             expect(JSON.parse(raw.tree_json)).toContainEqual(
                 expect.objectContaining({ label: group }),
             );
+            expect(run.generation).not.toBe(before.generation);
+            expect(bid.lookup()).toEqual(originalJob);
+            expect(bid.storedOrder()).toEqual(originalOrder);
+            expect(
+                await bid.orderScope("1", selected.id, run.generation),
+            ).toEqual(scope);
+            expect(
+                await bid.orderScope("2", selected.id, run.generation),
+            ).toBeUndefined();
+
+            expect(bid.reapply()).toMatchObject([
+                {
+                    jobId: bid.job.jobId,
+                    target: bid.job.target,
+                    config: { floorEth: "0.15" },
+                },
+            ]);
+            expect(bid.lookup()).toMatchObject({
+                jobId: bid.job.jobId,
+                floorWei: "150000000000000000",
+            });
         },
     );
 
