@@ -30,8 +30,9 @@ worktree. Trace the current implementation before changing each owner.
    orderbook workers. They start with the composition and wait when there is
    no eligible market. Move the existing OpenSea initial-read duties and their
    progress reporting into the reconciler. Exercise the idle, OpenSea-only,
-   already-bound VVV-only, and combined cases. Apply the dedicated follow-up
-   boundary in the [worker design](21-multiple-orderbooks.md#run-two-shared-orderbook-workers).
+   VVV-only, and combined cases. Verify that 111K becoming live activates its
+   catalogued VVV market and that startup recovers an already-live collection.
+   See the [worker design](21-multiple-orderbooks.md#run-two-shared-orderbook-workers).
 2. Test the VVV adapter early in the packaged shared reconciler. Fetch from
    inside its browser session as the standalone probe did. Verify successive
    scheduled reads, worker restart and recovery after an interrupted read.

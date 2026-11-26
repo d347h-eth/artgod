@@ -6,7 +6,6 @@ import {
 } from "@artgod/shared/offchain/normalizer-utils";
 import {
     SEAPORT_MAINNET_V1_6,
-    ORDERBOOK_VENUE,
     ORDER_SIDE,
     ORDER_SOURCE_SCOPE_KIND,
 } from "@artgod/shared/market-data/orders";
@@ -25,27 +24,11 @@ import {
     recoverSeaportSigner,
 } from "../../application/offchain/seaport-protocol.js";
 
-export const VVV_MARKET: BookMarket = {
-    venue: ORDERBOOK_VENUE.Vvv,
-    chainId: 1,
-    reference: "111k",
-    contract: "0x08cded8258730bda384ff198001e47a1b50f7f9d",
-};
-
-/** Locations verified for each public market. Local collection names never supply a URL. */
-export interface VvvMarketLocation {
-    market: BookMarket;
-    readerUrl: string;
-    bookUrl: string;
-}
-
-export const VVV_MARKETS: readonly VvvMarketLocation[] = [
-    {
-        market: VVV_MARKET,
-        readerUrl: "https://www.vvv.so/api/111k/artists",
-        bookUrl: "https://www.vvv.so/api/111k/state?orders=1",
-    },
-];
+export {
+    VVV_MARKET,
+    VVV_MARKETS,
+    type VvvMarketLocation,
+} from "./vvv-markets.js";
 
 export const VVV_BOOK_LIMIT_BYTES = 32 * 1024 * 1024;
 const ACTIVE = "active";

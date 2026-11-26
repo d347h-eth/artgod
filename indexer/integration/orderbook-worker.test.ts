@@ -13,6 +13,8 @@ import captured from "../tests/fixtures/vvv-cash-book.json" with { type: "json" 
 import { expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { NFT111K_EXTENSION_KEY } from "@artgod/shared/extensions/111k";
 import { getSettingDefault } from "@artgod/shared/config/generated-settings-defaults";
 import {
     IsolatedNats,
@@ -27,12 +29,20 @@ import {
     BOOTSTRAP_STEP_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
-import { VVV_MARKET } from "../src/infra/offchain/vvv-orderbook.js";
+import { VVV_MARKET } from "../src/infra/offchain/vvv-markets.js";
 import { BOOK_VIEW, VVV_READ_INTERVAL_MS } from "../src/domain/orderbook.js";
 import { ORDERBOOK_SCHEDULER_POLL_MS } from "../src/config/orderbook-reconcile-worker.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
 import { scheduleVvvBooks } from "../src/application/offchain/vvv-reconcile.js";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
+import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
+import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
+import { BootstrapCollectionLiveExecutor } from "../src/application/bootstrap-collection-live-executor.js";
+import { BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD } from "../src/application/bootstrap-backfill-executor.js";
+import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
+import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
+import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
+import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import {
     OPENSEA_JOB_KIND,
     OPENSEA_QUEUE_NAME,
@@ -68,7 +78,11 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
     await writeFile(dir + "/opensea-mode", "ok");
     await writeFile(dir + "/mode", "ok");
     await writeFile(dir + "/state.json", JSON.stringify(captured));
-    async function launch(enabled: boolean, scheduler = false) {
+    async function launch(
+        enabled: boolean,
+        scheduler = false,
+        fastPoll = true,
+    ) {
         const role = scheduler
             ? "orderbook-reconcile-scheduler-worker"
             : "orderbook-reconcile-worker";
@@ -105,9 +119,10 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                     // VVV keeps its own cadence even when OpenSea runs hourly.
                     OPENSEA_RECONCILE_INTERVAL_MS: "3600000",
                     ORDERBOOK_FIXTURE_DIR: dir,
-                    ORDERBOOK_FIXTURE_SCHEDULER: scheduler
-                        ? String(ORDERBOOK_SCHEDULER_POLL_MS)
-                        : "",
+                    ORDERBOOK_FIXTURE_SCHEDULER:
+                        scheduler && fastPoll
+                            ? String(ORDERBOOK_SCHEDULER_POLL_MS)
+                            : "",
                     ...(process.env.PLAYWRIGHT_BROWSERS_PATH
                         ? {
                               PLAYWRIGHT_BROWSERS_PATH:
@@ -144,7 +159,8 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
                     queue.publish(q, { ...j, scheduledAt: Date.now() }),
             },
             1,
-            tick,
+            [VVV_MARKET],
+            { now: tick },
         );
     };
     async function refreshOpenSea(jobId: string) {
@@ -259,7 +275,11 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         await stopFixtureChild(scheduler);
         db.prepare(
             "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug,opensea_status) VALUES(99,1,'fixture',?,'erc721','live','contract_all_tokens','fixture','ready')",
-        ).run(feed.contract);
+        ).run(weth);
+        const localId = 100;
+        db.prepare(
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES(?,1,'local-artworks',?,'erc721',?,'contract_all_tokens')",
+        ).run(localId, feed.contract, COLLECTION_STATUS.Bootstrapping);
         await stopFixtureChild(child);
         child = await launch(true);
         scheduler = await launch(true, true);
@@ -276,10 +296,75 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         await stopFixtureChild(scheduler);
         await retryInitialOpenSeaRead();
         await stopFixtureChild(child);
-        store.bind(feed, 99);
         child = await launch(false);
+        // The first book must arrive on the live notification, before the normal one-minute tick.
+        await writeFile(dir + "/scheduler.log", "");
+        scheduler = await launch(false, true, false);
+        await waitForFixture(
+            async () =>
+                (await readFile(dir + "/scheduler.log", "utf8")).includes(
+                    "scheduler worker ready",
+                ),
+            "scheduler finished its startup scan",
+        );
+        expect(state()).toBeUndefined();
+        expect(await readFile(requests, "utf8")).not.toContain("browser");
+        const runId = Number(
+            db
+                .prepare(
+                    "INSERT INTO bootstrap_runs(chain_id,collection_id,request_slug,request_address,request_standard,request_extension_key,metadata_mode,enumeration_mode,request_image_cache_mode,status) SELECT chain_id,collection_id,slug,address,standard,?,?,?,?,? FROM collections WHERE collection_id=?",
+                )
+                .run(
+                    NFT111K_EXTENSION_KEY,
+                    BOOTSTRAP_METADATA_MODE.BestEffort,
+                    BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+                    IMAGE_CACHE_MODE.Off,
+                    BOOTSTRAP_RUN_STATUS.Backfill,
+                    localId,
+                ).lastInsertRowid,
+        );
+        const addStep = db.prepare(
+            "INSERT INTO bootstrap_run_steps(run_id,step_key,status,result_json) VALUES(?,?,?,?)",
+        );
+        addStep.run(
+            runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            BOOTSTRAP_STEP_STATUS.Succeeded,
+            JSON.stringify({
+                [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.LiveBlock]: 100,
+            }),
+        );
+        addStep.run(
+            runId,
+            BOOTSTRAP_STEP_KEY.CollectionLive,
+            BOOTSTRAP_STEP_STATUS.Running,
+            null,
+        );
+        const steps = new SqliteBootstrapSteps();
+        const runs = new SqliteBootstrapRuns();
+        await new BootstrapCollectionLiveExecutor(
+            new SqliteCollectionRegistry(),
+            runs,
+            steps,
+            new SqliteBootstrapStorage(),
+            { enqueueBootstrapFinalStats: async () => {} },
+        ).complete({
+            run: runs.getRun(runId)!,
+            step: steps.getStep(runId, BOOTSTRAP_STEP_KEY.CollectionLive)!,
+            traceId: "vvv-live",
+            sourceJobId: "vvv-live",
+        });
+        expect(runs.getRun(runId)?.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
+        await drainQueueOutbox(new SqliteQueueOutbox(), queue);
+        await waitForFixture(
+            () => state()?.generation === 1,
+            "first VVV book after bootstrap",
+        );
+        expect(
+            (await readFile(requests, "utf8")).split("vvv\n").length - 1,
+        ).toBe(1);
+        await stopFixtureChild(scheduler);
         scheduler = await launch(false, true);
-        await waitForFixture(() => state().generation === 1, "first VVV book");
         const ageBook = () =>
             db
                 .prepare(
@@ -348,7 +433,9 @@ it("runs bounded venue consumers in the packaged worker, keeps an accepted book 
         const closes = async () =>
             (await readFile(requests, "utf8")).split("closed\n").length - 1;
         const previousCloses = await closes();
-        store.unbind(feed, 99);
+        db.prepare("DELETE FROM collections WHERE collection_id=?").run(
+            localId,
+        );
         await waitForFixture(
             async () => (await closes()) > previousCloses,
             "last removed VVV binding releases its browser",

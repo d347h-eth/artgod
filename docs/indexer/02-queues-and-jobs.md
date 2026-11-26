@@ -401,7 +401,7 @@ so first-fetch success and delayed metadata both populate the cache.
 
 `token-image-cache.refresh-collection` jobs are produced by the backend when a collection image cache policy switches to an active mode or changes max dimension. They are consumed by `domain-worker` in cursor pages and produce settled `token_image_cache` rows.
 
-OpenSea job production/consumption:
+Orderbook job production and consumption:
 
 - `opensea.collection.bootstrap`
     - produced by collection bootstrap or the Admin start-sync action
@@ -410,6 +410,10 @@ OpenSea job production/consumption:
     - produced by `orderbook-reconcile-scheduler-worker`
     - consumed by `orderbook-reconcile-worker`
 
+- `orderbook.collection-live`
+    - recorded in the SQLite outbox with the collection-live transition
+    - consumed on `orderbook-schedule` by the shared scheduler, which verifies
+      current liveness, matches catalogued markets and schedules the first read
 - `orderbook.vvv.read`
     - produced by the shared scheduler for a bound, due VVV book
     - consumed on `orderbook-vvv` by the shared reconciler

@@ -10,6 +10,8 @@ import {
 } from "@artgod/shared/extensions/111k";
 import { COLLECTION_TOKEN_SCOPE_KIND as ScopeKind } from "@artgod/shared/collections/token-scope";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { ORDERBOOK_COLLECTION_LIVE_JOB } from "../src/domain/orderbook.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
 import {
     BOOTSTRAP_ENUMERATION_MODE as Mode,
     BOOTSTRAP_METADATA_MODE,
@@ -493,6 +495,33 @@ describe("111K bootstrap and continuous transfer projection", () => {
             ).outcome,
         ).toBe(BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted);
         steps.markStepReady(runId, Step.CollectionLive);
+        const liveNotifications = () =>
+            db
+                .prepare(
+                    "SELECT chain_id,collection_id FROM queue_outbox WHERE queue_name=? AND job_kind=?",
+                )
+                .all(
+                    QUEUE_NAMES.OrderbookSchedule,
+                    ORDERBOOK_COLLECTION_LIVE_JOB,
+                );
+        expect(liveNotifications()).toEqual([]);
+        // A failed outbox write must roll back the transition so finalization can retry.
+        db.exec(`CREATE TEMP TRIGGER reject_live_notification BEFORE INSERT ON queue_outbox
+            WHEN NEW.job_kind='${ORDERBOOK_COLLECTION_LIVE_JOB}' BEGIN SELECT RAISE(ABORT,'test outbox failure'); END`);
+        try {
+            expect(() =>
+                collections.markBootstrapFinished(
+                    CHAIN_ID,
+                    collectionId,
+                    opening.number,
+                ),
+            ).toThrow("test outbox failure");
+            expect(
+                collections.getCollection(CHAIN_ID, collectionId)?.status,
+            ).toBe(COLLECTION_STATUS.Bootstrapping);
+        } finally {
+            db.exec("DROP TRIGGER reject_live_notification");
+        }
         await new BootstrapCollectionLiveExecutor(
             collections,
             runs,
@@ -506,6 +535,9 @@ describe("111K bootstrap and continuous transfer projection", () => {
             sourceJobId: "111k-test",
         });
         expect(runs.getRun(runId)?.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
+        expect(liveNotifications()).toEqual([
+            { chain_id: CHAIN_ID, collection_id: collectionId },
+        ]);
         expect(collections.getCollection(CHAIN_ID, collectionId)?.status).toBe(
             COLLECTION_STATUS.Live,
         );

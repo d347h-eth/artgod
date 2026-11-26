@@ -113,6 +113,7 @@ export function cashBidAmounts(data: SeaportOrderData) {
 }
 
 export const VVV_READ_JOB = "orderbook.vvv.read";
+export const ORDERBOOK_COLLECTION_LIVE_JOB = "orderbook.collection-live";
 export const VVV_READ_INTERVAL_MS = 15 * 60_000;
 export type BoundMarketJob = {
     feedId: number;

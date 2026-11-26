@@ -802,7 +802,10 @@ broker. A local browser fixture supplies market responses for idle,
 OpenSea-only, VVV-only and combined configurations. It
 checks successive reads, browser restart, interrupted publication, release of
 Chromium when the last binding is removed, and continued OpenSea progress
-during a VVV outage. With OpenSea disabled, two ranges share one VVV request
+during a VVV outage. It finalizes an unbound 111K bootstrap through the collection-live
+executor and drains its outbox to the packaged scheduler. The fixture observes
+the first book before the one-minute tick, then advances the book's due time to
+exercise periodic reconciliation. With OpenSea disabled, two already-live ranges share one VVV request
 and a separate contract keeps its own book through a failed and an empty read.
 The suite also rejects the last page of an initial OpenSea read and follows
 the retry to readiness on the original collection bootstrap run.

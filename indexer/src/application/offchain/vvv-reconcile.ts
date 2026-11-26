@@ -1,8 +1,10 @@
 import { ORDERBOOK_VENUE } from "@artgod/shared/market-data/orders";
 import {
+    BOOK_VIEW,
     VVV_READ_INTERVAL_MS,
     VVV_READ_JOB,
     type BookFeed,
+    type BookMarket,
     type BookObservation,
     type BoundMarketJob,
 } from "../../domain/orderbook.js";
@@ -14,15 +16,27 @@ import type {
 } from "../../ports/orderbooks.js";
 
 export async function scheduleVvvBooks(
-    store: Pick<OrderbookSchedulePort, "due">,
+    store: Pick<OrderbookSchedulePort, "syncLiveBindings" | "due">,
     queue: Pick<QueuePort, "publish">,
     chainId: number,
-    now = Date.now(),
+    markets: readonly BookMarket[],
+    {
+        collectionId,
+        now = Date.now(),
+    }: { collectionId?: number; now?: number } = {},
 ) {
+    for (const market of markets) {
+        if (market.chainId === chainId)
+            store.syncLiveBindings(
+                { ...market, view: BOOK_VIEW.Public },
+                collectionId,
+            );
+    }
     for (const payload of store.due(
         ORDERBOOK_VENUE.Vvv,
         chainId,
         now - VVV_READ_INTERVAL_MS,
+        collectionId,
     )) {
         await queue.publish(QUEUE_NAMES.VvvReconcile, {
             jobId: [

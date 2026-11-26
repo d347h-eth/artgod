@@ -58,6 +58,7 @@ export type BootstrapCollectionLiveResult = {
 };
 
 export interface BootstrapCollectionLiveCollectionPort {
+    /** Commit liveness and a scheduler notification together. Market I/O is asynchronous. */
     markBootstrapFinished(
         chainId: number,
         collectionId: number,

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 import {
     ORDER_SIDE,
@@ -65,6 +66,12 @@ type Scope = {
     maker: string;
 };
 const BATCH = POLICY.maintenanceBatchRows;
+// A queued read can reach the reconciler before the scheduler observes a pause.
+// OpenSea also accepts first reads while the collection is still bootstrapping.
+const READABLE_BINDINGS = `SELECT b.feed_id,b.collection_id FROM orderbook_bindings b
+    JOIN orderbook_feeds f USING(feed_id) JOIN collections c USING(collection_id)
+    WHERE f.venue<>'${ORDERBOOK_VENUE.Vvv}' OR
+          (c.status='${COLLECTION_STATUS.Live}' AND c.chain_id=f.chain_id AND c.address=f.contract COLLATE NOCASE)`;
 class ListingPriceTimeChanged extends Error {}
 
 /** The SQLite writer lock covers the final eligibility decision, daily price and
@@ -76,6 +83,20 @@ export class SqliteOrderSourceStateStore {
     private readonly projection: SqliteOrderProjection;
     private readonly history: SqliteDailyListingPrices;
     private readonly previousMember;
+    private readonly bindingChanges = db.prepare(`
+        WITH live AS (
+            SELECT collection_id FROM collections
+            WHERE chain_id=@chainId AND address=@contract COLLATE NOCASE AND status=@live
+              AND (@collectionId IS NULL OR collection_id=@collectionId)
+        ), bound AS (
+            SELECT b.collection_id FROM orderbook_bindings b JOIN orderbook_feeds f USING(feed_id)
+            WHERE f.chain_id=@chainId AND f.venue=@venue AND f.market=@reference
+              AND f.contract=@contract AND f.view=@view
+              AND (@collectionId IS NULL OR b.collection_id=@collectionId)
+        )
+        SELECT collection_id, 1 AS active FROM live WHERE collection_id NOT IN (SELECT collection_id FROM bound)
+        UNION ALL
+        SELECT collection_id, 0 AS active FROM bound WHERE collection_id NOT IN (SELECT collection_id FROM live)`);
     private readonly previousPlacementOrder;
     private readonly clearOfferScopes;
     private readonly addOfferScope;
@@ -182,14 +203,42 @@ export class SqliteOrderSourceStateStore {
         })();
     }
 
-    due(venue: BookFeed["venue"], chainId: number, before: number) {
+    syncLiveBindings(feed: BookFeed, collectionId?: number): void {
+        const params = {
+            ...feed,
+            contract: feed.contract.toLowerCase(),
+            live: COLLECTION_STATUS.Live,
+            collectionId: collectionId ?? null,
+        };
+        // Most ticks change nothing. Take a write lock only for a change and
+        // recheck under it so a concurrent purge or pause cannot restore a stale binding.
+        if (!this.bindingChanges.get(params)) return;
+        db.writeTransaction(() => {
+            const changes = this.bindingChanges.all(params) as {
+                collection_id: number;
+                active: number;
+            }[];
+            for (const change of changes) {
+                if (change.active) this.bind(feed, change.collection_id);
+                else this.unbind(feed, change.collection_id);
+            }
+        })();
+    }
+
+    due(
+        venue: BookFeed["venue"],
+        chainId: number,
+        before: number,
+        collectionId?: number,
+    ) {
         return db
             .prepare(
                 `SELECT feed_id AS feedId,generation,binding_revision AS bindingRevision FROM orderbook_feeds f
                  WHERE venue=? AND chain_id=? AND view=?
                    AND (accepted_binding_revision IS NOT binding_revision OR last_success_ms IS NULL OR last_success_ms<=?)
                    AND (last_attempt_ms IS NULL OR last_attempt_ms<=?)
-                   AND EXISTS (SELECT 1 FROM orderbook_bindings WHERE feed_id=f.feed_id)
+                   AND EXISTS (SELECT 1 FROM (${READABLE_BINDINGS}) b WHERE b.feed_id=f.feed_id
+                               AND (? IS NULL OR b.collection_id=?))
                  ORDER BY feed_id`,
             )
             .all(
@@ -198,12 +247,16 @@ export class SqliteOrderSourceStateStore {
                 BOOK_VIEW.Public,
                 before,
                 before,
+                collectionId ?? null,
+                collectionId ?? null,
             ) as BoundMarketJob[];
     }
     current(venue: BookFeed["venue"], chainId: number, job: BoundMarketJob) {
         return db
             .prepare(
-                "SELECT chain_id AS chainId,venue,market AS reference,contract,view FROM orderbook_feeds f WHERE feed_id=? AND venue=? AND chain_id=? AND generation=? AND binding_revision=? AND EXISTS (SELECT 1 FROM orderbook_bindings WHERE feed_id=f.feed_id)",
+                `SELECT chain_id AS chainId,venue,market AS reference,contract,view FROM orderbook_feeds f
+                 WHERE feed_id=? AND venue=? AND chain_id=? AND generation=? AND binding_revision=?
+                   AND EXISTS (SELECT 1 FROM (${READABLE_BINDINGS}) b WHERE b.feed_id=f.feed_id)`,
             )
             .get(
                 job.feedId,
@@ -216,7 +269,8 @@ export class SqliteOrderSourceStateStore {
     hasBindings(venue: BookFeed["venue"], chainId: number) {
         return !!db
             .prepare(
-                "SELECT 1 FROM orderbook_feeds JOIN orderbook_bindings USING(feed_id) WHERE venue=? AND chain_id=? LIMIT 1",
+                `SELECT 1 FROM orderbook_feeds JOIN (${READABLE_BINDINGS}) USING(feed_id)
+                 WHERE venue=? AND chain_id=? LIMIT 1`,
             )
             .get(venue, chainId);
     }
@@ -305,7 +359,7 @@ export class SqliteOrderSourceStateStore {
         const bound = () =>
             db
                 .prepare(
-                    "SELECT collection_id FROM orderbook_bindings WHERE feed_id=? ORDER BY collection_id",
+                    `SELECT collection_id FROM (${READABLE_BINDINGS}) WHERE feed_id=? ORDER BY collection_id`,
                 )
                 .all(id) as { collection_id: number }[];
         if (!bound().length) throw new Error("Market has no active binding");

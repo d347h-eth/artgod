@@ -1,10 +1,6 @@
 import type { Browser, Page } from "playwright-core";
-import {
-    VVV_BOOK_LIMIT_BYTES,
-    VVV_MARKETS,
-    consumeVvvBookStream,
-    type VvvMarketLocation,
-} from "./vvv-orderbook.js";
+import { VVV_BOOK_LIMIT_BYTES, consumeVvvBookStream } from "./vvv-orderbook.js";
+import { VVV_MARKETS, type VvvMarketLocation } from "./vvv-markets.js";
 import type { BookMarket, BookObservation } from "../../domain/orderbook.js";
 
 const BOOK_TIMEOUT_MS = 45_000;

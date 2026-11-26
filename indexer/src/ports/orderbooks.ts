@@ -23,10 +23,13 @@ export interface BookPublicationPort {
 }
 
 export interface OrderbookSchedulePort {
+    /** Match a verified public market to live local scopes. Omit the ID for startup and periodic recovery. */
+    syncLiveBindings(feed: BookFeed, collectionId?: number): void;
     due(
         venue: BookFeed["venue"],
         chainId: number,
         before: number,
+        collectionId?: number,
     ): BoundMarketJob[];
     current(
         venue: BookFeed["venue"],

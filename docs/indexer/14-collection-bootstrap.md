@@ -715,6 +715,14 @@ step timing and progress totals.
 
 Manual historical backfill before `bootstrap_anchor_block` does not improve or change current ownership correctness. It only enriches historical facts before the anchor.
 
+### VVV orderbook activation
+
+The transition to `live` also wakes the shared orderbook scheduler.
+When the collection matches a catalogued VVV market, including Ethereum 111K,
+the first read runs in the background. A venue outage leaves the collection
+live and the reconciler can retry on its usual cadence.
+See [orderbook activation](21-multiple-orderbooks.md#run-two-shared-orderbook-workers).
+
 ### OpenSea guarantee
 
 A collection should be considered OpenSea-ready once:

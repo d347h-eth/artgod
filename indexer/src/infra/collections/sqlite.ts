@@ -1,4 +1,7 @@
 import { db } from "@artgod/shared/database";
+import { ORDERBOOK_COLLECTION_LIVE_JOB } from "../../domain/orderbook.js";
+import { QUEUE_NAMES } from "../../domain/queues.js";
+import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 import {
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
@@ -458,13 +461,31 @@ export class SqliteCollectionRegistry
         collectionId: number,
         lastSyncedBlock: number,
     ): boolean {
-        const result = this.markFinished.run({
-            chainId,
-            collectionId,
-            lastSyncedBlock,
-            status: COLLECTION_STATUS.Live,
-        });
-        return result.changes > 0;
+        return db.writeTransaction(() => {
+            const result = this.markFinished.run({
+                chainId,
+                collectionId,
+                lastSyncedBlock,
+                status: COLLECTION_STATUS.Live,
+            });
+            if (!result.changes) return false;
+            new SqliteQueueOutbox().enqueueJob({
+                jobId: [
+                    ORDERBOOK_COLLECTION_LIVE_JOB,
+                    chainId,
+                    collectionId,
+                    lastSyncedBlock,
+                ].join(":"),
+                kind: ORDERBOOK_COLLECTION_LIVE_JOB,
+                queue: QUEUE_NAMES.OrderbookSchedule,
+                chainId,
+                collectionId,
+                payload: {},
+                scheduledAt: Date.now(),
+                attempt: 0,
+            });
+            return true;
+        })();
     }
 
     markOpenSeaPending(chainId: number, collectionId: number): boolean {

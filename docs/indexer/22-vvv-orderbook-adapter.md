@@ -18,6 +18,12 @@ this market on VVV. Another verified locator can be added to the same adapter.
 ArtGod collection names, extensions and OpenSea slugs play no part in finding or
 running it.
 
+The shared scheduler activates this catalog entry when a matching local
+collection finishes bootstrap. It binds each live scope by chain and contract
+and schedules one first read for the market. Its startup scan and periodic
+checks also pick up collections already live. Withdrawing the last live scope
+stops future reads and lets the reconciler release Chromium.
+
 Use the public `orders` array as the read boundary. The same response carries
 `myOrders`, fills, activity and 42,759 inventory items in the 24 November
 capture. Reading those into the orderbook would mix different data and, for

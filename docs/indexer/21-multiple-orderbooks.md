@@ -91,9 +91,16 @@ association is removed, stop its refreshes and release the unused browser.
 The shared workers stay up.
 [OpenSea configuration](../../shared/config/opensea-integration.ts)
 
-**Dedicated follow-up.** Automatically discovering or activating a market
-when a user newly tracks or bootstraps a collection, including VVV for 111K,
-is separate work. This includes any changes to the 111K embedded extension.
+**VVV activation after bootstrap.** Marking a collection live also records a
+notification for the orderbook scheduler in the same SQLite transaction. The
+scheduler matches the collection's chain and NFT contract against VVV's verified
+market catalog. A match creates a binding and queues the first public read.
+Startup and regular scheduler ticks also match existing live collections, so
+upgrades and missed notifications recover automatically. Multiple local scopes
+on one market share one book. While a matching scope stays live, the
+reconciler reads VVV even when OpenSea is disabled. A failed VVV read leaves
+the collection live and preserves the last published book. Discovering
+uncatalogued remote markets is separate work.
 
 **OpenSea first reads.** Collection bootstrap requests an initial read and
 retains its run ID. Admin can request an initial read for a live collection.
@@ -441,8 +448,9 @@ same maker or signed order remains independent.
   refresh. Check the existing OpenSea initial-sync and retry paths. Run
   `yarn check:runtime-registry` after the rename.
 - Exercise the VVV browser reader early in the packaged shared reconciler.
-  Start with a bound VVV market and collection and token pages closed. Run the
-  initial read and several scheduled refreshes. Restart the reconciler and
+  Start with an unbound 111K collection and collection and token pages closed.
+  Complete bootstrap, observe the first book, then observe scheduled refreshes.
+  Also recover a collection already live at startup. Restart the reconciler and
   verify it opens a new browser session when the next read is due.
   Interrupt a read and check that ArtGod keeps the previous book and its last
   successful read time. Restore access and check the next successful refresh

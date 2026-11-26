@@ -1,4 +1,8 @@
 import { scheduleVvvBooks } from "../application/offchain/vvv-reconcile.js";
+import { runWorker } from "../application/worker-runner.js";
+import { ORDERBOOK_COLLECTION_LIVE_JOB } from "../domain/orderbook.js";
+import { QUEUE_NAMES } from "../domain/queues.js";
+import { VVV_MARKETS } from "../infra/offchain/vvv-markets.js";
 import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
 import { ORDERBOOK_SCHEDULER_POLL_MS } from "../config/orderbook-reconcile-worker.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -44,6 +48,11 @@ async function main() {
             config.tokens.wethAddress,
         );
         const provider = config.opensea;
+        const markets = VVV_MARKETS.map(({ market }) => market);
+        const scheduleVvv = (collectionId?: number) =>
+            scheduleVvvBooks(books, queue, config.chainId, markets, {
+                collectionId,
+            });
         const freshness = provider
             ? new OpenSeaReconcilePolicy(provider)
             : null;
@@ -53,7 +62,7 @@ async function main() {
                 | typeof OPENSEA_RECONCILE_REASON.StartupStale,
         ) {
             await Promise.all([
-                scheduleVvvBooks(books, queue, config.chainId),
+                scheduleVvv(),
                 freshness &&
                     scheduleDueReconciles(
                         queue,
@@ -64,6 +73,25 @@ async function main() {
                     ),
             ]);
         }
+        const stopNotifications = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrderbookSchedule,
+                consumerName:
+                    QUEUE_NAMES.OrderbookSchedule + "-" + config.chainId,
+                maxInFlight: 1,
+            },
+            async (job) => {
+                if (
+                    job.kind === ORDERBOOK_COLLECTION_LIVE_JOB &&
+                    job.chainId === config.chainId &&
+                    job.collectionId !== undefined &&
+                    Number.isSafeInteger(job.collectionId) &&
+                    job.collectionId > 0
+                )
+                    await scheduleVvv(job.collectionId);
+            },
+        );
         await tick(OPENSEA_RECONCILE_REASON.StartupStale);
         const timer = setInterval(
             () => {
@@ -92,6 +120,7 @@ async function main() {
                 action: "shutdown",
             });
             clearInterval(timer);
+            await stopNotifications();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
